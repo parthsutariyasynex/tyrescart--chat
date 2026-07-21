@@ -1,12 +1,8 @@
 import type { Metadata } from "next";
-import { Inter, Roboto_Mono } from "next/font/google";
+import { Roboto_Mono } from "next/font/google";
 import { ToastProvider } from "@/components/ToastProvider";
+import DbInit from "@/components/DbInit";
 import "./globals.css";
-
-const inter = Inter({
-  variable: "--font-inter",
-  subsets: ["latin"],
-});
 
 const mono = Roboto_Mono({
   variable: "--font-mono",
@@ -14,9 +10,14 @@ const mono = Roboto_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Klever Dashboard — Supplier Product Management",
+  title: "TyresCart POS — Point of Sale",
   description:
-    "Manage supplier products with CSV import, search, filters, and analytics.",
+    "TyresCart point-of-sale: browse tyre products and chat shortcuts, powered by Magento GraphQL.",
+  icons: {
+    icon: "/favicon-color.png",
+    shortcut: "/favicon-color.png",
+    apple: "/favicon-color.png",
+  },
 };
 
 export default function RootLayout({
@@ -26,7 +27,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={`${inter.variable} ${mono.variable}`}>
+      <body className={`${mono.variable}`}>
+        <DbInit />
         <ToastProvider>{children}</ToastProvider>
       </body>
     </html>

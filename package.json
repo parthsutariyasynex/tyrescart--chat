@@ -10,23 +10,13 @@
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
-    "bcryptjs": "^3.0.3",
-    "csv-parser": "^3.2.0",
-    "dayjs": "^1.11.20",
-    "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.2.3",
     "next": "16.1.6",
-    "papaparse": "^5.5.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "react-hook-form": "^7.71.2",
-    "recharts": "^3.8.1"
+    "react-masonry-css": "^1.0.16"
   },
   "devDependencies": {
-    "@tailwindcss/forms": "^0.5.11",
-    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20",
-    "@types/papaparse": "^5.5.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "autoprefixer": "^10.4.27",
