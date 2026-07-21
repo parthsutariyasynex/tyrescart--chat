@@ -98,18 +98,31 @@ export async function getTyresChatCached(
   params: TyresChatQueryVars,
   { onFresh, onError }: ReadThroughCallbacks<TyresChatItem[]> = {},
 ): Promise<TyresChatItem[]> {
-  const cached = await idbGetAll<TyresChatItem>(STORE_TYRES_CHAT).catch(() => []);
+  // IndexedDB getAll() returns records in PRIMARY-KEY (id) order, NOT in the
+  // API's sort_order. Re-order by sort_order so cached reads render in the same
+  // sequence the API intends (prevents "stale-looking" order on the first paint).
+  const bySortOrder = (a: TyresChatItem, b: TyresChatItem) =>
+    (a.sort_order ?? Number.MAX_SAFE_INTEGER) - (b.sort_order ?? Number.MAX_SAFE_INTEGER);
+
+  const cachedRaw = await idbGetAll<TyresChatItem>(STORE_TYRES_CHAT).catch(() => []);
+  const cached = [...cachedRaw].sort(bySortOrder);
+  console.log("[tyresChat sync] IndexedDB records BEFORE sync:", cachedRaw.length);
 
   fetchTyresChatGraphQL(params)
     .then(async (res) => {
       if (res.items?.length) {
-        // Replace the list so removed items don't linger.
+        console.log("[tyresChat sync] API records:", res.items.length);
+        // Clear old records first, then insert the fresh API list (keyPath "id"
+        // guarantees no duplicates). This replaces any stale cache entirely.
         await idbClear(STORE_TYRES_CHAT).catch(() => {});
         await idbPutAll(STORE_TYRES_CHAT, res.items).catch((e) =>
           console.error("[cache] failed to write tyresChat to IndexedDB:", e),
         );
         await idbSetMeta("tyresChat:lastSync", Date.now()).catch(() => {});
-        onFresh?.(res.items);
+        const after = await idbGetAll<TyresChatItem>(STORE_TYRES_CHAT).catch(() => []);
+        console.log("[tyresChat sync] IndexedDB records AFTER sync:", after.length);
+        // Hand the fresh list to the UI in sort_order sequence.
+        onFresh?.([...res.items].sort(bySortOrder));
       }
     })
     .catch((err) => {
