@@ -9,7 +9,6 @@ import {
   MagnifyingGlassIcon,
   ArrowsPointingOutIcon,
   WifiIcon,
-  PowerIcon,
   PlusIcon,
   XMarkIcon,
   ChatBubbleLeftRightIcon
@@ -87,7 +86,14 @@ export default function PosProductsPage() {
   // Brands are derived from real product data (not hardcoded) and persisted
   // in IndexedDB; the list grows as more products are seen.
   const [brands, setBrands] = useState<string[]>([]);
-  const brandOptions = ["All", ...brands];
+  // Brand filter tabs are temporarily hidden (not needed right now). The list
+  // is still harvested in the background, so the tabs can be brought back by
+  // uncommenting this line and the tabs block in the JSX below.
+  // const brandOptions = ["All", ...brands];
+  // These feed only the (currently disabled) filter bar; still fetched in the
+  // background so the tabs / TyresChat button can be re-enabled instantly.
+  void brands;
+  void tyresChatItems;
 
   // 1. Storefront products — cache-first (instant paint) + background GraphQL sync
   const loadGraphQLProducts = useCallback(async () => {
@@ -237,7 +243,7 @@ export default function PosProductsPage() {
                     key={item.name}
                     href={item.href}
                     title={item.name}
-                    className={`w-full py-2.5 flex flex-col items-center justify-center rounded-lg transition-all relative group ${isActive
+                    className={`w-full py-2.5 flex flex-col items-center justify-center rounded-lg transition-all relative group focus:outline-none ${isActive
                       ? "text-orange-500 bg-orange-50 font-semibold"
                       : "text-gray-500 hover:text-gray-800 hover:bg-gray-100"
                       }`}
@@ -251,21 +257,20 @@ export default function PosProductsPage() {
                 );
               }
 
+              // Action items (e.g. Refresh) are never "active" — they trigger
+              // a one-off action rather than navigating to a page, so they get
+              // no active styling and no selection bar.
               return (
                 <button
                   key={item.name}
-                  onClick={() => {
+                  onClick={(e) => {
                     if (item.action) item.action();
+                    // Drop focus so it doesn't keep the "selected" highlight.
+                    e.currentTarget.blur();
                   }}
                   title={item.name}
-                  className={`w-full py-2.5 flex flex-col items-center justify-center rounded-lg transition-all relative group ${isActive
-                    ? "text-orange-500 bg-orange-50 font-semibold"
-                    : "text-gray-500 hover:text-gray-800 hover:bg-gray-100"
-                    }`}
+                  className="w-full py-2.5 flex flex-col items-center justify-center rounded-lg transition-all relative group focus:outline-none text-gray-500 hover:text-gray-800 hover:bg-gray-100"
                 >
-                  {isActive && (
-                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />
-                  )}
                   <Icon className="w-5 h-5" />
                   <span className="text-[10px] mt-1 tracking-tight">{item.name}</span>
                 </button>
@@ -375,7 +380,10 @@ export default function PosProductsPage() {
         {/* BRAND TABS & MAIN CONTENT CONTAINER */}
         <div className="flex-1 flex flex-col p-6 overflow-hidden">
 
-          {/* Brand Filter Tabs */}
+          {/* Filter bar (brand tabs + TyresChat button) temporarily hidden —
+              not needed right now. Re-enable by uncommenting this whole block
+              and the `brandOptions` line above.
+
           <div className="flex items-center justify-between border-b border-gray-200 pb-3 mb-6 gap-4">
             <div className="flex-1 min-w-0 flex items-center gap-4">
               {brandOptions.map((brand) => (
@@ -395,7 +403,6 @@ export default function PosProductsPage() {
               ))}
             </div>
 
-            {/* TyresChat Button trigger (Instant SPA Link) */}
             <Link
               href="/tyre_guide/chat"
               className="px-3.5 py-1.5 bg-orange-50 hover:bg-orange-100 text-orange-600 border border-orange-200 rounded-lg text-xs font-semibold transition-all shadow-2xs hover:shadow-xs flex items-center gap-1.5 flex-none active:scale-95 z-10"
@@ -404,6 +411,7 @@ export default function PosProductsPage() {
               <span>TyresChat ({tyresChatItems.length > 0 ? tyresChatItems.length : 26})</span>
             </Link>
           </div>
+          */}
 
           {/* DYNAMIC GRAPHQL PRODUCT GRID CONTAINER */}
           <div className="flex-1 overflow-y-auto pr-1">

@@ -10,7 +10,6 @@ import {
   MagnifyingGlassIcon,
   ArrowsPointingOutIcon,
   WifiIcon,
-  PowerIcon,
   ClipboardDocumentIcon,
   CheckIcon,
   XMarkIcon
@@ -49,7 +48,6 @@ export default function TyreGuideChatPage() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [copiedId, setCopiedId] = useState<number | string | null>(null);
-  const [activeNav, setActiveNav] = useState<string>("Chat");
   const [isOnline, setIsOnline] = useState<boolean>(true);
   const { toast } = useToast();
 
@@ -211,7 +209,8 @@ export default function TyreGuideChatPage() {
               { name: "Refresh", icon: ArrowPathIcon, action: handleManualRefresh },
             ].map((item) => {
               const Icon = item.icon;
-              const isActive = activeNav === item.name || item.name === "Chat";
+              // This is the Chat page, so the Chat nav link is the active one.
+              const isActive = item.name === "Chat";
 
               if (item.href) {
                 return (
@@ -219,7 +218,7 @@ export default function TyreGuideChatPage() {
                     key={item.name}
                     href={item.href}
                     title={item.name}
-                    className={`w-full py-2.5 flex flex-col items-center justify-center rounded-lg transition-all relative group ${isActive
+                    className={`w-full py-2.5 flex flex-col items-center justify-center rounded-lg transition-all relative group focus:outline-none ${isActive
                       ? "text-orange-500 bg-orange-50 font-semibold"
                       : "text-gray-500 hover:text-gray-800 hover:bg-gray-100"
                       }`}
@@ -233,22 +232,20 @@ export default function TyreGuideChatPage() {
                 );
               }
 
+              // Action items (e.g. Refresh) are never "active" — they trigger a
+              // one-off action rather than navigating, so they get no active
+              // styling and no selection bar.
               return (
                 <button
                   key={item.name}
-                  onClick={() => {
-                    setActiveNav(item.name);
+                  onClick={(e) => {
                     if (item.action) item.action();
+                    // Drop focus so it doesn't keep the "selected" highlight.
+                    e.currentTarget.blur();
                   }}
                   title={item.name}
-                  className={`w-full py-2.5 flex flex-col items-center justify-center rounded-lg transition-all relative group ${isActive
-                    ? "text-orange-500 bg-orange-50 font-semibold"
-                    : "text-gray-500 hover:text-gray-800 hover:bg-gray-100"
-                    }`}
+                  className="w-full py-2.5 flex flex-col items-center justify-center rounded-lg transition-all relative group focus:outline-none text-gray-500 hover:text-gray-800 hover:bg-gray-100"
                 >
-                  {isActive && (
-                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />
-                  )}
                   <Icon className="w-5 h-5" />
                   <span className="text-[10px] mt-1 tracking-tight">{item.name}</span>
                 </button>
