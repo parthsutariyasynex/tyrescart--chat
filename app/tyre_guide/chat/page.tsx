@@ -1,12 +1,11 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import {
   HomeIcon,
   ChatBubbleLeftRightIcon,
-  ArrowPathIcon,
   MagnifyingGlassIcon,
   ArrowsPointingOutIcon,
   WifiIcon,
@@ -14,13 +13,17 @@ import {
   CheckIcon,
   XMarkIcon
 } from "@heroicons/react/24/outline";
-import { getTyresChatCached, isTyresChatRecentlySynced } from "@/services/cache";
+import { getTyresChatCached } from "@/services/cache";
 import type { TyresChatItem } from "@/services/types";
 import { useToast } from "@/components/ToastProvider";
 import { ChatGridSkeleton } from "@/components/Skeletons";
 import Masonry from "react-masonry-css";
 import SyncingOverlay from "@/components/SyncingOverlay";
 import LogoutButton from "@/components/LogoutButton";
+import HeaderSyncButton from "@/components/HeaderSyncButton";
+import SidebarSyncButton from "@/components/SidebarSyncButton";
+import { registerModuleSync } from "@/services/syncService";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 
 export interface FormattedShortcutItem {
   id: number | string;
@@ -44,26 +47,17 @@ export default function TyreGuideChatPage() {
   const [shortcuts, setShortcuts] = useState<FormattedShortcutItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [isSyncing, setIsSyncing] = useState<boolean>(true);
-  const [syncStep, setSyncStep] = useState<string>("TyresChat");
+  const [syncStep] = useState<string>("TyresChat");
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [copiedId, setCopiedId] = useState<number | string | null>(null);
-  const [isOnline, setIsOnline] = useState<boolean>(true);
+  // Online status via useSyncExternalStore (no hydration mismatch, no
+  // setState-in-effect).
+  const isOnline = useOnlineStatus();
   const { toast } = useToast();
 
   useEffect(() => {
     document.title = "Tyre Chat Shortcuts";
-    setIsOnline(typeof window !== "undefined" ? navigator.onLine : true);
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
   }, []);
 
   const mapApiItems = useCallback((items: TyresChatItem[]): FormattedShortcutItem[] => {
@@ -143,20 +137,21 @@ export default function TyreGuideChatPage() {
   }, [mapApiItems]);
 
   useEffect(() => {
+    // Fetch on mount. State updates happen after the awaited cache read, so
+    // this is a legitimate data-load effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadShortcutsFromCacheAndApi();
   }, [loadShortcutsFromCacheAndApi]);
 
-  const handleManualRefresh = useCallback(async () => {
-    setIsSyncing(true);
-    setSyncStep("TyresChat");
-    try {
-      await loadShortcutsFromCacheAndApi();
-    } finally {
-      setTimeout(() => {
-        setIsSyncing(false);
-      }, 1000);
-    }
+  // Register this page's live refresher so the Header/Sidebar Sync buttons
+  // (via the shared useSync hook → syncService) can re-fetch chat shortcuts in
+  // place, without any reload or route change. A ref keeps the registration
+  // stable while always calling the latest fetch fn.
+  const loadChatRef = useRef(loadShortcutsFromCacheAndApi);
+  useEffect(() => {
+    loadChatRef.current = loadShortcutsFromCacheAndApi;
   }, [loadShortcutsFromCacheAndApi]);
+  useEffect(() => registerModuleSync("tyresChat", () => loadChatRef.current()), []);
 
   const handleCopy = (item: FormattedShortcutItem) => {
     if (!item.description) return;
@@ -206,51 +201,32 @@ export default function TyreGuideChatPage() {
             {[
               { name: "Home", icon: HomeIcon, href: "/dashboard/products" },
               { name: "Chat", icon: ChatBubbleLeftRightIcon, href: "/tyre_guide/chat" },
-              { name: "Refresh", icon: ArrowPathIcon, action: handleManualRefresh },
             ].map((item) => {
               const Icon = item.icon;
               // This is the Chat page, so the Chat nav link is the active one.
               const isActive = item.name === "Chat";
 
-              if (item.href) {
-                return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    title={item.name}
-                    className={`w-full py-2.5 flex flex-col items-center justify-center rounded-lg transition-all relative group focus:outline-none ${isActive
-                      ? "text-orange-500 bg-orange-50 font-semibold"
-                      : "text-gray-500 hover:text-gray-800 hover:bg-gray-100"
-                      }`}
-                  >
-                    {isActive && (
-                      <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />
-                    )}
-                    <Icon className="w-5 h-5" />
-                    <span className="text-[10px] mt-1 tracking-tight">{item.name}</span>
-                  </Link>
-                );
-              }
-
-              // Action items (e.g. Refresh) are never "active" — they trigger a
-              // one-off action rather than navigating, so they get no active
-              // styling and no selection bar.
               return (
-                <button
+                <Link
                   key={item.name}
-                  onClick={(e) => {
-                    if (item.action) item.action();
-                    // Drop focus so it doesn't keep the "selected" highlight.
-                    e.currentTarget.blur();
-                  }}
+                  href={item.href}
                   title={item.name}
-                  className="w-full py-2.5 flex flex-col items-center justify-center rounded-lg transition-all relative group focus:outline-none text-gray-500 hover:text-gray-800 hover:bg-gray-100"
+                  className={`w-full py-2.5 flex flex-col items-center justify-center rounded-lg transition-all relative group focus:outline-none ${isActive
+                    ? "text-orange-500 bg-orange-50 font-semibold"
+                    : "text-gray-500 hover:text-gray-800 hover:bg-gray-100"
+                    }`}
                 >
+                  {isActive && (
+                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />
+                  )}
                   <Icon className="w-5 h-5" />
                   <span className="text-[10px] mt-1 tracking-tight">{item.name}</span>
-                </button>
+                </Link>
               );
             })}
+
+            {/* Sidebar Sync — full application sync (shared useSync hook) */}
+            <SidebarSyncButton />
           </nav>
         </div>
 
@@ -312,27 +288,8 @@ export default function TyreGuideChatPage() {
               <ArrowsPointingOutIcon className="w-5 h-5" />
             </button>
 
-            <button
-              onClick={async () => {
-                if (typeof window !== "undefined" && !navigator.onLine) {
-                  toast("Offline mode: Cannot sync without internet connection.", "warning");
-                  return;
-                }
-
-                const recentlySynced = await isTyresChatRecentlySynced(30000);
-                if (recentlySynced) {
-                  toast("Point Of Sales is already synced.", "warning");
-                  return;
-                }
-
-                handleManualRefresh();
-              }}
-              disabled={isSyncing}
-              className="p-2 text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
-              title="Sync / Reload Chat Shortcuts"
-            >
-              <ArrowPathIcon className={`w-5 h-5 ${isSyncing ? "animate-spin text-orange-500" : ""}`} />
-            </button>
+            {/* Header Sync — current-page-only sync (shared useSync hook) */}
+            <HeaderSyncButton title="Sync chat shortcuts" />
 
             {isOnline ? (
               <div className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full text-xs font-semibold border border-emerald-200 shadow-2xs">

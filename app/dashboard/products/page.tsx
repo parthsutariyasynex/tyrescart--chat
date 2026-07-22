@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
   HomeIcon,
   ShoppingBagIcon,
-  ArrowPathIcon,
   MagnifyingGlassIcon,
   ArrowsPointingOutIcon,
   WifiIcon,
@@ -15,7 +14,6 @@ import {
 } from "@heroicons/react/24/outline";
 import {
   getStorefrontProductsCached,
-  isProductsRecentlySynced,
   getTyresChatCached,
   getKnownBrands,
   addKnownBrands,
@@ -30,13 +28,15 @@ import type {
  *  leading word of the product name (e.g. "Dunlop 700 R16 …" → "Dunlop"). */
 const brandOf = (name?: string) => (name || "").trim().split(/\s+/)[0] || "";
 import { ProductGridSkeleton } from "@/components/Skeletons";
-import { useToast } from "@/components/ToastProvider";
 import Image from "next/image";
 import SyncingOverlay from "@/components/SyncingOverlay";
 import LogoutButton from "@/components/LogoutButton";
+import HeaderSyncButton from "@/components/HeaderSyncButton";
+import SidebarSyncButton from "@/components/SidebarSyncButton";
+import { registerModuleSync } from "@/services/syncService";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 
 export default function PosProductsPage() {
-  const { toast } = useToast();
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [tyresChatItems, setTyresChatItems] = useState<TyresChatItem[]>([]);
   const [totalCount, setTotalCount] = useState<number>(0);
@@ -57,7 +57,9 @@ export default function PosProductsPage() {
   const [activeBrand, setActiveBrand] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [debouncedSearch, setDebouncedSearch] = useState<string>("");
-  const [isOnline, setIsOnline] = useState<boolean>(true);
+  // Online status via useSyncExternalStore (no hydration mismatch, no
+  // setState-in-effect).
+  const isOnline = useOnlineStatus();
 
   // Debounce the search box so each keystroke doesn't fire its own GraphQL
   // request; searching resets back to the first page of results.
@@ -68,20 +70,6 @@ export default function PosProductsPage() {
     }, 400);
     return () => clearTimeout(t);
   }, [searchQuery]);
-
-  useEffect(() => {
-    setIsOnline(typeof window !== "undefined" ? navigator.onLine : true);
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
-  }, []);
 
   // Brands are derived from real product data (not hardcoded) and persisted
   // in IndexedDB; the list grows as more products are seen.
@@ -167,17 +155,15 @@ export default function PosProductsPage() {
     }
   }, [activeBrand, debouncedSearch, currentPage]);
 
-  const handleManualRefresh = useCallback(async () => {
-    setIsSyncing(true);
-    setSyncStep("Products");
-    try {
-      await loadGraphQLProducts();
-    } finally {
-      setTimeout(() => {
-        setIsSyncing(false);
-      }, 1000);
-    }
+  // Register this page's live refresher so the Header/Sidebar Sync buttons
+  // (via the shared useSync hook → syncService) can re-fetch products in place,
+  // updating this component's state without any reload or route change. A ref
+  // keeps the registration stable while always calling the latest fetch fn.
+  const loadProductsRef = useRef(loadGraphQLProducts);
+  useEffect(() => {
+    loadProductsRef.current = loadGraphQLProducts;
   }, [loadGraphQLProducts]);
+  useEffect(() => registerModuleSync("products", () => loadProductsRef.current()), []);
 
   // 2. TyresChat — cache-first + background GraphQL sync (fetches all chat items)
   const loadTyresChat = useCallback(async () => {
@@ -194,6 +180,9 @@ export default function PosProductsPage() {
   }, []);
 
   useEffect(() => {
+    // Fetch on mount / when filters change. State updates happen after the
+    // awaited cache read, so this is a legitimate data-load effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadGraphQLProducts();
     loadTyresChat();
   }, [loadGraphQLProducts, loadTyresChat]);
@@ -232,50 +221,32 @@ export default function PosProductsPage() {
               // { name: "Cashier", icon: BanknotesIcon, action: () => {} },
               // { name: "Orders", icon: ShoppingBagIcon, action: () => {} },
               // { name: "Reports", icon: ChartBarIcon, action: () => {} },
-              { name: "Refresh", icon: ArrowPathIcon, action: handleManualRefresh },
             ].map((item) => {
               const Icon = item.icon;
+              // Only the current page (Home on this route) is active.
               const isActive = item.name === "Home";
 
-              if (item.href) {
-                return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    title={item.name}
-                    className={`w-full py-2.5 flex flex-col items-center justify-center rounded-lg transition-all relative group focus:outline-none ${isActive
-                      ? "text-orange-500 bg-orange-50 font-semibold"
-                      : "text-gray-500 hover:text-gray-800 hover:bg-gray-100"
-                      }`}
-                  >
-                    {isActive && (
-                      <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />
-                    )}
-                    <Icon className="w-5 h-5" />
-                    <span className="text-[10px] mt-1 tracking-tight">{item.name}</span>
-                  </Link>
-                );
-              }
-
-              // Action items (e.g. Refresh) are never "active" — they trigger
-              // a one-off action rather than navigating to a page, so they get
-              // no active styling and no selection bar.
               return (
-                <button
+                <Link
                   key={item.name}
-                  onClick={(e) => {
-                    if (item.action) item.action();
-                    // Drop focus so it doesn't keep the "selected" highlight.
-                    e.currentTarget.blur();
-                  }}
+                  href={item.href}
                   title={item.name}
-                  className="w-full py-2.5 flex flex-col items-center justify-center rounded-lg transition-all relative group focus:outline-none text-gray-500 hover:text-gray-800 hover:bg-gray-100"
+                  className={`w-full py-2.5 flex flex-col items-center justify-center rounded-lg transition-all relative group focus:outline-none ${isActive
+                    ? "text-orange-500 bg-orange-50 font-semibold"
+                    : "text-gray-500 hover:text-gray-800 hover:bg-gray-100"
+                    }`}
                 >
+                  {isActive && (
+                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />
+                  )}
                   <Icon className="w-5 h-5" />
                   <span className="text-[10px] mt-1 tracking-tight">{item.name}</span>
-                </button>
+                </Link>
               );
             })}
+
+            {/* Sidebar Sync — full application sync (shared useSync hook) */}
+            <SidebarSyncButton />
           </nav>
         </div>
 
@@ -337,27 +308,8 @@ export default function PosProductsPage() {
               <ArrowsPointingOutIcon className="w-5 h-5" />
             </button>
 
-            <button
-              onClick={async () => {
-                if (typeof window !== "undefined" && !navigator.onLine) {
-                  toast("Offline mode: Cannot sync without internet connection.", "warning");
-                  return;
-                }
-
-                const recentlySynced = await isProductsRecentlySynced(30000);
-                if (recentlySynced) {
-                  toast("Point Of Sales is already synced.", "warning");
-                  return;
-                }
-
-                handleManualRefresh();
-              }}
-              disabled={isSyncing}
-              className="p-2 text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
-              title="Sync / Reload Magento POS"
-            >
-              <ArrowPathIcon className={`w-5 h-5 ${isSyncing || loading ? "animate-spin text-orange-500" : ""}`} />
-            </button>
+            {/* Header Sync — current-page-only sync (shared useSync hook) */}
+            <HeaderSyncButton title="Sync products" />
 
             {isOnline ? (
               <div className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full text-xs font-semibold border border-emerald-200 shadow-2xs">
@@ -449,7 +401,6 @@ export default function PosProductsPage() {
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-4 pb-6">
                   {displayedProducts.map((item) => {
                     const title = item.name;
-                    const skuCode = item.sku;
                     const minPrice = item.price_range?.minimum_price;
                     const priceVal =
                       minPrice?.final_price?.value ??
@@ -457,7 +408,6 @@ export default function PosProductsPage() {
                       0;
                     const currency = minPrice?.regular_price?.currency || "AED";
                     const brand = brandOf(item.name);
-                    const category = item.categories?.[0]?.name;
                     const imgUrl = item.image?.url;
                     const inStock = item.stock_status !== "OUT_OF_STOCK";
 
@@ -496,25 +446,20 @@ export default function PosProductsPage() {
                         </div>
 
                         {/* Metadata */}
-                        <div className="flex flex-col text-center">
-                          <h3 className="text-xs font-medium text-gray-700 truncate w-full group-hover:text-gray-900" title={title}>
+                        <div className="flex flex-col items-center text-center">
+                          {/* Full product name — no truncation/ellipsis; wraps
+                              to 2-3 lines. min-height reserves ~2 lines so cards
+                              stay a consistent height for short names. */}
+                          <h3
+                            className="text-xs font-medium text-gray-700 w-full break-words [overflow-wrap:anywhere] leading-snug min-h-[2.5rem] group-hover:text-gray-900"
+                            title={title}
+                          >
                             {title}
                           </h3>
 
-                          <div className="flex items-center justify-center gap-1 mt-1">
-                            <span className="text-[10px] font-bold text-gray-900 uppercase tracking-tight truncate">
-                              {skuCode}
-                            </span>
-                            {brand && (
-                              <span className="text-[9px] px-1 bg-orange-50 text-orange-600 rounded border border-orange-200">
-                                {brand}
-                              </span>
-                            )}
-                          </div>
-
-                          {category && (
-                            <span className="text-[10px] text-gray-500 mt-0.5 truncate">
-                              {category}
+                          {brand && (
+                            <span className="text-[11px] px-2 py-0.5 mt-1 bg-orange-50 text-orange-600 rounded border border-orange-200">
+                              {brand}
                             </span>
                           )}
 
