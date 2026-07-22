@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Roboto_Mono } from "next/font/google";
 import { ToastProvider } from "@/components/ToastProvider";
+import { SyncProvider } from "@/components/SyncProvider";
 import DbInit from "@/components/DbInit";
 import "./globals.css";
 
@@ -29,7 +30,9 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${mono.variable}`}>
         <DbInit />
-        <ToastProvider>{children}</ToastProvider>
+        <ToastProvider>
+          <SyncProvider>{children}</SyncProvider>
+        </ToastProvider>
       </body>
     </html>
   );

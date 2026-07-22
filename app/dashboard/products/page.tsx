@@ -29,10 +29,10 @@ import type {
 const brandOf = (name?: string) => (name || "").trim().split(/\s+/)[0] || "";
 import { ProductGridSkeleton } from "@/components/Skeletons";
 import Image from "next/image";
-import SyncingOverlay from "@/components/SyncingOverlay";
 import LogoutButton from "@/components/LogoutButton";
 import HeaderSyncButton from "@/components/HeaderSyncButton";
 import SidebarSyncButton from "@/components/SidebarSyncButton";
+import { useSyncOverlay } from "@/components/SyncProvider";
 import { registerModuleSync } from "@/services/syncService";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 
@@ -44,15 +44,11 @@ export default function PosProductsPage() {
   const [currentPage, setCurrentPage] = useState<number>(1);
 
   const [loading, setLoading] = useState<boolean>(true);
-  const [isSyncing, setIsSyncing] = useState<boolean>(true);
-  const [syncStep, setSyncStep] = useState<string>("Products");
   const [error, setError] = useState<string | null>(null);
 
-  // The full-screen POS SyncingOverlay should only appear on the very first
-  // load (and on an explicit manual refresh). Switching brand tabs, searching,
-  // or paging must NOT pop the overlay — the current grid stays visible and the
-  // new results swap in from the background fetch.
-  const initialLoadRef = useRef(true);
+  // The "Point Of Sales is syncing..." popup is global (see SyncProvider): it
+  // shows once for the initial app sync and never again on route changes.
+  const { requestInitialSyncOverlay, completeInitialSync } = useSyncOverlay();
 
   const [activeBrand, setActiveBrand] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -112,10 +108,9 @@ export default function PosProductsPage() {
       }
     };
 
-    const isInitial = initialLoadRef.current;
-    const finishInitial = () => {
-      initialLoadRef.current = false;
-    };
+    // Request the one-time initial POS overlay. Returns true only on the very
+    // first app load; navigation/filter changes never re-show it.
+    const showedInitial = requestInitialSyncOverlay("Products");
 
     // Reads IndexedDB immediately, then refreshes from GraphQL in the background.
     const cached = await getStorefrontProductsCached(params, {
@@ -123,13 +118,11 @@ export default function PosProductsPage() {
         applyResult(res);
         setError(null);
         setLoading(false);
-        setIsSyncing(false);
-        finishInitial();
+        completeInitialSync();
       },
       onError: (err) => {
         setLoading(false);
-        setIsSyncing(false);
-        finishInitial();
+        completeInitialSync();
         setProducts((prev) => {
           if (prev.length === 0) setError(err.message);
           return prev;
@@ -140,20 +133,15 @@ export default function PosProductsPage() {
     if (cached && (cached.items?.length ?? 0) > 0) {
       applyResult(cached); // instant paint from cache
       setLoading(false);
-      // Only the first paint shows/dismisses the full overlay.
-      if (isInitial) setTimeout(() => setIsSyncing(false), 1200);
-      finishInitial();
+      // Keep the initial overlay up briefly for a smooth first paint.
+      if (showedInitial) setTimeout(() => completeInitialSync(), 1200);
+      else completeInitialSync();
     } else {
-      // No cache yet. Show the blocking POS overlay ONLY on the initial load;
-      // for brand/search/page changes just fetch in the background and keep the
-      // existing grid on screen (setLoading drives the subtle inline spinner).
+      // No cache yet — the initial overlay (if this is the first load) stays up
+      // until fresh data arrives; filter/page changes just fetch in background.
       setLoading(true);
-      if (isInitial) {
-        setIsSyncing(true);
-        setSyncStep("Products");
-      }
     }
-  }, [activeBrand, debouncedSearch, currentPage]);
+  }, [activeBrand, debouncedSearch, currentPage, requestInitialSyncOverlay, completeInitialSync]);
 
   // Register this page's live refresher so the Header/Sidebar Sync buttons
   // (via the shared useSync hook → syncService) can re-fetch products in place,
@@ -417,7 +405,7 @@ export default function PosProductsPage() {
                         className="group bg-white rounded-xl border border-gray-100 p-3 flex flex-col justify-between shadow-xs hover:shadow-md hover:border-orange-200 transition-all duration-200 cursor-pointer relative"
                       >
                         {/* Product Image Box (real Magento media, SVG fallback) */}
-                        <div className="w-full aspect-square bg-slate-50 border border-gray-100 rounded-lg flex items-center justify-center p-3 mb-3 relative overflow-hidden group-hover:scale-[1.02] transition-transform">
+                        <div className="w-full aspect-square bg-white border border-gray-100 rounded-lg flex items-center justify-center p-3 mb-3 relative overflow-hidden group-hover:scale-[1.02] transition-transform">
                           {imgUrl ? (
                             <Image
                               src={imgUrl}
@@ -500,8 +488,8 @@ export default function PosProductsPage() {
         </div>
       </main>
 
-      {/* POS SYNCING OVERLAY (Shared Component) */}
-      <SyncingOverlay isSyncing={isSyncing} syncStep={syncStep || "Products"} />
+      {/* The POS syncing overlay is rendered globally in SyncProvider so it
+          shows once on the initial app sync, not on every route change. */}
     </div>
   );
 }

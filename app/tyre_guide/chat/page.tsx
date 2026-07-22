@@ -18,10 +18,10 @@ import type { TyresChatItem } from "@/services/types";
 import { useToast } from "@/components/ToastProvider";
 import { ChatGridSkeleton } from "@/components/Skeletons";
 import Masonry from "react-masonry-css";
-import SyncingOverlay from "@/components/SyncingOverlay";
 import LogoutButton from "@/components/LogoutButton";
 import HeaderSyncButton from "@/components/HeaderSyncButton";
 import SidebarSyncButton from "@/components/SidebarSyncButton";
+import { useSyncOverlay } from "@/components/SyncProvider";
 import { registerModuleSync } from "@/services/syncService";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 
@@ -46,8 +46,6 @@ const breakpointColumnsObj = {
 export default function TyreGuideChatPage() {
   const [shortcuts, setShortcuts] = useState<FormattedShortcutItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [isSyncing, setIsSyncing] = useState<boolean>(true);
-  const [syncStep] = useState<string>("TyresChat");
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [copiedId, setCopiedId] = useState<number | string | null>(null);
@@ -55,6 +53,10 @@ export default function TyreGuideChatPage() {
   // setState-in-effect).
   const isOnline = useOnlineStatus();
   const { toast } = useToast();
+
+  // The "Point Of Sales is syncing..." popup is global (see SyncProvider): it
+  // shows once for the initial app sync and never again on route changes.
+  const { requestInitialSyncOverlay, completeInitialSync } = useSyncOverlay();
 
   useEffect(() => {
     document.title = "Tyre Chat Shortcuts";
@@ -96,6 +98,9 @@ export default function TyreGuideChatPage() {
   const loadShortcutsFromCacheAndApi = useCallback(async () => {
     setLoading(true);
     setError(null);
+    // Request the one-time initial POS overlay. Returns true only on the very
+    // first app load; navigation never re-shows it.
+    const showedInitial = requestInitialSyncOverlay("TyresChat");
     try {
       // 1. Read-through cache: Get cached items from IndexedDB instantly
       const cachedItems = await getTyresChatCached(
@@ -105,11 +110,11 @@ export default function TyreGuideChatPage() {
             setShortcuts(mapApiItems(freshItems));
             setError(null);
             setLoading(false);
-            setTimeout(() => setIsSyncing(false), 800);
+            completeInitialSync();
           },
           onError: (err) => {
             setLoading(false);
-            setTimeout(() => setIsSyncing(false), 800);
+            completeInitialSync();
             // API-only: no static fallback. Surface the error only if nothing is cached.
             setShortcuts((prev) => {
               if (prev.length === 0) {
@@ -124,17 +129,18 @@ export default function TyreGuideChatPage() {
       if (cachedItems && cachedItems.length > 0) {
         setShortcuts(mapApiItems(cachedItems));
         setLoading(false);
-        setTimeout(() => setIsSyncing(false), 1200);
+        // Keep the initial overlay up briefly for a smooth first paint.
+        if (showedInitial) setTimeout(() => completeInitialSync(), 1200);
+        else completeInitialSync();
       } else {
         setLoading(true);
-        setIsSyncing(true);
       }
     } catch (err) {
       console.error("Cache read failed:", err);
       setLoading(false);
-      setTimeout(() => setIsSyncing(false), 800);
+      completeInitialSync();
     }
-  }, [mapApiItems]);
+  }, [mapApiItems, requestInitialSyncOverlay, completeInitialSync]);
 
   useEffect(() => {
     // Fetch on mount. State updates happen after the awaited cache read, so
@@ -425,8 +431,8 @@ export default function TyreGuideChatPage() {
         </div>
       </main>
 
-      {/* POS SYNCING OVERLAY (Shared component) */}
-      <SyncingOverlay isSyncing={isSyncing} syncStep={syncStep} />
+      {/* The POS syncing overlay is rendered globally in SyncProvider so it
+          shows once on the initial app sync, not on every route change. */}
     </div>
   );
 }

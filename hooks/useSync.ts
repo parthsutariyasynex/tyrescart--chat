@@ -7,10 +7,9 @@
  *   const { handlePageSync } = useSync();  // Header  → current page only
  *   const { handleFullSync } = useSync();  // Sidebar → whole application
  *
- * Toast behavior is intentionally UNCHANGED from the previous implementation:
- * only the original offline and "already synced" warning toasts are shown — no
- * new success/error toasts are created here. The toast UI/logic lives in
- * ToastProvider and is not modified.
+ * Both buttons give feedback through the shared toast system: the original
+ * offline / "already synced" warnings, plus a success toast on completion. The
+ * toast UI/logic lives in ToastProvider and is not modified.
  *
  * Guarantees: no window.location.reload(), no router.refresh(), no redirect.
  */
@@ -33,7 +32,10 @@ export function useSync() {
 
   /** Header Sync — detects the current route and syncs only that page's data. */
   const handlePageSync = useCallback(async () => {
-    if (isSyncing) return;
+    if (isSyncing) {
+      toast("Point Of Sales is already syncing.", "warning");
+      return;
+    }
     if (isOffline()) {
       toast("Offline mode: Cannot sync without internet connection.", "warning");
       return;
@@ -45,10 +47,10 @@ export function useSync() {
     setIsSyncing(true);
     try {
       await syncPage(pathname);
+      toast("Point Of Sales synced.", "success");
     } catch (err) {
-      // Keep the previous toast behavior (no error toast); just log so a failed
-      // sync never surfaces as an unhandled runtime error.
       console.error("[sync] page sync failed:", err);
+      toast("Sync failed. Please try again.", "error");
     } finally {
       setIsSyncing(false);
     }
@@ -56,7 +58,10 @@ export function useSync() {
 
   /** Sidebar Sync — full application sync across every module. */
   const handleFullSync = useCallback(async () => {
-    if (isSyncing) return;
+    if (isSyncing) {
+      toast("Point Of Sales is already syncing.", "warning");
+      return;
+    }
     if (isOffline()) {
       toast("Offline mode: Cannot sync without internet connection.", "warning");
       return;
@@ -64,10 +69,10 @@ export function useSync() {
     setIsSyncing(true);
     try {
       await syncAll();
+      toast("All data synced.", "success");
     } catch (err) {
-      // Keep the previous toast behavior (no error toast); just log so a failed
-      // sync never surfaces as an unhandled runtime error.
       console.error("[sync] full sync failed:", err);
+      toast("Sync failed. Please try again.", "error");
     } finally {
       setIsSyncing(false);
     }
