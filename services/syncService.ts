@@ -84,10 +84,11 @@ const MODULE_DATA_SYNC: Record<SyncModule, () => Promise<void>> = {
     runCached((cbs) =>
       getStorefrontProductsCached(
         { search: "", pageSize: 24, currentPage: 1, sortField: "name", sortDirection: "ASC" },
-        cbs,
+        // Explicit sync → always hit GraphQL, never short-circuit on fresh cache.
+        { ...cbs, maxAgeMs: 0 },
       ),
     ),
-  tyresChat: () => runCached((cbs) => getTyresChatCached({ pageSize: 200 }, cbs)),
+  tyresChat: () => runCached((cbs) => getTyresChatCached({ pageSize: 200 }, { ...cbs, maxAgeMs: 0 })),
   // No dedicated data modules yet — ready for when these pages land.
   orders: async () => {
     console.info("[sync] orders module not implemented yet — skipping");

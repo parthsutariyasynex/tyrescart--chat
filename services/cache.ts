@@ -70,7 +70,26 @@ interface CachedStorefrontQuery extends ProductsResponse {
 interface ReadThroughCallbacks<T> {
   onFresh?: (data: T) => void;
   onError?: (err: Error) => void;
+  /**
+   * Freshness window in ms. If the cached entry is younger than this, it is
+   * served as-is and NO background GraphQL request is made — the call becomes
+   * fully offline (image URLs and all data come straight from IndexedDB).
+   * Defaults to {@link CACHE_TTL_MS}. Pass `0` to force a refresh every time.
+   */
+  maxAgeMs?: number;
 }
+
+/**
+ * Default freshness window. Within this age a cached query is served without
+ * any network call, so revisiting a page/filter you've already loaded makes
+ * zero GraphQL requests. A manual Sync (Header/Sidebar button) always bypasses
+ * this — it calls the fetchers directly, not through the cache.
+ */
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+/** True when a cache timestamp is within the freshness window. */
+const isFresh = (ts: number | undefined, maxAgeMs: number): boolean =>
+  typeof ts === "number" && maxAgeMs > 0 && Date.now() - ts < maxAgeMs;
 
 /**
  * Supplier products, cache-first. The cache key is the query signature
@@ -80,10 +99,13 @@ interface ReadThroughCallbacks<T> {
  */
 export async function getProductsCached(
   params: FetchSupplierProductsParams,
-  { onFresh, onError }: ReadThroughCallbacks<SupplierProductsResponse> = {},
+  { onFresh, onError, maxAgeMs = CACHE_TTL_MS }: ReadThroughCallbacks<SupplierProductsResponse> = {},
 ): Promise<SupplierProductsResponse | null> {
   const key = JSON.stringify(params);
   const cached = await idbGet<CachedProductQuery>(STORE_PRODUCT_QUERIES, key).catch(() => null);
+
+  // Fresh-enough cache → serve it and skip the GraphQL call entirely.
+  if (cached && isFresh(cached.ts, maxAgeMs)) return cached;
 
   fetchSupplierProductsGraphQL(params)
     .then(async (res) => {
@@ -112,10 +134,14 @@ export async function getProductsCached(
  */
 export async function getStorefrontProductsCached(
   params: FetchProductsParams,
-  { onFresh, onError }: ReadThroughCallbacks<ProductsResponse> = {},
+  { onFresh, onError, maxAgeMs = CACHE_TTL_MS }: ReadThroughCallbacks<ProductsResponse> = {},
 ): Promise<ProductsResponse | null> {
   const key = "storefront:" + JSON.stringify(params);
   const cached = await idbGet<CachedStorefrontQuery>(STORE_PRODUCT_QUERIES, key).catch(() => null);
+
+  // Fresh-enough cache → serve it (image URLs included) and skip GraphQL. This
+  // is what makes revisiting a page load images with no network call at all.
+  if (cached && isFresh(cached.ts, maxAgeMs)) return cached;
 
   fetchProductsGraphQL(params)
     .then(async (res) => {
@@ -134,12 +160,47 @@ export async function getStorefrontProductsCached(
 }
 
 /**
+ * Storefront products, cache-first, **await-friendly** (returns the data
+ * directly instead of via callbacks). Built for background batch loading, where
+ * a loop fetches page 2, 3, … sequentially and appends each batch:
+ *
+ *   for (let p = 1; p <= totalPages; p++)
+ *     const batch = await fetchStorefrontBatch({ ...params, currentPage: p });
+ *
+ * Fresh cache (within `maxAgeMs`) is returned with no network call. Otherwise
+ * it fetches, writes the batch to IndexedDB (keyed per params like
+ * {@link getStorefrontProductsCached}), and returns the fresh data. If the
+ * fetch fails but a cached batch exists, the cached batch is returned rather
+ * than throwing, so a flaky page never aborts the whole run.
+ */
+export async function fetchStorefrontBatch(
+  params: FetchProductsParams,
+  maxAgeMs = CACHE_TTL_MS,
+): Promise<ProductsResponse> {
+  const key = "storefront:" + JSON.stringify(params);
+  const cached = await idbGet<CachedStorefrontQuery>(STORE_PRODUCT_QUERIES, key).catch(() => null);
+  if (cached && isFresh(cached.ts, maxAgeMs)) return cached;
+
+  try {
+    const res = await fetchProductsGraphQL(params);
+    await idbPut(STORE_PRODUCT_QUERIES, { key, ...res, ts: Date.now() }).catch((e) =>
+      console.error("[cache] failed to write storefront batch to IndexedDB:", e),
+    );
+    await idbSetMeta("products:lastSync", Date.now()).catch(() => {});
+    return res;
+  } catch (err) {
+    if (cached) return cached; // fall back to the (stale) cached batch
+    throw err instanceof Error ? err : new Error("Products request failed");
+  }
+}
+
+/**
  * TyresChat shortcuts, cache-first. Stored as a full list in the `tyresChat`
  * store. Returns the cached items (possibly empty) immediately.
  */
 export async function getTyresChatCached(
   params: TyresChatQueryVars,
-  { onFresh, onError }: ReadThroughCallbacks<TyresChatItem[]> = {},
+  { onFresh, onError, maxAgeMs = CACHE_TTL_MS }: ReadThroughCallbacks<TyresChatItem[]> = {},
 ): Promise<TyresChatItem[]> {
   // IndexedDB getAll() returns records in PRIMARY-KEY (id) order, NOT in the
   // API's sort_order. Re-order by sort_order so cached reads render in the same
@@ -150,6 +211,11 @@ export async function getTyresChatCached(
   const cachedRaw = await idbGetAll<TyresChatItem>(STORE_TYRES_CHAT).catch(() => []);
   const cached = [...cachedRaw].sort(bySortOrder);
   console.log("[tyresChat sync] IndexedDB records BEFORE sync:", cachedRaw.length);
+
+  // Fresh-enough cache → serve it and skip the GraphQL call entirely. Freshness
+  // is tracked via the `tyresChat:lastSync` meta (records have no per-row ts).
+  const lastSync = await getTyresChatLastSyncTime().catch(() => 0);
+  if (cached.length > 0 && isFresh(lastSync, maxAgeMs)) return cached;
 
   fetchTyresChatGraphQL(params)
     .then(async (res) => {

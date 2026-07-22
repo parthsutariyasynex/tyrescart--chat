@@ -13,7 +13,7 @@ import {
   ChatBubbleLeftRightIcon
 } from "@heroicons/react/24/outline";
 import {
-  getStorefrontProductsCached,
+  fetchStorefrontBatch,
   getTyresChatCached,
   getKnownBrands,
   addKnownBrands,
@@ -32,23 +32,28 @@ import Image from "next/image";
 import LogoutButton from "@/components/LogoutButton";
 import HeaderSyncButton from "@/components/HeaderSyncButton";
 import SidebarSyncButton from "@/components/SidebarSyncButton";
-import { useSyncOverlay } from "@/components/SyncProvider";
 import { registerModuleSync } from "@/services/syncService";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 
 export default function PosProductsPage() {
+  // `products` is the FULL list loaded into cache so far (grows as background
+  // batches arrive). The UI never renders all of it at once — it renders only a
+  // fixed-size window (see VIEW_SIZE), and Next/Prev move that window over this
+  // already-cached list WITHOUT any API call.
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [tyresChatItems, setTyresChatItems] = useState<TyresChatItem[]>([]);
   const [totalCount, setTotalCount] = useState<number>(0);
-  const [totalPages, setTotalPages] = useState<number>(1);
-  const [currentPage, setCurrentPage] = useState<number>(1);
 
+  // Zero-based index of the visible window. `products.slice(viewPage*VIEW_SIZE,
+  // …)` is what actually renders. Purely client-side — never triggers a fetch.
+  const [viewPage, setViewPage] = useState<number>(0);
+
+  // `loading` covers the very first batch (skeleton). `loadingMore` is the
+  // quiet background fill of the remaining batches into the cache — the grid
+  // stays interactive throughout.
   const [loading, setLoading] = useState<boolean>(true);
+  const [loadingMore, setLoadingMore] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-
-  // The "Point Of Sales is syncing..." popup is global (see SyncProvider): it
-  // shows once for the initial app sync and never again on route changes.
-  const { requestInitialSyncOverlay, completeInitialSync } = useSyncOverlay();
 
   const [activeBrand, setActiveBrand] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -58,11 +63,10 @@ export default function PosProductsPage() {
   const isOnline = useOnlineStatus();
 
   // Debounce the search box so each keystroke doesn't fire its own GraphQL
-  // request; searching resets back to the first page of results.
+  // request. A new search restarts the batch loader from the first batch.
   useEffect(() => {
     const t = setTimeout(() => {
       setDebouncedSearch(searchQuery.trim());
-      setCurrentPage(1);
     }, 400);
     return () => clearTimeout(t);
   }, [searchQuery]);
@@ -79,9 +83,32 @@ export default function PosProductsPage() {
   void brands;
   void tyresChatItems;
 
-  // 1. Storefront products — cache-first (instant paint) + background GraphQL sync
-  const loadGraphQLProducts = useCallback(async () => {
+  // How many products each GraphQL request pulls into the cache. The background
+  // loop fetches as many batches as the catalog needs; a larger batch means
+  // fewer round-trips (7673 items ÷ 500 ≈ 16 requests). Note: Magento's
+  // storefront GraphQL may cap pageSize (often ~300) — if 500 is rejected or
+  // truncated, lower this.
+  const BATCH_SIZE = 500;
+
+  // How many products are VISIBLE in the grid at once. Next/Prev move this
+  // window over the cached list. Independent of BATCH_SIZE (fetch size).
+  const VIEW_SIZE = 500;
+
+  // Monotonic id for the active load. Each new load (mount, filter/search
+  // change, manual sync) bumps it; the background batch loop bails the moment
+  // its id is stale, so a superseded run can never append into the new results.
+  const loadIdRef = useRef(0);
+
+  // 1. Storefront products — no pagination. The first batch paints instantly
+  // (cache-first), then the rest of the catalog streams in batch-by-batch in
+  // the background and is appended to the grid.
+  // `forceFresh` bypasses the cache TTL — used by the manual Sync buttons and
+  // the on-page refresh control so an explicit sync always hits GraphQL.
+  const loadGraphQLProducts = useCallback(async (forceFresh = false) => {
+    const loadId = ++loadIdRef.current;
     setError(null);
+    setLoading(true);
+    setViewPage(0); // a fresh load always starts the window at the first slice
 
     // Both the brand tab and the search box drive Magento's full-text `search`
     // argument (the default `products` query has no brand/size filter fields).
@@ -90,58 +117,67 @@ export default function PosProductsPage() {
       .filter(Boolean)
       .join(" ");
 
-    const params = {
+    const baseParams = {
       search: terms,
-      pageSize: 24,
-      currentPage,
+      pageSize: BATCH_SIZE,
       sortField: "name" as const,
       sortDirection: "ASC" as const,
     };
+    const maxAgeMs = forceFresh ? 0 : undefined;
 
-    const applyResult = (res: ProductsResponse) => {
-      setProducts(res.items || []);
-      setTotalCount(res.total_count || 0);
-      if (res.page_info) setTotalPages(res.page_info.total_pages || 1);
-      // Grow the dynamic brand tab list from the leading word of each name.
-      if (res.items?.length) {
-        addKnownBrands(res.items.map((i) => brandOf(i.name))).then(setBrands);
+    // Grow the dynamic brand tab list from the leading word of each name.
+    const harvestBrands = (items?: ProductItem[]) => {
+      if (items?.length) {
+        addKnownBrands(items.map((i) => brandOf(i.name))).then(setBrands);
       }
     };
 
-    // Request the one-time initial POS overlay. Returns true only on the very
-    // first app load; navigation/filter changes never re-show it.
-    const showedInitial = requestInitialSyncOverlay("Products");
+    // True while this run is still the active one (i.e. not superseded).
+    const isCurrent = () => loadId === loadIdRef.current;
 
-    // Reads IndexedDB immediately, then refreshes from GraphQL in the background.
-    const cached = await getStorefrontProductsCached(params, {
-      onFresh: (res) => {
-        applyResult(res);
-        setError(null);
-        setLoading(false);
-        completeInitialSync();
-      },
-      onError: (err) => {
-        setLoading(false);
-        completeInitialSync();
-        setProducts((prev) => {
-          if (prev.length === 0) setError(err.message);
-          return prev;
-        });
-      },
-    });
+    try {
+      // First batch — paint immediately (instant from cache when fresh).
+      const first = await fetchStorefrontBatch({ ...baseParams, currentPage: 1 }, maxAgeMs);
+      if (!isCurrent()) return; // a newer load started while we awaited
 
-    if (cached && (cached.items?.length ?? 0) > 0) {
-      applyResult(cached); // instant paint from cache
+      setProducts(first.items || []);
+      setTotalCount(first.total_count || 0);
+      harvestBrands(first.items);
       setLoading(false);
-      // Keep the initial overlay up briefly for a smooth first paint.
-      if (showedInitial) setTimeout(() => completeInitialSync(), 1200);
-      else completeInitialSync();
-    } else {
-      // No cache yet — the initial overlay (if this is the first load) stays up
-      // until fresh data arrives; filter/page changes just fetch in background.
-      setLoading(true);
+
+      const totalPages = first.page_info?.total_pages || 1;
+      if (totalPages <= 1) return;
+
+      // Remaining batches — stream in the background, appending as they arrive.
+      // A batch that still fails after the proxy's own retries just stops the
+      // background fill; whatever already cached stays usable (no error, no
+      // aborted sync). It resumes on the next load / manual Sync.
+      setLoadingMore(true);
+      for (let page = 2; page <= totalPages; page++) {
+        let batch: ProductsResponse;
+        try {
+          batch = await fetchStorefrontBatch({ ...baseParams, currentPage: page }, maxAgeMs);
+        } catch (err) {
+          console.warn(`[products] background batch ${page}/${totalPages} failed — stopping fill:`, err);
+          break;
+        }
+        if (!isCurrent()) return; // filter/search changed → stop appending
+        setProducts((prev) => [...prev, ...(batch.items || [])]);
+        harvestBrands(batch.items);
+      }
+    } catch (err) {
+      if (!isCurrent()) return;
+      setProducts((prev) => {
+        if (prev.length === 0) setError(err instanceof Error ? err.message : "Products request failed");
+        return prev;
+      });
+    } finally {
+      if (isCurrent()) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
-  }, [activeBrand, debouncedSearch, currentPage, requestInitialSyncOverlay, completeInitialSync]);
+  }, [activeBrand, debouncedSearch]);
 
   // Register this page's live refresher so the Header/Sidebar Sync buttons
   // (via the shared useSync hook → syncService) can re-fetch products in place,
@@ -151,7 +187,7 @@ export default function PosProductsPage() {
   useEffect(() => {
     loadProductsRef.current = loadGraphQLProducts;
   }, [loadGraphQLProducts]);
-  useEffect(() => registerModuleSync("products", () => loadProductsRef.current()), []);
+  useEffect(() => registerModuleSync("products", () => loadProductsRef.current(true)), []);
 
   // 2. TyresChat — cache-first + background GraphQL sync (fetches all chat items)
   const loadTyresChat = useCallback(async () => {
@@ -175,9 +211,16 @@ export default function PosProductsPage() {
     loadTyresChat();
   }, [loadGraphQLProducts, loadTyresChat]);
 
-  // Search and brand filtering now happen server-side via Magento's full-text
-  // `search` argument, so render exactly what the query returned.
-  const displayedProducts = products;
+  // Client-side windowing over the cached list. The grid renders ONLY this
+  // slice — never all `products.length` at once — and Next/Prev just move the
+  // window. No fetch happens here; `products` is filled by the batch loader.
+  const windowStart = viewPage * VIEW_SIZE;
+  const displayedProducts = products.slice(windowStart, windowStart + VIEW_SIZE);
+  const windowEnd = windowStart + displayedProducts.length; // exclusive index
+  const canPrevPage = viewPage > 0;
+  // Next is available when more cached products exist past the current window
+  // (they may still be arriving via background batches).
+  const canNextPage = windowEnd < products.length;
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#f4f6f9] text-gray-800 font-sans relative">
@@ -277,9 +320,10 @@ export default function PosProductsPage() {
 
           {/* Right Header Actions */}
           <div className="flex items-center gap-3">
-            {/* Total Count Badge */}
+            {/* Total Count Badge — single live count that climbs as background
+                batches cache (500 → 1000 → … → 7573). */}
             <span className="text-xs font-semibold px-2.5 py-1 bg-gray-100 border border-gray-200 text-gray-600 rounded-lg min-w-[75px] text-center">
-              Total: {totalCount}
+              Total: {products.length}
             </span>
 
             <button
@@ -363,7 +407,7 @@ export default function PosProductsPage() {
                 <p className="text-sm font-semibold mb-1">Magento GraphQL API Call Issue</p>
                 <p className="text-xs text-red-400 max-w-md text-center mb-4">{error}</p>
                 <button
-                  onClick={loadGraphQLProducts}
+                  onClick={() => loadGraphQLProducts(true)}
                   className="px-4 py-2 text-xs bg-red-500 text-white rounded-xl font-medium hover:bg-red-600 shadow-md transition-colors"
                 >
                   Retry Magento GraphQL
@@ -377,7 +421,6 @@ export default function PosProductsPage() {
                   onClick={() => {
                     setActiveBrand("All");
                     setSearchQuery("");
-                    setCurrentPage(1);
                   }}
                   className="mt-3 text-xs text-orange-500 font-semibold hover:underline"
                 >
@@ -405,7 +448,8 @@ export default function PosProductsPage() {
                         className="group bg-white rounded-xl border border-gray-100 p-3 flex flex-col justify-between shadow-xs hover:shadow-md hover:border-orange-200 transition-all duration-200 cursor-pointer relative"
                       >
                         {/* Product Image Box (real Magento media, SVG fallback) */}
-                        <div className="w-full aspect-square bg-white border border-gray-100 rounded-lg flex items-center justify-center p-3 mb-3 relative overflow-hidden group-hover:scale-[1.02] transition-transform">
+                        {/*w-full aspect-square bg-white border border-gray-100 rounded-lg flex items-center justify-center p-3 mb-3 relative overflow-hidden group-hover:scale-[1.02] transition-transform*/}
+                        <div className="w-full aspect-square bg-white rounded-lg flex items-center justify-center p-3 mb-3 relative overflow-hidden group-hover:scale-[1.02] transition-transform">
                           {imgUrl ? (
                             <Image
                               src={imgUrl}
@@ -460,36 +504,57 @@ export default function PosProductsPage() {
                   })}
                 </div>
 
-                {/* Pagination bar */}
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-between border-t border-gray-200 pt-4 mt-2 text-xs text-gray-600">
-                    <span>Page {currentPage} of {totalPages} ({totalCount} items)</span>
+                {/* Footer: two separate concepts —
+                    (left) how much of the catalog is cached (grows in the
+                    background), (right) which slice is currently visible, with
+                    Next/Prev that only move the window over the cache (no API). */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-gray-200 pt-4 mt-2 text-xs text-gray-600">
+                  {/* Total loaded in cache */}
+                  <span className="flex items-center gap-2">
+                    {loadingMore && (
+                      <span className="w-3.5 h-3.5 border-2 border-orange-400 border-t-transparent rounded-full animate-spin" />
+                    )}
+                    <span>
+                      Loaded in cache:{" "}
+                      <strong className="text-gray-800">
+                        {products.length}
+                        {totalCount ? ` / ${totalCount}` : ""}
+                      </strong>
+                    </span>
+                  </span>
+
+                  {/* Currently visible window + cache-only navigation */}
+                  <div className="flex items-center gap-3">
+                    <span>
+                      Showing{" "}
+                      <strong className="text-gray-800">
+                        {windowStart + 1}–{windowEnd}
+                      </strong>
+                    </span>
                     <div className="flex items-center gap-2">
                       <button
-                        disabled={currentPage <= 1}
-                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                        disabled={!canPrevPage}
+                        onClick={() => setViewPage((p) => Math.max(0, p - 1))}
                         className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 font-medium transition-colors"
                       >
                         Previous
                       </button>
                       <button
-                        disabled={currentPage >= totalPages}
-                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                        disabled={!canNextPage}
+                        onClick={() => setViewPage((p) => p + 1)}
                         className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 font-medium transition-colors"
                       >
                         Next
                       </button>
                     </div>
                   </div>
-                )}
+                </div>
               </div>
             )}
           </div>
         </div>
       </main>
 
-      {/* The POS syncing overlay is rendered globally in SyncProvider so it
-          shows once on the initial app sync, not on every route change. */}
     </div>
   );
 }
