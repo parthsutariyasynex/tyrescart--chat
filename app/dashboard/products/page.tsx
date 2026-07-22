@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import {
   HomeIcon,
@@ -15,17 +15,21 @@ import {
   ChatBubbleLeftRightIcon
 } from "@heroicons/react/24/outline";
 import {
-  getProductsCached,
+  getStorefrontProductsCached,
   isProductsRecentlySynced,
   getTyresChatCached,
   getKnownBrands,
   addKnownBrands,
 } from "@/services/cache";
 import type {
-  SupplierProductItem,
-  SupplierProductsResponse,
+  ProductItem,
+  ProductsResponse,
   TyresChatItem,
 } from "@/services/types";
+
+/** The default `products` query has no brand field — approximate it from the
+ *  leading word of the product name (e.g. "Dunlop 700 R16 …" → "Dunlop"). */
+const brandOf = (name?: string) => (name || "").trim().split(/\s+/)[0] || "";
 import { ProductGridSkeleton } from "@/components/Skeletons";
 import { useToast } from "@/components/ToastProvider";
 import Image from "next/image";
@@ -34,7 +38,7 @@ import LogoutButton from "@/components/LogoutButton";
 
 export default function PosProductsPage() {
   const { toast } = useToast();
-  const [products, setProducts] = useState<SupplierProductItem[]>([]);
+  const [products, setProducts] = useState<ProductItem[]>([]);
   const [tyresChatItems, setTyresChatItems] = useState<TyresChatItem[]>([]);
   const [totalCount, setTotalCount] = useState<number>(0);
   const [totalPages, setTotalPages] = useState<number>(1);
@@ -45,9 +49,26 @@ export default function PosProductsPage() {
   const [syncStep, setSyncStep] = useState<string>("Products");
   const [error, setError] = useState<string | null>(null);
 
+  // The full-screen POS SyncingOverlay should only appear on the very first
+  // load (and on an explicit manual refresh). Switching brand tabs, searching,
+  // or paging must NOT pop the overlay — the current grid stays visible and the
+  // new results swap in from the background fetch.
+  const initialLoadRef = useRef(true);
+
   const [activeBrand, setActiveBrand] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [debouncedSearch, setDebouncedSearch] = useState<string>("");
   const [isOnline, setIsOnline] = useState<boolean>(true);
+
+  // Debounce the search box so each keystroke doesn't fire its own GraphQL
+  // request; searching resets back to the first page of results.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(searchQuery.trim());
+      setCurrentPage(1);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
 
   useEffect(() => {
     setIsOnline(typeof window !== "undefined" ? navigator.onLine : true);
@@ -68,41 +89,53 @@ export default function PosProductsPage() {
   const [brands, setBrands] = useState<string[]>([]);
   const brandOptions = ["All", ...brands];
 
-  // 1. Supplier products — cache-first (instant paint) + background GraphQL sync
+  // 1. Storefront products — cache-first (instant paint) + background GraphQL sync
   const loadGraphQLProducts = useCallback(async () => {
     setError(null);
 
-    const trimmedSearch = searchQuery.trim();
-    const isNumericOrPlainSize = /^\d+$/.test(trimmedSearch);
+    // Both the brand tab and the search box drive Magento's full-text `search`
+    // argument (the default `products` query has no brand/size filter fields).
+    // Empty string → match-all, which the query builder passes through safely.
+    const terms = [activeBrand === "All" ? "" : activeBrand, debouncedSearch]
+      .filter(Boolean)
+      .join(" ");
 
     const params = {
-      brand: activeBrand === "All" ? undefined : activeBrand,
-      plain_size: isNumericOrPlainSize ? trimmedSearch : undefined,
+      search: terms,
       pageSize: 24,
       currentPage,
+      sortField: "name" as const,
+      sortDirection: "ASC" as const,
     };
 
-    const applyResult = (res: SupplierProductsResponse) => {
+    const applyResult = (res: ProductsResponse) => {
       setProducts(res.items || []);
       setTotalCount(res.total_count || 0);
       if (res.page_info) setTotalPages(res.page_info.total_pages || 1);
-      // Grow the dynamic brand list from whatever brands appear in the data.
+      // Grow the dynamic brand tab list from the leading word of each name.
       if (res.items?.length) {
-        addKnownBrands(res.items.map((i) => i.brand)).then(setBrands);
+        addKnownBrands(res.items.map((i) => brandOf(i.name))).then(setBrands);
       }
     };
 
+    const isInitial = initialLoadRef.current;
+    const finishInitial = () => {
+      initialLoadRef.current = false;
+    };
+
     // Reads IndexedDB immediately, then refreshes from GraphQL in the background.
-    const cached = await getProductsCached(params, {
+    const cached = await getStorefrontProductsCached(params, {
       onFresh: (res) => {
         applyResult(res);
         setError(null);
         setLoading(false);
         setIsSyncing(false);
+        finishInitial();
       },
       onError: (err) => {
         setLoading(false);
         setIsSyncing(false);
+        finishInitial();
         setProducts((prev) => {
           if (prev.length === 0) setError(err.message);
           return prev;
@@ -113,16 +146,20 @@ export default function PosProductsPage() {
     if (cached && (cached.items?.length ?? 0) > 0) {
       applyResult(cached); // instant paint from cache
       setLoading(false);
-      // Smoothly hide sync overlay after 1.2 seconds on page refresh
-      setTimeout(() => {
-        setIsSyncing(false);
-      }, 1200);
+      // Only the first paint shows/dismisses the full overlay.
+      if (isInitial) setTimeout(() => setIsSyncing(false), 1200);
+      finishInitial();
     } else {
-      setLoading(true); // no cache → show POS syncing overlay
-      setIsSyncing(true);
-      setSyncStep("Products");
+      // No cache yet. Show the blocking POS overlay ONLY on the initial load;
+      // for brand/search/page changes just fetch in the background and keep the
+      // existing grid on screen (setLoading drives the subtle inline spinner).
+      setLoading(true);
+      if (isInitial) {
+        setIsSyncing(true);
+        setSyncStep("Products");
+      }
     }
-  }, [activeBrand, searchQuery, currentPage]);
+  }, [activeBrand, debouncedSearch, currentPage]);
 
   const handleManualRefresh = useCallback(async () => {
     setIsSyncing(true);
@@ -155,26 +192,9 @@ export default function PosProductsPage() {
     loadTyresChat();
   }, [loadGraphQLProducts, loadTyresChat]);
 
-  // Filter products by client-side searchQuery (matches name, brand, sku, size, and plain_size)
-  const displayedProducts = products.filter((item) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase().trim();
-    const qPlain = q.replace(/[^a-z0-9]/g, "");
-
-    const title = (item.product_name || "").toLowerCase();
-    const brand = (item.brand || "").toLowerCase();
-    const sku = (item.sku || "").toLowerCase();
-    const size = (item.size || "").toLowerCase();
-    const plainSize = size.replace(/[^a-z0-9]/g, "");
-
-    return (
-      title.includes(q) ||
-      brand.includes(q) ||
-      sku.includes(q) ||
-      size.includes(q) ||
-      (qPlain.length >= 2 && plainSize.includes(qPlain))
-    );
-  });
+  // Search and brand filtering now happen server-side via Magento's full-text
+  // `search` argument, so render exactly what the query returned.
+  const displayedProducts = products;
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#f4f6f9] text-gray-800 font-sans relative">
@@ -331,7 +351,7 @@ export default function PosProductsPage() {
               className="p-2 text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
               title="Sync / Reload Magento POS"
             >
-              <ArrowPathIcon className={`w-5 h-5 ${isSyncing ? "animate-spin text-orange-500" : ""}`} />
+              <ArrowPathIcon className={`w-5 h-5 ${isSyncing || loading ? "animate-spin text-orange-500" : ""}`} />
             </button>
 
             {isOnline ? (
@@ -420,22 +440,47 @@ export default function PosProductsPage() {
               <div className="flex flex-col justify-between h-full">
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-4 pb-6">
                   {displayedProducts.map((item) => {
-                    const title = item.product_name || `${item.brand || "Tyre"} ${item.size || ""}`.trim();
-                    const skuCode = item.sku || `ID-${item.id}`;
-                    const displayPrice = item.price || item.cost || 0;
+                    const title = item.name;
+                    const skuCode = item.sku;
+                    const minPrice = item.price_range?.minimum_price;
+                    const priceVal =
+                      minPrice?.final_price?.value ??
+                      minPrice?.regular_price?.value ??
+                      0;
+                    const currency = minPrice?.regular_price?.currency || "AED";
+                    const brand = brandOf(item.name);
+                    const category = item.categories?.[0]?.name;
+                    const imgUrl = item.image?.url;
+                    const inStock = item.stock_status !== "OUT_OF_STOCK";
 
                     return (
                       <div
-                        key={item.id}
+                        key={item.uid}
                         className="group bg-white rounded-xl border border-gray-100 p-3 flex flex-col justify-between shadow-xs hover:shadow-md hover:border-orange-200 transition-all duration-200 cursor-pointer relative"
                       >
-                        {/* Tyre Graphic Box */}
+                        {/* Product Image Box (real Magento media, SVG fallback) */}
                         <div className="w-full aspect-square bg-slate-50 border border-gray-100 rounded-lg flex items-center justify-center p-3 mb-3 relative overflow-hidden group-hover:scale-[1.02] transition-transform">
-                          <svg className="w-16 h-16 text-gray-800 drop-shadow-xs" viewBox="0 0 64 64" fill="none" stroke="currentColor">
-                            <circle cx="32" cy="32" r="22" strokeWidth="6" className="text-gray-800" fill="#1e293b" />
-                            <circle cx="32" cy="32" r="12" strokeWidth="3" className="text-gray-400" fill="#f8fafc" />
-                            <circle cx="32" cy="32" r="4" fill="#64748b" />
-                          </svg>
+                          {imgUrl ? (
+                            <Image
+                              src={imgUrl}
+                              alt={item.image?.label || title}
+                              fill
+                              sizes="(max-width: 640px) 50vw, (max-width: 1024px) 25vw, 12vw"
+                              className="object-contain p-2"
+                            />
+                          ) : (
+                            <svg className="w-16 h-16 text-gray-800 drop-shadow-xs" viewBox="0 0 64 64" fill="none" stroke="currentColor">
+                              <circle cx="32" cy="32" r="22" strokeWidth="6" className="text-gray-800" fill="#1e293b" />
+                              <circle cx="32" cy="32" r="12" strokeWidth="3" className="text-gray-400" fill="#f8fafc" />
+                              <circle cx="32" cy="32" r="4" fill="#64748b" />
+                            </svg>
+                          )}
+
+                          {!inStock && (
+                            <span className="absolute top-2 left-2 text-[9px] font-semibold px-1.5 py-0.5 bg-rose-50 text-rose-600 rounded border border-rose-200">
+                              Out of stock
+                            </span>
+                          )}
 
                           <span className="absolute bottom-2 right-2 w-7 h-7 bg-orange-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-md">
                             <PlusIcon className="w-4 h-4 stroke-2" />
@@ -452,21 +497,21 @@ export default function PosProductsPage() {
                             <span className="text-[10px] font-bold text-gray-900 uppercase tracking-tight truncate">
                               {skuCode}
                             </span>
-                            {item.brand && (
+                            {brand && (
                               <span className="text-[9px] px-1 bg-orange-50 text-orange-600 rounded border border-orange-200">
-                                {item.brand}
+                                {brand}
                               </span>
                             )}
                           </div>
 
-                          {item.size && (
+                          {category && (
                             <span className="text-[10px] text-gray-500 mt-0.5 truncate">
-                              {item.size}
+                              {category}
                             </span>
                           )}
 
                           <span className="text-xs font-semibold text-gray-800 mt-0.5">
-                            ${typeof displayPrice === "number" ? displayPrice.toFixed(2) : displayPrice}
+                            {currency} {priceVal.toFixed(2)}
                           </span>
                         </div>
                       </div>

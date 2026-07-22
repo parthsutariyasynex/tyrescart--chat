@@ -5,7 +5,11 @@
  * source of truth. Each builder returns the query string used by
  * `services/graphql.ts`. Types live in `./types`.
  */
-import type { SupplierProductsQueryVars, TyresChatQueryVars } from "./types";
+import type {
+  ProductsQueryVars,
+  SupplierProductsQueryVars,
+  TyresChatQueryVars,
+} from "./types";
 
 /* ─────────────────────────────────────────────
    supplierProducts
@@ -49,6 +53,99 @@ export function supplierProductsQuery(vars: SupplierProductsQueryVars = {}): str
         country
         year
         is_latest
+      }
+    }
+  }`;
+}
+
+/* ─────────────────────────────────────────────
+   products (default Magento storefront query)
+───────────────────────────────────────────── */
+/**
+ * Builds the stock Magento `products` query.
+ *
+ * Notes for this store:
+ * - `sort` only accepts `relevance`, `name`, `position` — `price` is NOT
+ *   enabled by ProductAttributeSortInput and errors if used.
+ * - `filter` accepts `sku`/`category_uid`/`size` (eq) and `name` (match).
+ *   `price` is NOT a filterable attribute on this store's
+ *   ProductAttributeFilterInput and errors if used.
+ * - `search` and `filter` may be combined; Magento requires at least one
+ *   of search / filter, so callers should pass one or the other.
+ */
+export function productsQuery(vars: ProductsQueryVars = {}): string {
+  const {
+    search,
+    sku,
+    name,
+    size,
+    categoryUid,
+    pageSize = 20,
+    currentPage = 1,
+    sortField = "relevance",
+    sortDirection = "ASC",
+  } = vars;
+
+  // Escape any embedded double-quotes to keep the inline string valid.
+  const esc = (s: string) => s.replace(/"/g, '\\"');
+
+  const filterParts: string[] = [];
+  if (sku) filterParts.push(`sku: { eq: "${esc(sku)}" }`);
+  if (name) filterParts.push(`name: { match: "${esc(name)}" }`);
+  if (size) filterParts.push(`size: { eq: "${esc(size)}" }`);
+  if (categoryUid) filterParts.push(`category_uid: { eq: "${esc(categoryUid)}" }`);
+  const filterArg = filterParts.length ? `filter: { ${filterParts.join(", ")} }, ` : "";
+
+  // Magento REQUIRES `search` or `filter`; omitting both errors with
+  // "'search' or 'filter' input argument is required." When a caller supplies
+  // neither a term nor a filter, an empty `search: ""` acts as match-all.
+  const searchArg =
+    search !== undefined && search !== ""
+      ? `search: "${esc(search)}", `
+      : filterParts.length
+        ? ""
+        : `search: "", `;
+
+  return `query {
+    products(
+      ${searchArg}${filterArg}pageSize: ${pageSize}
+      currentPage: ${currentPage}
+      sort: { ${sortField}: ${sortDirection} }
+    ) {
+      total_count
+      page_info {
+        current_page
+        page_size
+        total_pages
+      }
+      items {
+        uid
+        sku
+        name
+        stock_status
+        url_key
+        image {
+          url
+          label
+        }
+        price_range {
+          minimum_price {
+            regular_price {
+              value
+              currency
+            }
+            final_price {
+              value
+              currency
+            }
+          }
+        }
+        categories {
+          id
+          uid
+          name
+          url_key
+        }
       }
     }
   }`;

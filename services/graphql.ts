@@ -4,9 +4,11 @@
  *
  * Query strings live in `./queries`; types live in `./types`.
  */
-import { supplierProductsQuery, tyresChatQuery } from "./queries";
+import { productsQuery, supplierProductsQuery, tyresChatQuery } from "./queries";
 import type {
+  FetchProductsParams,
   FetchSupplierProductsParams,
+  ProductsResponse,
   SupplierProductsResponse,
   TyresChatResponse,
 } from "./types";
@@ -46,6 +48,25 @@ async function executeGraphQLQuery(query: string) {
     console.error("GraphQL execution failed:", err);
     throw err;
   }
+}
+
+/**
+ * Fetch products using the default Magento storefront GraphQL query.
+ *
+ * This is the stock `products(...)` field every Magento 2 store exposes —
+ * unlike the store-specific `supplierProducts`/`tyresChat` fields. Use it
+ * for the public catalog (storefront-visible, priced products).
+ *
+ * Example:
+ *   products(search: "dunlop", pageSize: 20, currentPage: 1, sort: { name: ASC })
+ */
+export async function fetchProductsGraphQL(
+  params: FetchProductsParams = {}
+): Promise<ProductsResponse> {
+  const query = productsQuery(params);
+
+  const data = await executeGraphQLQuery(query);
+  return data?.products || { total_count: 0, items: [] };
 }
 
 /**

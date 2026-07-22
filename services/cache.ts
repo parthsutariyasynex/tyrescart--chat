@@ -43,15 +43,26 @@ export async function addKnownBrands(brands: (string | undefined)[]): Promise<st
   return merged;
 }
 
-import { fetchSupplierProductsGraphQL, fetchTyresChatGraphQL } from "./graphql";
+import {
+  fetchProductsGraphQL,
+  fetchSupplierProductsGraphQL,
+  fetchTyresChatGraphQL,
+} from "./graphql";
 import type {
+  FetchProductsParams,
   FetchSupplierProductsParams,
+  ProductsResponse,
   SupplierProductsResponse,
   TyresChatItem,
   TyresChatQueryVars,
 } from "./types";
 
 interface CachedProductQuery extends SupplierProductsResponse {
+  key: string;
+  ts: number;
+}
+
+interface CachedStorefrontQuery extends ProductsResponse {
   key: string;
   ts: number;
 }
@@ -84,6 +95,38 @@ export async function getProductsCached(
     })
     .catch((err) => {
       console.warn("[cache] products refresh failed — using cached data", err);
+      onError?.(err instanceof Error ? err : new Error("Products request failed"));
+    });
+
+  return cached;
+}
+
+/**
+ * Storefront products (default Magento `products` query), cache-first.
+ *
+ * Same read-through pattern as {@link getProductsCached} but backed by the
+ * stock `products` field (priced, storefront-visible catalog with real
+ * images) instead of the store-specific `supplierProducts` feed. Cache keys
+ * are namespaced with a `storefront:` prefix so they never collide with
+ * supplierProducts entries sharing the same object store.
+ */
+export async function getStorefrontProductsCached(
+  params: FetchProductsParams,
+  { onFresh, onError }: ReadThroughCallbacks<ProductsResponse> = {},
+): Promise<ProductsResponse | null> {
+  const key = "storefront:" + JSON.stringify(params);
+  const cached = await idbGet<CachedStorefrontQuery>(STORE_PRODUCT_QUERIES, key).catch(() => null);
+
+  fetchProductsGraphQL(params)
+    .then(async (res) => {
+      await idbPut(STORE_PRODUCT_QUERIES, { key, ...res, ts: Date.now() }).catch((e) =>
+        console.error("[cache] failed to write storefront products to IndexedDB:", e),
+      );
+      await idbSetMeta("products:lastSync", Date.now()).catch(() => {});
+      onFresh?.(res);
+    })
+    .catch((err) => {
+      console.warn("[cache] storefront products refresh failed — using cached data", err);
       onError?.(err instanceof Error ? err : new Error("Products request failed"));
     });
 
