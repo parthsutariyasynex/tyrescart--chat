@@ -301,7 +301,7 @@ export default function TyreGuideChatPage() {
               </div>
             )}
 
-            <LogoutButton />
+            {/* <LogoutButton /> */}
           </div>
         </header>
 
