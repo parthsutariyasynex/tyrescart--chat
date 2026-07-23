@@ -54,6 +54,7 @@ export function supplierProductsQuery(vars: SupplierProductsQueryVars = {}): str
         year
         is_latest
       }
+        
     }
   }`;
 }

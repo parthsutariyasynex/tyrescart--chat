@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import {
   HomeIcon,
@@ -27,20 +27,24 @@ import type {
 /** The default `products` query has no brand field — approximate it from the
  *  leading word of the product name (e.g. "Dunlop 700 R16 …" → "Dunlop"). */
 const brandOf = (name?: string) => (name || "").trim().split(/\s+/)[0] || "";
-import { ProductGridSkeleton } from "@/components/Skeletons";
+import { ProductGridSkeleton, Skeleton } from "@/components/Skeletons";
 import Image from "next/image";
 import LogoutButton from "@/components/LogoutButton";
 import HeaderSyncButton from "@/components/HeaderSyncButton";
 import SidebarSyncButton from "@/components/SidebarSyncButton";
 import { registerModuleSync } from "@/services/syncService";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { queryProducts } from "@/services/searchFilter";
+import { enrichProducts, type EnrichedProduct } from "@/services/productEnrich";
 
 export default function PosProductsPage() {
   // `products` is the FULL list loaded into cache so far (grows as background
   // batches arrive). The UI never renders all of it at once — it renders only a
   // fixed-size window (see VIEW_SIZE), and Next/Prev move that window over this
   // already-cached list WITHOUT any API call.
-  const [products, setProducts] = useState<ProductItem[]>([]);
+  // Enriched with derived brand/size/plain_size/year (see productEnrich) so
+  // search/sort run on structured fields, entirely client-side.
+  const [products, setProducts] = useState<EnrichedProduct[]>([]);
   const [tyresChatItems, setTyresChatItems] = useState<TyresChatItem[]>([]);
   const [totalCount, setTotalCount] = useState<number>(0);
 
@@ -71,6 +75,11 @@ export default function PosProductsPage() {
     return () => clearTimeout(t);
   }, [searchQuery]);
 
+  // A new client-side search always resets the visible window to the first page.
+  useEffect(() => {
+    setViewPage(0);
+  }, [debouncedSearch]);
+
   // Brands are derived from real product data (not hardcoded) and persisted
   // in IndexedDB; the list grows as more products are seen.
   const [brands, setBrands] = useState<string[]>([]);
@@ -82,6 +91,9 @@ export default function PosProductsPage() {
   // background so the tabs / TyresChat button can be re-enabled instantly.
   void brands;
   void tyresChatItems;
+  // `activeBrand` still backs the (hidden) brand tabs + reset button; the fetch
+  // now always pulls the full catalog and search runs client-side.
+  void activeBrand;
 
   // How many products each GraphQL request pulls into the cache. The background
   // loop fetches as many batches as the catalog needs; a larger batch means
@@ -92,7 +104,7 @@ export default function PosProductsPage() {
 
   // How many products are VISIBLE in the grid at once. Next/Prev move this
   // window over the cached list. Independent of BATCH_SIZE (fetch size).
-  const VIEW_SIZE = 500;
+  const VIEW_SIZE = 400;
 
   // Monotonic id for the active load. Each new load (mount, filter/search
   // change, manual sync) bumps it; the background batch loop bails the moment
@@ -110,12 +122,10 @@ export default function PosProductsPage() {
     setLoading(true);
     setViewPage(0); // a fresh load always starts the window at the first slice
 
-    // Both the brand tab and the search box drive Magento's full-text `search`
-    // argument (the default `products` query has no brand/size filter fields).
-    // Empty string → match-all, which the query builder passes through safely.
-    const terms = [activeBrand === "All" ? "" : activeBrand, debouncedSearch]
-      .filter(Boolean)
-      .join(" ");
+    // Fetch the FULL catalog once (match-all). Search is no longer sent to
+    // Magento — it's applied CLIENT-SIDE from the cached list via queryProducts
+    // (see below), so typing in the search box triggers NO new GraphQL request.
+    const terms = "";
 
     const baseParams = {
       search: terms,
@@ -140,7 +150,7 @@ export default function PosProductsPage() {
       const first = await fetchStorefrontBatch({ ...baseParams, currentPage: 1 }, maxAgeMs);
       if (!isCurrent()) return; // a newer load started while we awaited
 
-      setProducts(first.items || []);
+      setProducts(enrichProducts(first.items || []));
       setTotalCount(first.total_count || 0);
       harvestBrands(first.items);
       setLoading(false);
@@ -162,7 +172,7 @@ export default function PosProductsPage() {
           break;
         }
         if (!isCurrent()) return; // filter/search changed → stop appending
-        setProducts((prev) => [...prev, ...(batch.items || [])]);
+        setProducts((prev) => [...prev, ...enrichProducts(batch.items || [])]);
         harvestBrands(batch.items);
       }
     } catch (err) {
@@ -177,7 +187,7 @@ export default function PosProductsPage() {
         setLoadingMore(false);
       }
     }
-  }, [activeBrand, debouncedSearch]);
+  }, []);
 
   // Register this page's live refresher so the Header/Sidebar Sync buttons
   // (via the shared useSync hook → syncService) can re-fetch products in place,
@@ -206,21 +216,37 @@ export default function PosProductsPage() {
   useEffect(() => {
     // Fetch on mount / when filters change. State updates happen after the
     // awaited cache read, so this is a legitimate data-load effect.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadGraphQLProducts();
     loadTyresChat();
   }, [loadGraphQLProducts, loadTyresChat]);
 
-  // Client-side windowing over the cached list. The grid renders ONLY this
-  // slice — never all `products.length` at once — and Next/Prev just move the
-  // window. No fetch happens here; `products` is filled by the batch loader.
-  const windowStart = viewPage * VIEW_SIZE;
-  const displayedProducts = products.slice(windowStart, windowStart + VIEW_SIZE);
+  // Client-side search + windowing over the FULL cached list. queryProducts
+  // filters (by search), sorts and slices the already-cached `products` array
+  // in memory — typing in the search box or paging triggers NO network call.
+  // Search runs on the derived structured fields (brand/size/plain_size) so
+  // "michelin" returns the complete brand set and any size format normalizes
+  // to the same match (see searchFilter.isSizeOnlyQuery / sizeMatches).
+  const view = useMemo(
+    () =>
+      queryProducts<EnrichedProduct>(products, {
+        search: debouncedSearch,
+        sortBy: "name",
+        sortOrder: "asc",
+        page: viewPage + 1,
+        pageSize: VIEW_SIZE,
+        searchableFields: ["name", "brand", "size", "plain_size", "sku"],
+        sortableFields: ["name", "brand", "size", "year", "price"],
+        defaultSortField: "name",
+      }),
+    [products, debouncedSearch, viewPage],
+  );
+  const displayedProducts = view.items;
+  const windowStart = (view.page - 1) * VIEW_SIZE;
   const windowEnd = windowStart + displayedProducts.length; // exclusive index
-  const canPrevPage = viewPage > 0;
-  // Next is available when more cached products exist past the current window
-  // (they may still be arriving via background batches).
-  const canNextPage = windowEnd < products.length;
+  const canPrevPage = view.page > 1;
+  // Next is available while more filtered pages exist (the cache may still be
+  // filling via background batches, which grows `view.totalPages`).
+  const canNextPage = view.page < view.totalPages;
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#f4f6f9] text-gray-800 font-sans relative">
@@ -320,11 +346,14 @@ export default function PosProductsPage() {
 
           {/* Right Header Actions */}
           <div className="flex items-center gap-3">
-            {/* Total Count Badge — single live count that climbs as background
-                batches cache (500 → 1000 → … → 7573). */}
-            <span className="text-xs font-semibold px-2.5 py-1 bg-gray-100 border border-gray-200 text-gray-600 rounded-lg min-w-[75px] text-center">
-              Total: {products.length}
-            </span>
+            {/* Total Count Badge — shows current count matching active filters */}
+            {loading && products.length === 0 ? (
+              <Skeleton className="h-7 w-[105px] rounded-lg" />
+            ) : (
+              <span className="text-xs font-semibold h-7 min-w-[105px] inline-flex items-center justify-center px-2.5 bg-gray-100 border border-gray-200 text-gray-600 rounded-lg text-center whitespace-nowrap">
+                Total: {view.total}
+              </span>
+            )}
 
             <button
               onClick={() => {
@@ -344,20 +373,20 @@ export default function PosProductsPage() {
             <HeaderSyncButton title="Sync products" />
 
             {isOnline ? (
-              <div className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full text-xs font-semibold border border-emerald-200 shadow-2xs">
+              <div className="h-7 w-[95px] inline-flex items-center justify-center gap-1.5 text-emerald-700 bg-emerald-50 px-2.5 rounded-full text-xs font-semibold border border-emerald-200 shadow-2xs whitespace-nowrap">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                 <WifiIcon className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Online</span>
               </div>
             ) : (
-              <div className="flex items-center gap-1.5 text-rose-700 bg-rose-50 px-2.5 py-1 rounded-full text-xs font-semibold border border-rose-200 shadow-2xs">
+              <div className="h-7 w-[95px] inline-flex items-center justify-center gap-1.5 text-rose-700 bg-rose-50 px-2.5 rounded-full text-xs font-semibold border border-rose-200 shadow-2xs whitespace-nowrap">
                 <span className="w-2 h-2 rounded-full bg-rose-500"></span>
                 <WifiIcon className="w-3.5 h-3.5 text-rose-600" />
                 <span>Offline</span>
               </div>
             )}
 
-            <LogoutButton />
+            {/* <LogoutButton /> */}
           </div>
         </header>
 
@@ -397,11 +426,24 @@ export default function PosProductsPage() {
           </div>
           */}
 
+          {/* Width-omitted (aspect+rim) fallback notice — only for partial size matches */}
+          {view.isPartialSizeMatch && (
+            <div className="mb-3 px-4 py-2 text-sm bg-amber-50 text-amber-800 border border-amber-200 rounded-lg">
+              Showing tyres matching {view.matchedPattern}. Select width for a more accurate result.
+            </div>
+          )}
+
           {/* DYNAMIC GRAPHQL PRODUCT GRID CONTAINER */}
           <div className="flex-1 overflow-y-auto pr-1">
             {/* 1. SKELETON LOADERS FOR PRODUCT CARDS */}
             {loading && products.length === 0 ? (
-              <ProductGridSkeleton count={14} />
+              <div className="flex flex-col justify-between h-full">
+                <ProductGridSkeleton count={24} />
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-gray-200 pt-4 mt-2 text-xs text-gray-600">
+                  <Skeleton className="h-4 w-40 rounded" />
+                  <Skeleton className="h-4 w-48 rounded" />
+                </div>
+              </div>
             ) : error ? (
               <div className="flex flex-col items-center justify-center h-64 text-red-500 bg-red-50/50 rounded-2xl border border-red-100 p-6">
                 <p className="text-sm font-semibold mb-1">Magento GraphQL API Call Issue</p>
@@ -438,7 +480,7 @@ export default function PosProductsPage() {
                       minPrice?.regular_price?.value ??
                       0;
                     const currency = minPrice?.regular_price?.currency || "AED";
-                    const brand = brandOf(item.name);
+                    const brand = item.brand || brandOf(item.name);
                     const imgUrl = item.image?.url;
                     const inStock = item.stock_status !== "OUT_OF_STOCK";
 
@@ -478,20 +520,21 @@ export default function PosProductsPage() {
                         </div>
 
                         {/* Metadata */}
-                        <div className="flex flex-col items-center text-center">
-                          {/* Full product name — no truncation/ellipsis; wraps
-                              to 2-3 lines. min-height reserves ~2 lines so cards
-                              stay a consistent height for short names. */}
+                        <div className="flex flex-col items-center text-center w-full">
                           <h3
-                            className="text-xs font-medium text-gray-700 w-full break-words [overflow-wrap:anywhere] leading-snug min-h-[2.5rem] group-hover:text-gray-900"
+                            className="text-xs font-medium text-gray-700 w-full leading-snug h-[2.5rem] line-clamp-2 flex items-center justify-center text-center group-hover:text-gray-900 mb-1"
                             title={title}
                           >
                             {title}
                           </h3>
 
-                          {brand && (
-                            <span className="text-[11px] px-2 py-0.5 mt-1 bg-orange-50 text-orange-600 rounded border border-orange-200">
+                          {brand ? (
+                            <span className="text-[11px] px-2 py-0.5 mt-1 bg-orange-50 text-orange-600 rounded border border-orange-200 whitespace-nowrap overflow-hidden text-ellipsis max-w-full">
                               {brand}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] px-2 py-0.5 mt-1 opacity-0 pointer-events-none select-none">
+                              &nbsp;
                             </span>
                           )}
 
@@ -509,7 +552,7 @@ export default function PosProductsPage() {
                     background), (right) which slice is currently visible, with
                     Next/Prev that only move the window over the cache (no API). */}
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-gray-200 pt-4 mt-2 text-xs text-gray-600">
-                  {/* Total loaded in cache */}
+                  {/* Total loaded in cache / filtered result count */}
                   <span className="flex items-center gap-2">
                     {loadingMore && (
                       <span className="w-3.5 h-3.5 border-2 border-orange-400 border-t-transparent rounded-full animate-spin" />
@@ -517,8 +560,9 @@ export default function PosProductsPage() {
                     <span>
                       Loaded in cache:{" "}
                       <strong className="text-gray-800">
-                        {products.length}
-                        {totalCount ? ` / ${totalCount}` : ""}
+                        {debouncedSearch
+                          ? `${view.total} / ${products.length}`
+                          : `${products.length}${totalCount ? ` / ${totalCount}` : ""}`}
                       </strong>
                     </span>
                   </span>
@@ -528,7 +572,7 @@ export default function PosProductsPage() {
                     <span>
                       Showing{" "}
                       <strong className="text-gray-800">
-                        {windowStart + 1}–{windowEnd}
+                        {view.total === 0 ? 0 : `${windowStart + 1}–${windowEnd}`}
                       </strong>
                     </span>
                     <div className="flex items-center gap-2">

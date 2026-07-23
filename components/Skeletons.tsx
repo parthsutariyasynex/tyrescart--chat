@@ -16,27 +16,28 @@ export function Skeleton({ className = "" }: { className?: string }) {
  */
 export function ProductCardSkeleton() {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-3 flex flex-col justify-between shadow-2xs">
-      {/* Image box */}
-      <div className="w-full aspect-square bg-slate-100/80 border border-gray-100 rounded-lg flex items-center justify-center p-3 mb-3 relative overflow-hidden">
-        <Skeleton className="w-full h-full rounded-lg" />
+    <div className="bg-white rounded-xl border border-gray-100 p-3 flex flex-col justify-between shadow-xs relative">
+      {/* Product Image Box */}
+      <div className="w-full aspect-square bg-white rounded-lg flex items-center justify-center p-3 mb-3 relative overflow-hidden">
+        <Skeleton className="w-16 h-16 rounded-full opacity-40" />
       </div>
-      {/* Metadata */}
-      <div className="flex flex-col items-center text-center">
-        <Skeleton className="h-3.5 w-3/4 rounded mb-2" />
-        <div className="flex items-center justify-center gap-1.5 mb-1.5 w-full">
-          <Skeleton className="h-3 w-12 rounded" />
-          <Skeleton className="h-3 w-10 rounded" />
+
+      {/* Metadata matching exact card layout */}
+      <div className="flex flex-col items-center text-center w-full">
+        <div className="w-full h-[2.5rem] flex flex-col items-center justify-center gap-1.5 mb-1">
+          <Skeleton className="h-3 w-4/5 rounded" />
+          <Skeleton className="h-3 w-3/5 rounded" />
         </div>
-        <Skeleton className="h-2.5 w-1/2 rounded mb-2" />
-        <Skeleton className="h-3.5 w-1/3 rounded" />
+
+        <Skeleton className="h-5 w-16 rounded mt-1" />
+        <Skeleton className="h-4 w-20 rounded mt-0.5" />
       </div>
     </div>
   );
 }
 
 /** Grid of product-card skeletons (same grid as the real catalog). */
-export function ProductGridSkeleton({ count = 14 }: { count?: number }) {
+export function ProductGridSkeleton({ count = 24 }: { count?: number }) {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-4 pb-6">
       {Array.from({ length: count }).map((_, i) => (
@@ -83,45 +84,52 @@ export function ChatGridSkeleton({ count = 12 }: { count?: number }) {
 }
 
 /**
- * Full-page POS skeleton — mirrors the products page chrome (sidebar, header,
- * brand tabs) plus the product grid. Used by route-level `loading.tsx` so the
- * home page shows a proper skeleton while it loads.
+ * Full-page POS skeleton — mirrors the products page chrome (sidebar, header)
+ * plus the product grid. Used by route-level `loading.tsx` so the home page
+ * shows a proper skeleton while it loads without any layout shift.
  */
 export function PosPageSkeleton() {
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#f4f6f9]">
       {/* Sidebar */}
-      <aside className="w-[68px] flex-none bg-white border-r border-gray-200 flex flex-col items-center py-3 gap-6">
-        <Skeleton className="w-10 h-10 rounded-xl" />
-        <div className="flex flex-col gap-3 w-full px-3">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="w-full h-9 rounded-lg" />
-          ))}
+      <aside className="w-[68px] flex-none bg-white border-r border-gray-200 flex flex-col items-center justify-between py-3 z-20 shadow-xs">
+        <div className="flex flex-col items-center gap-6 w-full">
+          <Skeleton className="w-10 h-10 rounded-xl" />
+          <div className="flex flex-col gap-2 w-full px-2">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <Skeleton key={i} className="w-full h-11 rounded-lg" />
+            ))}
+          </div>
+        </div>
+        <div className="flex flex-col items-center gap-2 pt-2 border-t border-gray-100 w-full">
+          <Skeleton className="w-9 h-9 rounded-full" />
         </div>
       </aside>
 
       {/* Main */}
-      <main className="flex-1 flex flex-col min-w-0 bg-[#f8fafc]">
+      <main className="flex-1 flex flex-col min-w-0 bg-[#f8fafc] overflow-hidden">
         {/* Header */}
-        <header className="h-16 flex-none bg-white border-b border-gray-200 px-6 flex items-center gap-4">
-          <Skeleton className="h-10 flex-1 max-w-xl rounded-lg" />
-          <div className="ml-auto flex items-center gap-3">
-            <Skeleton className="h-7 w-28 rounded-lg" />
-            <Skeleton className="h-7 w-20 rounded-lg" />
-            <Skeleton className="h-8 w-8 rounded-full" />
+        <header className="h-16 flex-none bg-white border-b border-gray-200 px-6 flex items-center justify-between gap-4 shadow-xs">
+          <Skeleton className="h-10 flex-1 max-w-2xl rounded-lg" />
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-7 w-[105px] rounded-lg" />
+            <Skeleton className="h-8 w-8 rounded-lg" />
+            <Skeleton className="h-8 w-8 rounded-lg" />
+            <Skeleton className="h-7 w-[95px] rounded-full" />
           </div>
         </header>
 
         <div className="flex-1 flex flex-col p-6 overflow-hidden">
-          {/* Brand tabs */}
-          <div className="flex items-center gap-6 border-b border-gray-200 pb-3 mb-6">
-            {Array.from({ length: 7 }).map((_, i) => (
-              <Skeleton key={i} className="h-4 w-16 rounded" />
-            ))}
+          {/* Product grid + footer wrapper */}
+          <div className="flex-1 overflow-y-auto pr-1">
+            <div className="flex flex-col justify-between h-full">
+              <ProductGridSkeleton count={24} />
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-gray-200 pt-4 mt-2 text-xs text-gray-600">
+                <Skeleton className="h-4 w-40 rounded" />
+                <Skeleton className="h-4 w-48 rounded" />
+              </div>
+            </div>
           </div>
-
-          {/* Product grid */}
-          <ProductGridSkeleton count={14} />
         </div>
       </main>
     </div>
