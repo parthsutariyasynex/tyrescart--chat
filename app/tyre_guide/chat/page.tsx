@@ -6,6 +6,7 @@ import Image from "next/image";
 import {
   HomeIcon,
   ChatBubbleLeftRightIcon,
+  TruckIcon,
   MagnifyingGlassIcon,
   ArrowsPointingOutIcon,
   WifiIcon,
@@ -197,6 +198,7 @@ export default function TyreGuideChatPage() {
             {[
               { name: "Home", icon: HomeIcon, href: "/dashboard/products" },
               { name: "Chat", icon: ChatBubbleLeftRightIcon, href: "/tyre_guide/chat" },
+              { name: "Supplier", icon: TruckIcon, href: "/supplier-products" },
             ].map((item) => {
               const Icon = item.icon;
               // This is the Chat page, so the Chat nav link is the active one.

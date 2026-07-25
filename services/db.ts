@@ -6,18 +6,22 @@
  * unavailable), so callers should `.catch()` and fall back gracefully.
  *
  * Object stores:
- *   - productQueries : cached supplierProducts responses, keyed by query signature
- *   - tyresChat      : cached tyresChat items, keyed by id
- *   - meta           : misc key/value (sync timestamps, etc.)
+ *   - productQueries   : cached storefront/query responses, keyed by query signature
+ *   - supplierProducts : the full supplier catalogue, one record PER product (keyPath "id"),
+ *                        with indexes on brand/size/year/source_name/is_latest
+ *   - tyresChat        : cached tyresChat items, keyed by id
+ *   - meta             : misc key/value (sync timestamps, etc.)
  */
 
 const DB_NAME = "tyrescart-pos";
-// v2: force onupgradeneeded to re-run for anyone whose v1 DB was created
-// without all object stores (e.g. a stale/partial DB), so missing stores
-// are added instead of every transaction failing with NotFoundError.
-const DB_VERSION = 2;
+// v3: adds the per-product `supplierProducts` object store (+indexes). Bumping
+// the version forces onupgradeneeded to run for anyone on v2 so the new store
+// is created; without the bump, existing v2 DBs never get it and every
+// supplierProducts transaction fails with NotFoundError.
+const DB_VERSION = 3;
 
 export const STORE_PRODUCT_QUERIES = "productQueries";
+export const STORE_SUPPLIER_PRODUCTS = "supplierProducts";
 export const STORE_TYRES_CHAT = "tyresChat";
 export const STORE_META = "meta";
 
@@ -47,6 +51,18 @@ function openDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORE_TYRES_CHAT)) {
         db.createObjectStore(STORE_TYRES_CHAT, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(STORE_SUPPLIER_PRODUCTS)) {
+        const store = db.createObjectStore(
+          STORE_SUPPLIER_PRODUCTS,
+          { keyPath: "id" }
+        );
+
+        store.createIndex("brand", "brand", { unique: false });
+        store.createIndex("size", "size", { unique: false });
+        store.createIndex("year", "year", { unique: false });
+        store.createIndex("source_name", "source_name", { unique: false });
+        store.createIndex("is_latest", "is_latest", { unique: false });
       }
       if (!db.objectStoreNames.contains(STORE_META)) {
         db.createObjectStore(STORE_META, { keyPath: "key" });
@@ -139,6 +155,17 @@ export async function idbClear(store: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction(store, "readwrite");
     tx.objectStore(store).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/** Delete a single record by key. */
+export async function idbDelete(store: string, key: IDBValidKey): Promise<void> {
+  const db = await openDB();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(store, "readwrite");
+    tx.objectStore(store).delete(key);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });

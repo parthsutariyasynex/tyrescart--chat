@@ -17,12 +17,16 @@ import {
   getTyresChatCached,
   isProductsRecentlySynced,
   isTyresChatRecentlySynced,
+  isSupplierProductsRecentlySynced,
+  syncAllSupplierProducts,
+  syncSupplierProductsPage,
 } from "./cache";
 
-export type SyncModule = "products" | "orders" | "customers" | "tyresChat";
+export type SyncModule = "products" | "orders" | "customers" | "tyresChat" | "supplierProducts";
 
 /* ── Route → module map (longest matching prefix wins) ── */
 const ROUTE_MODULES: { prefix: string; module: SyncModule }[] = [
+  { prefix: "/supplier-products", module: "supplierProducts" },
   { prefix: "/dashboard/products", module: "products" },
   { prefix: "/dashboard/orders", module: "orders" },
   { prefix: "/dashboard/customers", module: "customers" },
@@ -89,6 +93,9 @@ const MODULE_DATA_SYNC: Record<SyncModule, () => Promise<void>> = {
       ),
     ),
   tyresChat: () => runCached((cbs) => getTyresChatCached({ pageSize: 200 }, { ...cbs, maxAgeMs: 0 })),
+  supplierProducts: async () => {
+    await syncSupplierProductsPage();
+  },
   // No dedicated data modules yet — ready for when these pages land.
   orders: async () => {
     console.info("[sync] orders module not implemented yet — skipping");
@@ -131,11 +138,12 @@ export async function isPageRecentlySynced(
   const mod = moduleForPath(pathname);
   if (mod === "products") return isProductsRecentlySynced(maxAgeMs);
   if (mod === "tyresChat") return isTyresChatRecentlySynced(maxAgeMs);
+  if (mod === "supplierProducts") return isSupplierProductsRecentlySynced(maxAgeMs);
   return false;
 }
 
 /** Sidebar Sync: refresh every module (full application sync). */
 export async function syncAll(): Promise<void> {
-  const modules: SyncModule[] = ["products", "orders", "customers", "tyresChat"];
+  const modules: SyncModule[] = ["products", "orders", "customers", "tyresChat", "supplierProducts"];
   await Promise.all(modules.map((m) => refreshModule(m)));
 }

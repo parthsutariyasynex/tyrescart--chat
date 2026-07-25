@@ -10,7 +10,8 @@ import {
   WifiIcon,
   PlusIcon,
   XMarkIcon,
-  ChatBubbleLeftRightIcon
+  ChatBubbleLeftRightIcon,
+  TruckIcon
 } from "@heroicons/react/24/outline";
 import {
   fetchStorefrontBatch,
@@ -275,6 +276,7 @@ export default function PosProductsPage() {
             {[
               { name: "Home", icon: HomeIcon, href: "/dashboard/products" },
               { name: "Chat", icon: ChatBubbleLeftRightIcon, href: "/tyre_guide/chat" },
+              { name: "Supplier", icon: TruckIcon, href: "/supplier-products" },
               // { name: "Cashier", icon: BanknotesIcon, action: () => {} },
               // { name: "Orders", icon: ShoppingBagIcon, action: () => {} },
               // { name: "Reports", icon: ChartBarIcon, action: () => {} },

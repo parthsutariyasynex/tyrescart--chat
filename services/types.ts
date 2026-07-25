@@ -9,6 +9,15 @@
 export interface SupplierProductsQueryVars {
   brand?: string;
   plain_size?: string;
+  /** 1 = current/latest records only, 0 = historical. Omit for all. */
+  is_latest?: number;
+  year?: string;
+  country?: string;
+  source_name?: string;
+  brand_category?: string;
+  product_name?: string;
+  sku?: string;
+  size?: string;
   pageSize?: number;
   currentPage?: number;
   sortField?: string;
@@ -35,6 +44,8 @@ export interface SupplierProductItem {
   country?: string;
   year?: number;
   is_latest?: number;
+  runflat?: boolean | string | number;
+  date?: string;
 }
 
 export interface SupplierProductsPageInfo {
@@ -67,8 +78,19 @@ export interface TyresChatResponse {
 export interface FetchSupplierProductsParams {
   brand?: string;
   plain_size?: string;
+  /** 1 = current/latest records only, 0 = historical. Omit for all. */
+  is_latest?: number;
+  year?: string;
+  country?: string;
+  source_name?: string;
+  brand_category?: string;
+  product_name?: string;
+  sku?: string;
+  size?: string;
   pageSize?: number;
   currentPage?: number;
+  sortField?: string;
+  sortDirection?: "ASC" | "DESC";
 }
 
 /* ─────────────────────────────────────────────

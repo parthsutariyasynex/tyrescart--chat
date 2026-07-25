@@ -18,15 +18,32 @@ export function supplierProductsQuery(vars: SupplierProductsQueryVars = {}): str
   const {
     brand,
     plain_size,
+    is_latest,
+    year,
+    country,
+    source_name,
+    brand_category,
+    product_name,
+    sku,
+    size,
     pageSize = 10,
     currentPage = 1,
     sortField = "price",
     sortDirection = "ASC",
   } = vars;
 
+  const esc = (s: string) => s.replace(/"/g, '\\"');
   const filterParts: string[] = [];
-  if (brand) filterParts.push(`brand: "${brand}"`);
-  if (plain_size) filterParts.push(`plain_size: "${plain_size}"`);
+  if (brand) filterParts.push(`brand: "${esc(brand)}"`);
+  if (plain_size) filterParts.push(`plain_size: "${esc(plain_size)}"`);
+  if (is_latest !== undefined) filterParts.push(`is_latest: ${is_latest}`);
+  if (year) filterParts.push(`year: "${esc(year)}"`);
+  if (country) filterParts.push(`country: "${esc(country)}"`);
+  if (source_name) filterParts.push(`source_name: "${esc(source_name)}"`);
+  if (brand_category) filterParts.push(`brand_category: "${esc(brand_category)}"`);
+  if (product_name) filterParts.push(`product_name: "${esc(product_name)}"`);
+  if (sku) filterParts.push(`sku: "${esc(sku)}"`);
+  if (size) filterParts.push(`size: "${esc(size)}"`);
   const filterStr = filterParts.length ? `filter: { ${filterParts.join(", ")} }, ` : "";
 
   return `query {
@@ -53,8 +70,9 @@ export function supplierProductsQuery(vars: SupplierProductsQueryVars = {}): str
         country
         year
         is_latest
+        runflat
+        date: source_date
       }
-        
     }
   }`;
 }

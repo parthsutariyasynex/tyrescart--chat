@@ -77,9 +77,17 @@ export async function fetchProductsGraphQL(
 export async function fetchSupplierProductsGraphQL(
   params: FetchSupplierProductsParams = {}
 ): Promise<SupplierProductsResponse> {
-  const { brand, plain_size, pageSize = 24, currentPage = 1 } = params;
+  const {
+    brand, plain_size, is_latest, year, country, source_name,
+    brand_category, product_name, sku, size,
+    pageSize = 24, currentPage = 1, sortField, sortDirection,
+  } = params;
 
-  const query = supplierProductsQuery({ brand, plain_size, pageSize, currentPage });
+  const query = supplierProductsQuery({
+    brand, plain_size, is_latest, year, country, source_name,
+    brand_category, product_name, sku, size,
+    pageSize, currentPage, sortField, sortDirection,
+  });
 
   const data = await executeGraphQLQuery(query);
   return data?.supplierProducts || { total_count: 0, items: [] };

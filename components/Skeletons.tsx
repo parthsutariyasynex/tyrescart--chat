@@ -135,3 +135,96 @@ export function PosPageSkeleton() {
     </div>
   );
 }
+
+/** Table Skeleton Loader for Supplier Products */
+export function SupplierTableSkeleton({ rows = 10 }: { rows?: number }) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col w-full">
+      {/* Table Top Header Summary Skeleton */}
+      <div className="px-5 py-2.5 flex items-center justify-end border-b border-slate-200/70 bg-slate-50/70">
+        <Skeleton className="h-7 w-36 rounded-lg" />
+      </div>
+
+      {/* Table Rows Skeleton */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="border-b border-slate-200 bg-slate-50/50">
+              <th className="py-3 px-4"><Skeleton className="h-4 w-16 rounded" /></th>
+              <th className="py-3 px-4"><Skeleton className="h-4 w-20 rounded" /></th>
+              <th className="py-3 px-4"><Skeleton className="h-4 w-20 rounded" /></th>
+              <th className="py-3 px-4"><Skeleton className="h-4 w-16 rounded" /></th>
+              <th className="py-3 px-4"><Skeleton className="h-4 w-28 rounded" /></th>
+              <th className="py-3 px-4"><Skeleton className="h-4 w-20 rounded" /></th>
+              <th className="py-3 px-4 text-center"><Skeleton className="h-4 w-14 rounded mx-auto" /></th>
+              <th className="py-3 px-4 text-center"><Skeleton className="h-4 w-12 rounded mx-auto" /></th>
+              <th className="py-3 px-4"><Skeleton className="h-4 w-16 rounded" /></th>
+              <th className="py-3 px-4 text-center"><Skeleton className="h-4 w-12 rounded mx-auto" /></th>
+              <th className="py-3 px-4 text-right"><Skeleton className="h-4 w-16 rounded ml-auto" /></th>
+              <th className="py-3 px-4 text-right"><Skeleton className="h-4 w-16 rounded ml-auto" /></th>
+              <th className="py-3 px-4"><Skeleton className="h-4 w-20 rounded" /></th>
+              <th className="py-3 px-4 text-center"><Skeleton className="h-4 w-16 rounded mx-auto" /></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {Array.from({ length: rows }).map((_, r) => (
+              <tr key={r} className="hover:bg-slate-50/50">
+                <td className="py-3.5 px-4"><Skeleton className="h-5 w-16 rounded-md" /></td>
+                <td className="py-3.5 px-4"><Skeleton className="h-4 w-24 rounded font-mono" /></td>
+                <td className="py-3.5 px-4"><Skeleton className="h-5 w-20 rounded-md" /></td>
+                <td className="py-3.5 px-4"><Skeleton className="h-4 w-20 rounded" /></td>
+                <td className="py-3.5 px-4"><Skeleton className="h-4 w-32 rounded" /></td>
+                <td className="py-3.5 px-4"><Skeleton className="h-4 w-20 rounded" /></td>
+                <td className="py-3.5 px-4 text-center"><Skeleton className="h-4 w-12 rounded mx-auto" /></td>
+                <td className="py-3.5 px-4 text-center"><Skeleton className="h-4 w-10 rounded mx-auto" /></td>
+                <td className="py-3.5 px-4"><Skeleton className="h-4 w-16 rounded" /></td>
+                <td className="py-3.5 px-4 text-center"><Skeleton className="h-6 w-8 rounded-full mx-auto" /></td>
+                <td className="py-3.5 px-4 text-right"><Skeleton className="h-4 w-14 rounded ml-auto" /></td>
+                <td className="py-3.5 px-4 text-right"><Skeleton className="h-4 w-14 rounded ml-auto" /></td>
+                <td className="py-3.5 px-4"><Skeleton className="h-4 w-20 rounded" /></td>
+                <td className="py-3.5 px-4 text-center"><Skeleton className="h-7 w-16 rounded-lg mx-auto" /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/** Full Supplier Products Page Skeleton */
+export function SupplierProductsPageSkeleton() {
+  return (
+    <div className="flex h-screen w-screen overflow-hidden bg-slate-50 font-sans">
+      <div className="flex-1 flex flex-col min-w-0 bg-slate-50 overflow-hidden">
+        {/* Header Skeleton */}
+        <header className="h-16 flex-none bg-white border-b border-slate-200 px-6 flex items-center justify-between gap-4 shadow-2xs">
+          <Skeleton className="h-7 w-48 rounded-lg" />
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-9 w-32 rounded-lg" />
+            <Skeleton className="h-9 w-28 rounded-lg" />
+            <Skeleton className="h-9 w-24 rounded-lg" />
+          </div>
+        </header>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-4 w-full">
+          {/* Filters Bar Skeleton */}
+          <div className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-2xs flex flex-wrap items-end gap-3">
+            <Skeleton className="h-10 w-36 rounded-lg" />
+            <Skeleton className="h-10 w-36 rounded-lg" />
+            <Skeleton className="h-10 w-40 rounded-lg" />
+            <Skeleton className="h-10 flex-1 min-w-[200px] rounded-lg" />
+            <Skeleton className="h-10 w-28 rounded-lg" />
+            <Skeleton className="h-10 w-24 rounded-lg" />
+            <Skeleton className="h-10 w-24 rounded-lg" />
+            <Skeleton className="h-10 w-10 rounded-lg" />
+            <Skeleton className="h-10 w-10 rounded-lg" />
+          </div>
+
+          {/* Table Skeleton */}
+          <SupplierTableSkeleton rows={10} />
+        </div>
+      </div>
+    </div>
+  );
+}
