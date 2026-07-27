@@ -18,7 +18,12 @@ const DB_NAME = "tyrescart-pos";
 // the version forces onupgradeneeded to run for anyone on v2 so the new store
 // is created; without the bump, existing v2 DBs never get it and every
 // supplierProducts transaction fails with NotFoundError.
-const DB_VERSION = 3;
+// v4: DROPS the five supplierProducts indexes (brand/size/year/source_name/
+// is_latest). They were never read — the supplier page filters in memory over
+// the already-loaded array — but IndexedDB maintained all five on every put,
+// costing ~5 extra index writes per row (~1.6M on a 318k-row sync). Removing
+// them is purely a write-throughput win; no read path changes.
+const DB_VERSION = 4;
 
 export const STORE_PRODUCT_QUERIES = "productQueries";
 export const STORE_SUPPLIER_PRODUCTS = "supplierProducts";
@@ -46,6 +51,10 @@ function openDB(): Promise<IDBDatabase> {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
+      // The version-change transaction — needed to reach existing stores so we
+      // can alter their indexes during an upgrade.
+      const tx = req.transaction!;
+
       if (!db.objectStoreNames.contains(STORE_PRODUCT_QUERIES)) {
         db.createObjectStore(STORE_PRODUCT_QUERIES, { keyPath: "key" });
       }
@@ -53,16 +62,19 @@ function openDB(): Promise<IDBDatabase> {
         db.createObjectStore(STORE_TYRES_CHAT, { keyPath: "id" });
       }
       if (!db.objectStoreNames.contains(STORE_SUPPLIER_PRODUCTS)) {
-        const store = db.createObjectStore(
-          STORE_SUPPLIER_PRODUCTS,
-          { keyPath: "id" }
-        );
-
-        store.createIndex("brand", "brand", { unique: false });
-        store.createIndex("size", "size", { unique: false });
-        store.createIndex("year", "year", { unique: false });
-        store.createIndex("source_name", "source_name", { unique: false });
-        store.createIndex("is_latest", "is_latest", { unique: false });
+        // Fresh install: keyPath only. Deliberately NO secondary indexes — see
+        // the v4 note on DB_VERSION. Ordering is carried by the `sort_seq`
+        // field on each record, sorted at read time.
+        db.createObjectStore(STORE_SUPPLIER_PRODUCTS, { keyPath: "id" });
+      } else {
+        // Upgrading from v3: drop the never-read indexes. Records are left
+        // untouched, so a user's existing catalogue survives the upgrade (it
+        // just has no `sort_seq` until their next full sync — read-time
+        // ordering handles that case).
+        const store = tx.objectStore(STORE_SUPPLIER_PRODUCTS);
+        for (const name of ["brand", "size", "year", "source_name", "is_latest"]) {
+          if (store.indexNames.contains(name)) store.deleteIndex(name);
+        }
       }
       if (!db.objectStoreNames.contains(STORE_META)) {
         db.createObjectStore(STORE_META, { keyPath: "key" });
@@ -137,14 +149,70 @@ export async function idbPut<T>(store: string, value: T): Promise<void> {
   });
 }
 
-/** Upsert many records in one transaction. */
+/**
+ * Upsert many records in one transaction.
+ *
+ * A per-request `onerror` swallows individual row failures (bad/duplicate key,
+ * unclonable value) via `preventDefault()`, which stops that one error from
+ * bubbling up and aborting the transaction. Without it a single malformed row
+ * discards the whole batch — up to 800 products during a supplier sync.
+ */
 export async function idbPutAll<T>(store: string, items: T[]): Promise<void> {
   const db = await openDB();
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction(store, "readwrite");
     const os = tx.objectStore(store);
-    items.forEach((it) => os.put(it));
+    items.forEach((it) => {
+      const req = os.put(it);
+      req.onerror = (ev) => {
+        console.warn(`[db] skipped one row in "${store}":`, req.error?.message);
+        ev.preventDefault(); // keep the transaction alive
+      };
+    });
     tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/** Number of records in a store. Cheap — does not deserialize the values. */
+export async function idbCount(store: string): Promise<number> {
+  const db = await openDB();
+  return new Promise<number>((resolve, reject) => {
+    const req = db.transaction(store, "readonly").objectStore(store).count();
+    req.onsuccess = () => resolve(req.result ?? 0);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/**
+ * Cursor-delete every record failing `keep`, returning how many were removed.
+ *
+ * Used to retire rows left over from a previous sync WITHOUT clearing the store
+ * up front: a full sync stamps each row it writes with the current batch id,
+ * then calls this to drop anything still carrying an older stamp. Walking a
+ * cursor keeps memory flat (one record at a time) no matter how large the store
+ * is, and — critically — the old catalogue stays readable the whole time, so a
+ * sync that dies halfway leaves the user with data rather than an empty store.
+ */
+export async function idbDeleteWhere<T>(
+  store: string,
+  keep: (value: T) => boolean,
+): Promise<number> {
+  const db = await openDB();
+  return new Promise<number>((resolve, reject) => {
+    const tx = db.transaction(store, "readwrite");
+    const req = tx.objectStore(store).openCursor();
+    let removed = 0;
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (!cursor) return; // exhausted — tx.oncomplete resolves
+      if (!keep(cursor.value as T)) {
+        cursor.delete();
+        removed++;
+      }
+      cursor.continue();
+    };
+    tx.oncomplete = () => resolve(removed);
     tx.onerror = () => reject(tx.error);
   });
 }

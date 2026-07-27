@@ -112,9 +112,27 @@ function sizeWithLoadSpeed(size: string, productName: string): string {
  * fittingPrice, date, flag) default to empty/0; `runflat` is inferred from the
  * product name.
  */
+/**
+ * Stable numeric row id for a cached supplier record. Numeric ids pass through
+ * unchanged; anything else maps to a negative slot derived from `sort_seq`, so
+ * non-numeric ids stay distinct from each other AND from real ids.
+ */
+function supplierRowId(p: CachedSupplierProduct): number {
+  const n = Number(p.id);
+  if (p.id !== "" && p.id !== null && p.id !== undefined && Number.isFinite(n)) return n;
+  return typeof p.sort_seq === "number" ? -(p.sort_seq + 1) : 0;
+}
+
 function mapSupplierToProduct(p: CachedSupplierProduct): Product {
   return {
-    id: Number(p.id) || 0,
+    // `CachedSupplierProduct.id` is `string | number`. A non-numeric id used to
+    // collapse to 0 via `Number(p.id) || 0`, so EVERY such row shared id 0 —
+    // and because `selectedIds` is a Set<number>, ticking one checkbox ticked
+    // all of them. Fall back to the row's `sort_seq` (unique per row) mapped
+    // into negative space, which cannot collide with a real numeric id.
+    // `sort_seq` is absent on rows cached before v4; those keep the old
+    // behaviour until the next full sync repopulates the field.
+    id: supplierRowId(p),
     source: p.source_name ?? '',
     itemCode: p.sku ?? '',
     category: p.brand_category ?? '',
@@ -226,9 +244,25 @@ export default function SupplierProductsPage() {
     }
     setFullSyncing(true);
     try {
-      const items = await syncAllSupplierProducts();
-      setAllProducts(items.map(mapSupplierToProduct));
-      addToast(`Synced all ${items.length.toLocaleString()} supplier products.`);
+      const result = await syncAllSupplierProducts();
+      setAllProducts(result.items.map(mapSupplierToProduct));
+
+      // Report what actually landed. A run that skipped pages must NOT claim
+      // success — silently missing products look identical to products the
+      // supplier stopped carrying.
+      if (result.complete) {
+        addToast(`Synced all ${result.items.length.toLocaleString()} supplier products.`);
+      } else if (result.aborted) {
+        addToast(
+          `Sync stopped early: upstream stopped responding after ${result.written.toLocaleString()} of ` +
+          `${result.total.toLocaleString()} products. Previous data kept — please retry.`,
+        );
+      } else {
+        addToast(
+          `Synced ${result.written.toLocaleString()} of ${result.total.toLocaleString()} — ` +
+          `${result.failedPages.length} page${result.failedPages.length === 1 ? '' : 's'} failed. Please sync again.`,
+        );
+      }
     } catch {
       addToast('Sync failed. Please try again.');
     } finally {
@@ -296,7 +330,12 @@ export default function SupplierProductsPage() {
 
   // Filtered & Sorted Dataset
   const filteredProducts = useMemo(() => {
-    let result = [...allProducts];
+    // Start from the array itself, NOT a spread copy. Every filter below
+    // already returns a fresh array, so the eager `[...allProducts]` was an
+    // extra full-size allocation (318k entries) on every keystroke-triggered
+    // recompute. The only step that would mutate is `.sort()`, which copies
+    // explicitly below when nothing else has copied yet.
+    let result: Product[] = allProducts;
 
     // Search — route-faithful: tokenized (comma/space), AND across tokens, OR
     // across fields (partial, case-insensitive). A 4-digit token also matches
@@ -350,6 +389,9 @@ export default function SupplierProductsPage() {
     if (latestOnly) result = result.filter(item => item.is_latest === 1);
 
     if (sortColumn) {
+      // `sort` mutates in place. If no filter ran, `result` is still the
+      // `allProducts` state array — copy first so we never reorder state.
+      if (result === allProducts) result = [...result];
       const dir = sortAsc ? 1 : -1;
       result.sort((a, b) => {
         const valA = a[sortColumn];
@@ -370,20 +412,25 @@ export default function SupplierProductsPage() {
     return result;
   }, [allProducts, searchQuery, supplierFilter, categoryFilter, brandInput, sizeInput, yearInput, qtyInput, latestOnly, sortColumn, sortAsc]);
 
-  const supplierOptions = useMemo(
-    () => Array.from(new Set(allProducts.map(p => p.source).filter(Boolean))).sort(),
-    [allProducts],
-  );
-
-  const categoryOptions = useMemo(
-    () => Array.from(new Set(allProducts.map(p => p.category).filter(Boolean))).sort(),
-    [allProducts],
-  );
-
-  const brandOptions = useMemo(
-    () => Array.from(new Set(allProducts.map(p => p.brand).filter(Boolean))).sort(),
-    [allProducts],
-  );
+  // All three dropdown lists in ONE pass. Three separate useMemos each walked
+  // the full 318k-row array and allocated its own intermediate — at this size
+  // that is three full scans plus three throwaway arrays every time the
+  // catalogue changes. One reduce over the array gives the same three lists.
+  const { supplierOptions, categoryOptions, brandOptions } = useMemo(() => {
+    const sources = new Set<string>();
+    const categories = new Set<string>();
+    const brands = new Set<string>();
+    for (const p of allProducts) {
+      if (p.source) sources.add(p.source);
+      if (p.category) categories.add(p.category);
+      if (p.brand) brands.add(p.brand);
+    }
+    return {
+      supplierOptions: Array.from(sources).sort(),
+      categoryOptions: Array.from(categories).sort(),
+      brandOptions: Array.from(brands).sort(),
+    };
+  }, [allProducts]);
 
   const filteredBrandOptions = useMemo(() => {
     if (!brandInput.trim()) return brandOptions;
@@ -586,9 +633,9 @@ export default function SupplierProductsPage() {
         {/* User Profile Avatar at Bottom Left */}
         <div className="flex flex-col items-center gap-2 pt-2 border-t border-slate-100 w-full">
           <div className="w-9 h-9 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center text-indigo-700 font-bold text-xs shadow-inner">
-            AF
+            KL
           </div>
-          <span className="text-[9px] text-slate-500 font-medium truncate max-w-[60px]">Alex Hans</span>
+          <span className="text-[9px] text-slate-500 font-medium truncate max-w-[60px]">Klever</span>
         </div>
       </aside>
 
@@ -1177,8 +1224,8 @@ export default function SupplierProductsPage() {
                           {!hiddenColumns.has('cost') && (
                             <td className={`${cellPaddingClass} text-right whitespace-nowrap`}>
                               <div className="inline-flex items-center justify-end gap-1 text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap" dir="ltr">
-                                <span className="whitespace-nowrap">{item.cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                 <span className="currency-riyal shrink-0 whitespace-nowrap">﷼</span>
+                                <span className="whitespace-nowrap">{item.cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                               </div>
                             </td>
                           )}
@@ -1186,8 +1233,8 @@ export default function SupplierProductsPage() {
                           {!hiddenColumns.has('fittingPrice') && (
                             <td className={`${cellPaddingClass} text-right whitespace-nowrap`}>
                               <div className="inline-flex items-center justify-end gap-1 text-xs font-medium text-slate-500 font-mono whitespace-nowrap" dir="ltr">
-                                <span className="whitespace-nowrap">{item.fittingPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                 <span className="currency-riyal shrink-0 whitespace-nowrap">﷼</span>
+                                <span className="whitespace-nowrap">{item.fittingPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                               </div>
                             </td>
                           )}
@@ -1335,16 +1382,16 @@ export default function SupplierProductsPage() {
                   <div className="p-4 bg-white rounded-xl border border-slate-200 space-y-2.5">
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-slate-500">Supplier Unit Cost:</span>
-                      <span className="font-bold text-slate-900 text-sm font-mono">{activeDrawerItem.cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<span className="currency-riyal ml-1">﷼</span></span>
+                      <span className="font-bold text-slate-900 text-sm font-mono"><span className="currency-riyal mr-1">﷼</span>{activeDrawerItem.cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-slate-500">Fitting Fee:</span>
-                      <span className="font-semibold text-slate-700 font-mono">{activeDrawerItem.fittingPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<span className="currency-riyal ml-1">﷼</span></span>
+                      <span className="font-semibold text-slate-700 font-mono"><span className="currency-riyal mr-1">﷼</span>{activeDrawerItem.fittingPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                     <div className="h-px bg-slate-100 my-1"></div>
                     <div className="flex justify-between items-center text-xs font-bold">
                       <span className="text-emerald-700">Est. Retail MSRP:</span>
-                      <span className="text-emerald-600 text-sm font-mono">{(activeDrawerItem.cost * 1.22).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<span className="currency-riyal ml-1">﷼</span></span>
+                      <span className="text-emerald-600 text-sm font-mono"><span className="currency-riyal mr-1">﷼</span>{(activeDrawerItem.cost * 1.22).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                   </div>
                 </div>

@@ -312,9 +312,9 @@ export default function PosProductsPage() {
         {/* User Profile Avatar at Bottom Left */}
         <div className="flex flex-col items-center gap-2 pt-2 border-t border-gray-100 w-full">
           <div className="w-9 h-9 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center text-indigo-700 font-semibold text-xs shadow-inner">
-            AF
+            KL
           </div>
-          <span className="text-[9px] text-gray-500 font-medium truncate max-w-[60px]">Alexa Frans</span>
+          <span className="text-[9px] text-gray-500 font-medium truncate max-w-[60px]">Klever</span>
         </div>
       </aside>
 

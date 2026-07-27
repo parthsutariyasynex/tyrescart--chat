@@ -14,6 +14,33 @@ import type {
 } from "./types";
 
 /**
+ * A GraphQL request that failed, carrying the HTTP status so callers can tell a
+ * retryable fault (5xx / 429 / network) from a permanent one (4xx). `status` is
+ * 0 when the request never got a response at all (DNS, offline, connection
+ * reset) — those are retryable too.
+ */
+export class GraphQLRequestError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "GraphQLRequestError";
+    this.status = status;
+  }
+
+  /** 429 and 5xx are transient; a bare network failure (0) is too. 4xx is not. */
+  get retryable(): boolean {
+    return this.status === 0 || this.status === 429 || this.status >= 500;
+  }
+}
+
+/** True for any error worth retrying — non-GraphQLRequestError throws are
+ *  network/parse faults raised before a status existed, so they retry. */
+export function isRetryableError(err: unknown): boolean {
+  return err instanceof GraphQLRequestError ? err.retryable : true;
+}
+
+/**
  * Execute GraphQL Query through proxy or directly
  */
 async function executeGraphQLQuery(query: string) {
@@ -33,14 +60,25 @@ async function executeGraphQLQuery(query: string) {
     const data = await res.json().catch(() => null);
 
     if (!res.ok) {
-      const errMsg = data?.errors?.[0]?.message || data?.error || `GraphQL HTTP error! Status: ${res.status}`;
-      throw new Error(errMsg);
+      // Cloudflare/WAF blocks answer with their own JSON shape (`detail`,
+      // `title`) rather than GraphQL's `errors[]` — check those too so the
+      // message says *why* instead of a bare status code.
+      const errMsg =
+        data?.errors?.[0]?.message ||
+        data?.error ||
+        data?.detail ||
+        data?.title ||
+        `GraphQL HTTP error! Status: ${res.status}`;
+      throw new GraphQLRequestError(errMsg, res.status);
     }
 
 
+    // A 200 carrying `errors[]` is a query-level fault (bad field, bad filter).
+    // Status 200 → `retryable` is false, so the sync fails it fast instead of
+    // burning three attempts on a query that will never succeed.
     if (data?.errors && data.errors.length > 0) {
       console.warn("GraphQL API error response:", data.errors);
-      throw new Error(data.errors[0]?.message || "GraphQL error");
+      throw new GraphQLRequestError(data.errors[0]?.message || "GraphQL error", res.status);
     }
 
     return data?.data;

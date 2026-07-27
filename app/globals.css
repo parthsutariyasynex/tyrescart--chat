@@ -1728,14 +1728,23 @@ body.dark-theme .btn-icon-only {
   color: #F9FAFB !important;
 }
 
-/* Saudi Riyal Currency Symbol Class */
+/* Saudi Riyal Currency Symbol Class
+   NOTE: this needs the 'saudi-riyal' webfont to be loaded, otherwise the
+   ﷼ (U+FDFC) falls back to the system Arabic font and renders as the OLD
+   ligature glyph. Drop the font file in `public/fonts/` and uncomment: */
+/*
+@font-face {
+  font-family: 'saudi-riyal';
+  src: url('/fonts/saudi-riyal.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+*/
 .currency-riyal {
   font-family: 'saudi-riyal' !important;
   font-weight: normal;
   font-style: normal;
   position: relative;
   top: 1px;
-  display: inline-block;
-  direction: ltr !important;
-  unicode-bidi: embed !important;
 }
