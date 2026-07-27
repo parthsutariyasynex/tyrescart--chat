@@ -31,6 +31,22 @@ export interface TyresChatQueryVars {
 }
 
 /* ── supplierProducts response ── */
+
+/**
+ * Which side of the catalogue a row belongs to.
+ *
+ * `supplierProducts` is a COMBINED feed despite its name — it returns both
+ * sides, and `product_source` is the discriminator. Verified against the live
+ * endpoint: `product_source: "supplier"` → 51,266 rows,
+ * `product_source: "competitor"` → 267,402 rows, summing exactly to the
+ * unfiltered 318,668. The field is also accepted as a `filter` argument, so
+ * either side can be requested server-side.
+ *
+ * Typed as a union plus `(string & {})` so unknown values the backend may add
+ * later still type-check instead of silently narrowing to the two known ones.
+ */
+export type ProductSource = "supplier" | "competitor" | (string & {});
+
 export interface SupplierProductItem {
   id: string | number;
   sku: string;
@@ -41,6 +57,13 @@ export interface SupplierProductItem {
   cost?: number;
   price?: number;
   source_name?: string;
+  /** "supplier" | "competitor" — see ProductSource. Absent on rows cached
+   *  before this field was added to the query; re-sync populates it. */
+  product_source?: ProductSource;
+  /** Competitor listing price. 0 on supplier rows. */
+  set_price?: number;
+  /** Competitor product page URL. Empty string on supplier rows. */
+  product_url?: string;
   country?: string;
   year?: number;
   is_latest?: number;

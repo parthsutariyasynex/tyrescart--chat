@@ -37,6 +37,9 @@ export interface Product {
   id: number;
   source: string;
   itemCode: string;
+  /** Display label derived from the feed's `product_source` discriminator:
+   *  "Supplier" | "Competitor", or "" when the row predates that field. */
+  productType: string;
   category: string;
   brand: string;
   pattern: string;
@@ -113,6 +116,19 @@ function sizeWithLoadSpeed(size: string, productName: string): string {
  * product name.
  */
 /**
+ * Human label for the feed's `product_source` discriminator.
+ *
+ * `supplierProducts` is a combined feed: it returns both sides of the catalogue
+ * and `product_source` says which. Rows cached before that field was added to
+ * the query have no value, so they render as "—" rather than being guessed at.
+ */
+function productTypeLabel(source?: string): string {
+  if (source === 'supplier') return 'Supplier';
+  if (source === 'competitor') return 'Competitor';
+  return '';
+}
+
+/**
  * Stable numeric row id for a cached supplier record. Numeric ids pass through
  * unchanged; anything else maps to a negative slot derived from `sort_seq`, so
  * non-numeric ids stay distinct from each other AND from real ids.
@@ -135,6 +151,7 @@ function mapSupplierToProduct(p: CachedSupplierProduct): Product {
     id: supplierRowId(p),
     source: p.source_name ?? '',
     itemCode: p.sku ?? '',
+    productType: productTypeLabel(p.product_source),
     category: p.brand_category ?? '',
     brand: p.brand ?? '',
     pattern: p.product_name ?? '',
@@ -529,9 +546,9 @@ export default function SupplierProductsPage() {
 
   const exportCSV = () => {
     if (!filteredProducts.length) return;
-    const headers = ['SOURCE', 'ITEM CODE', 'CATEGORY', 'BRAND', 'TYRE PATTERN', 'SIZE', 'RUNFLAT', 'YEAR', 'COUNTRY', 'QTY', 'COST', 'FITTING PRICE', 'DATE'];
+    const headers = ['SOURCE', 'TYPE', 'CATEGORY', 'BRAND', 'TYRE PATTERN', 'SIZE', 'RUNFLAT', 'YEAR', 'COUNTRY', 'QTY', 'COST', 'FITTING PRICE', 'DATE'];
     const rows = filteredProducts.map(p => [
-      p.source, p.itemCode, p.category, p.brand, `"${p.pattern.replace(/"/g, '""')}"`, p.size, p.runflat ? 'Yes' : 'No', p.year, p.country, p.qty, p.cost.toFixed(2), p.fittingPrice.toFixed(2), p.date
+      p.source, p.productType, p.category, p.brand, `"${p.pattern.replace(/"/g, '""')}"`, p.size, p.runflat ? 'Yes' : 'No', p.year, p.country, p.qty, p.cost.toFixed(2), p.fittingPrice.toFixed(2), p.date
     ]);
     const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
     const link = document.createElement('a');
@@ -1074,7 +1091,7 @@ export default function SupplierProductsPage() {
                 <thead className="bg-slate-50/90 backdrop-blur sticky top-0 z-10 border-b border-slate-200">
                   <tr className="text-[11px] font-bold text-slate-500 uppercase tracking-wider select-none">
                     {!hiddenColumns.has('source') && <th onClick={() => handleSort('source')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[100px]">Source <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('itemCode') && <th onClick={() => handleSort('itemCode')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[200px]">Item Code <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('type') && <th onClick={() => handleSort('productType')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[120px]">Type <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('category') && <th onClick={() => handleSort('category')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[110px]">Category <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('brand') && <th onClick={() => handleSort('brand')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[105px]">Brand <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('pattern') && <th onClick={() => handleSort('pattern')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[360px]">Tyre Pattern <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
@@ -1094,7 +1111,7 @@ export default function SupplierProductsPage() {
                     Array.from({ length: pageSize }).map((_, rIdx) => (
                       <tr key={rIdx} className="hover:bg-slate-50/50">
                         {!hiddenColumns.has('source') && <td className={cellPaddingClass}><Skeleton className="h-5 w-16 rounded-md" /></td>}
-                        {!hiddenColumns.has('itemCode') && <td className={cellPaddingClass}><Skeleton className="h-4 w-24 rounded" /></td>}
+                        {!hiddenColumns.has('type') && <td className={cellPaddingClass}><Skeleton className="h-5 w-20 rounded-md" /></td>}
                         {!hiddenColumns.has('category') && <td className={cellPaddingClass}><Skeleton className="h-5 w-20 rounded-md" /></td>}
                         {!hiddenColumns.has('brand') && <td className={cellPaddingClass}><Skeleton className="h-4 w-20 rounded" /></td>}
                         {!hiddenColumns.has('pattern') && <td className={cellPaddingClass}><Skeleton className="h-4 w-32 rounded" /></td>}
@@ -1145,13 +1162,18 @@ export default function SupplierProductsPage() {
                             </td>
                           )}
 
-                          {!hiddenColumns.has('itemCode') && (
+                          {!hiddenColumns.has('type') && (
                             <td className={cellPaddingClass}>
-                              <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
-                                <span className="font-mono text-slate-800 font-bold group-hover:text-emerald-700">
-                                  {item.itemCode}
+                              {item.productType ? (
+                                <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border uppercase tracking-tight ${item.productType === 'Supplier'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
+                                  : 'bg-amber-50 text-amber-700 border-amber-200/60'
+                                  }`}>
+                                  {item.productType}
                                 </span>
-                              </div>
+                              ) : (
+                                <span className="text-slate-400 font-medium">-</span>
+                              )}
                             </td>
                           )}
 
@@ -1224,7 +1246,6 @@ export default function SupplierProductsPage() {
                           {!hiddenColumns.has('cost') && (
                             <td className={`${cellPaddingClass} text-right whitespace-nowrap`}>
                               <div className="inline-flex items-center justify-end gap-1 text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap" dir="ltr">
-                                <span className="currency-riyal shrink-0 whitespace-nowrap">﷼</span>
                                 <span className="whitespace-nowrap">{item.cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                               </div>
                             </td>
@@ -1233,7 +1254,6 @@ export default function SupplierProductsPage() {
                           {!hiddenColumns.has('fittingPrice') && (
                             <td className={`${cellPaddingClass} text-right whitespace-nowrap`}>
                               <div className="inline-flex items-center justify-end gap-1 text-xs font-medium text-slate-500 font-mono whitespace-nowrap" dir="ltr">
-                                <span className="currency-riyal shrink-0 whitespace-nowrap">﷼</span>
                                 <span className="whitespace-nowrap">{item.fittingPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                               </div>
                             </td>
@@ -1382,16 +1402,16 @@ export default function SupplierProductsPage() {
                   <div className="p-4 bg-white rounded-xl border border-slate-200 space-y-2.5">
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-slate-500">Supplier Unit Cost:</span>
-                      <span className="font-bold text-slate-900 text-sm font-mono"><span className="currency-riyal mr-1">﷼</span>{activeDrawerItem.cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span className="font-bold text-slate-900 text-sm font-mono">{activeDrawerItem.cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-slate-500">Fitting Fee:</span>
-                      <span className="font-semibold text-slate-700 font-mono"><span className="currency-riyal mr-1">﷼</span>{activeDrawerItem.fittingPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span className="font-semibold text-slate-700 font-mono">{activeDrawerItem.fittingPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                     <div className="h-px bg-slate-100 my-1"></div>
                     <div className="flex justify-between items-center text-xs font-bold">
                       <span className="text-emerald-700">Est. Retail MSRP:</span>
-                      <span className="text-emerald-600 text-sm font-mono"><span className="currency-riyal mr-1">﷼</span>{(activeDrawerItem.cost * 1.22).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span className="text-emerald-600 text-sm font-mono">{(activeDrawerItem.cost * 1.22).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                   </div>
                 </div>
@@ -1463,7 +1483,7 @@ export default function SupplierProductsPage() {
               <div className="space-y-2 max-h-64 overflow-y-auto text-xs font-medium text-slate-700">
                 {[
                   { key: 'source', label: 'Source' },
-                  { key: 'itemCode', label: 'Item Code' },
+                  { key: 'type', label: 'Type' },
                   { key: 'category', label: 'Category' },
                   { key: 'brand', label: 'Brand' },
                   { key: 'pattern', label: 'Tyre Pattern' },

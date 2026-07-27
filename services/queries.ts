@@ -67,6 +67,9 @@ export function supplierProductsQuery(vars: SupplierProductsQueryVars = {}): str
         cost
         price
         source_name
+        product_source
+        set_price
+        product_url
         country
         year
         is_latest

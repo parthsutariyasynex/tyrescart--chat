@@ -10,7 +10,9 @@
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
+    "@types/papaparse": "^5.5.2",
     "next": "16.1.6",
+    "papaparse": "^5.5.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-masonry-css": "^1.0.16"
