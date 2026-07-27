@@ -268,6 +268,10 @@ export async function getTyresChatCached(
 export const SUPPLIER_SYNC_BATCH_SIZE = 500;
 /** How many pages to fetch in parallel during a sync (keeps ~3.2k requests feasible). */
 const SUPPLIER_SYNC_CONCURRENCY = 8;
+/** Rows accumulated before a batch is streamed to the UI during a bootstrap
+ *  sync. NOTE: the upstream caps a single request at 100 rows, so one batch is
+ *  assembled from ~5 pages — it is a render/persist granularity, not a request size. */
+export const SUPPLIER_BOOTSTRAP_BATCH_SIZE = 500;
 /** Attempts per page before it is recorded as failed (1 initial + 2 retries). */
 const SUPPLIER_SYNC_MAX_ATTEMPTS = 3;
 /** Base backoff between page retries; grows exponentially and is jittered. */
@@ -295,7 +299,10 @@ export type CachedSupplierProduct = SupplierProductItem & {
 const supplierPlainSize = (s?: string) => String(s ?? "").replace(/\D/g, "");
 const enrichSupplier = (
   p: SupplierProductItem,
-  sort_seq: number,
+  /** `undefined` when the caller can't know the row's absolute catalogue
+   *  position (the latest-only bootstrap phase) — such rows sort by id until a
+   *  full sync stamps the real value. */
+  sort_seq: number | undefined,
   sync_batch?: number,
 ): CachedSupplierProduct => ({
   ...p,
@@ -331,6 +338,135 @@ export async function getCachedSupplierProducts(): Promise<CachedSupplierProduct
   });
 }
 
+/* ── Supplier cache integrity ──────────────────────────────────────────────
+   IndexedDB stores whatever record SHAPE was written at the time. When the
+   GraphQL selection set gains a field, rows already on disk keep their old
+   shape forever — nothing rewrites them until a sync overwrites them. That is
+   invisible at runtime: a missing `product_source` reads as `undefined`, which
+   the UI can only render as "—", indistinguishable from a real gap in the data.
+
+   Likewise, a sync that dies partway (tab closed, laptop slept, upstream
+   blocked) leaves a partial store with NO record that it is partial, because
+   the completion meta is only written at the very end.
+
+   These three keys make both conditions detectable on a later page load,
+   WITHOUT any network call — the cache-first contract is preserved. */
+
+/** Bump whenever the persisted supplier record shape changes.
+ *  v1 → original fields. v2 → adds product_source / set_price / product_url. */
+export const SUPPLIER_CACHE_SCHEMA = 2;
+
+const META_SUPPLIER_SCHEMA = "supplierAll:schemaVersion";
+/** "running" is written BEFORE paging starts, so a sync killed mid-flight is
+ *  still detectable — the marker never gets upgraded to complete/partial. */
+const META_SUPPLIER_STATE = "supplierAll:syncState";
+const META_SUPPLIER_EXPECTED = "supplierAll:expectedTotal";
+/** Set once a full sync has completed successfully. The cold-start bootstrap
+ *  checks this and never runs again, regardless of what the store read returns. */
+const META_BOOTSTRAP_DONE = "supplierAll:bootstrapCompleted";
+
+export type SupplierSyncState = "running" | "complete" | "partial";
+
+/**
+ * Why the cache can't be trusted. Exactly one applies, most specific first —
+ * they need different explanations, and conflating them tells the user the
+ * wrong thing (e.g. calling an unfinished sync "out of date" when its rows are
+ * perfectly current, just incomplete).
+ */
+export type SupplierCacheIssue =
+  /** No integrity markers at all — written by a build before this tracking
+   *  existed, so neither completeness nor record shape can be confirmed. */
+  | "legacy"
+  /** A sync started and never reached its end. */
+  | "interrupted"
+  /** A sync finished but gave up on some pages. */
+  | "partial"
+  /** Complete, but the rows predate the current record shape. */
+  | "stale-schema";
+
+export interface SupplierCacheStatus {
+  /** Rows currently in the store. */
+  storedCount: number;
+  /** `total_count` the last sync reported; 0 when never synced. */
+  expectedTotal: number;
+  /** State the last sync left behind; "running" means it never finished. */
+  state: SupplierSyncState | null;
+  /** Schema version the rows were written with; 0 when never stamped. */
+  schemaVersion: number;
+  /** Which problem applies, or null when the cache is trustworthy. */
+  issue: SupplierCacheIssue | null;
+  /** Convenience: `issue !== null`. */
+  needsSync: boolean;
+}
+
+/**
+ * Describe the supplier cache without touching the network.
+ *
+ * Lets the page tell the user *why* data looks wrong — stale shape (Type column
+ * shows "—") versus incomplete (whole product ranges absent, which skews what
+ * the LATEST? filter can possibly show) — instead of silently rendering a
+ * partial catalogue as if it were the whole thing.
+ */
+export async function getSupplierCacheStatus(): Promise<SupplierCacheStatus> {
+  const [storedCount, expectedTotal, state, schemaVersion] = await Promise.all([
+    idbCount(STORE_SUPPLIER_PRODUCTS).catch(() => 0),
+    idbGetMeta<number>(META_SUPPLIER_EXPECTED).catch(() => null),
+    idbGetMeta<SupplierSyncState>(META_SUPPLIER_STATE).catch(() => null),
+    idbGetMeta<number>(META_SUPPLIER_SCHEMA).catch(() => null),
+  ]);
+
+  const expected = expectedTotal ?? 0;
+  const schema = schemaVersion ?? 0;
+
+  // An empty store is "not synced yet", not "corrupt" — the page already shows
+  // its empty state for that, so don't nag about it.
+  let issue: SupplierCacheIssue | null = null;
+  if (storedCount > 0) {
+    if (state === null) issue = "legacy";
+    else if (state === "running") issue = "interrupted";
+    else if (state === "partial" || (expected > 0 && storedCount < expected)) issue = "partial";
+    else if (schema < SUPPLIER_CACHE_SCHEMA) issue = "stale-schema";
+  }
+
+  return {
+    storedCount,
+    expectedTotal: expected,
+    state: state ?? null,
+    schemaVersion: schema,
+    issue,
+    needsSync: issue !== null,
+  };
+}
+
+/**
+ * Has a full supplier sync ever completed successfully on this device?
+ *
+ * The cold-start bootstrap gates on this IN ADDITION to the row count, because
+ * a row count of 0 is ambiguous: `getCachedSupplierProducts()` swallows
+ * IndexedDB failures and returns `[]`, so a transient read error (blocked
+ * version upgrade, quota pressure, a locked DB in another tab) is
+ * indistinguishable from a genuinely empty cache. Without this flag such a
+ * blip would kick off a ~3,187-request sync on a device that already holds the
+ * whole catalogue. Returns `false` if the meta read itself fails — a first run
+ * with a broken DB should still be allowed to try.
+ */
+export async function hasCompletedSupplierBootstrap(): Promise<boolean> {
+  return (await idbGetMeta<boolean>(META_BOOTSTRAP_DONE).catch(() => false)) === true;
+}
+
+/**
+ * How many supplier rows are cached — the source of truth for whether the
+ * cold-start bootstrap should run.
+ *
+ * Unlike {@link getCachedSupplierProducts}, this deliberately does NOT swallow
+ * errors: callers must be able to tell "the store is empty" from "the store
+ * could not be read", because only the former should trigger a full sync.
+ * It also avoids deserialising 318k records just to ask for a count.
+ */
+export async function countCachedSupplierProducts(): Promise<number> {
+  return idbCount(STORE_SUPPLIER_PRODUCTS);
+}
+
 /** Outcome of a full supplier sync. `failedPages` is empty on a clean run. */
 export interface SupplierSyncResult {
   /** Rows now in IndexedDB (the whole catalogue), in API order. */
@@ -364,10 +500,12 @@ async function fetchSupplierPageWithRetry(
   currentPage: number,
   size: number,
   sort: { sortField: string; sortDirection: "ASC" | "DESC" },
+  /** Extra filter args (e.g. `{ is_latest: 1 }` for the bootstrap's first phase). */
+  extra?: Partial<FetchSupplierProductsParams>,
 ): Promise<SupplierProductsResponse | null> {
   for (let attempt = 1; attempt <= SUPPLIER_SYNC_MAX_ATTEMPTS; attempt++) {
     try {
-      return await fetchSupplierProductsGraphQL({ pageSize: size, currentPage, ...sort });
+      return await fetchSupplierProductsGraphQL({ pageSize: size, currentPage, ...sort, ...extra });
     } catch (err) {
       const last = attempt === SUPPLIER_SYNC_MAX_ATTEMPTS;
       if (!isRetryableError(err)) {
@@ -401,6 +539,101 @@ function detectPageSizeCap(requested: number, returned: number, total: number): 
 }
 
 /**
+ * Phase 1 of a cold-start bootstrap: sync ONLY `is_latest = true` rows.
+ *
+ * Why this exists. The full sync pages the catalogue by `id ASC`, and the low
+ * ids are almost entirely historical rows — measured on the live data, the
+ * first ~50,000 rows yield only a few hundred `is_latest = 1` products. Since
+ * the table's LATEST? filter is on by default, a cold start spends its first
+ * minute showing an empty table while tens of thousands of rows stream in
+ * behind the filter. Fetching the 7,375 current rows first (≈74 requests,
+ * seconds rather than minutes) populates the default view immediately.
+ *
+ * Ordering note: `sort_seq` is deliberately NOT assigned here. It encodes a
+ * row's absolute position in the full catalogue, and this pass only sees a
+ * filtered subset, so any value computed from `(page - 1) * size + i` would be
+ * wrong and would collide with the real positions phase 2 writes. Rows without
+ * `sort_seq` sort last, falling back to numeric `id` order — which is exactly
+ * the catalogue's own ordering — so the latest view is correctly ordered from
+ * the start, and phase 2 later stamps the true global positions.
+ *
+ * Duplicates are impossible by construction: the store's keyPath is "id", so
+ * phase 2 upserts over these rows rather than adding to them. Both phases share
+ * a `syncBatch` stamp so phase 2's stale-row cleanup never deletes phase 1's work.
+ */
+export async function syncLatestSupplierProducts({
+  syncBatch,
+  onBatch,
+  onProgress,
+}: {
+  syncBatch: number;
+  onBatch?: (batch: CachedSupplierProduct[], loaded: number, total: number) => void;
+  onProgress?: (loaded: number, total: number) => void;
+} = { syncBatch: 0 }): Promise<{ written: number; total: number; complete: boolean; failedPages: number[] }> {
+  const sort = { sortField: "id", sortDirection: "ASC" as const };
+  const latest = { is_latest: 1 };
+
+  let written = 0;
+  let batchTotal = 0;
+  const failedPages: number[] = [];
+  const pending: CachedSupplierProduct[] = [];
+
+  const flushBatch = (force: boolean) => {
+    if (!onBatch || !pending.length) return;
+    if (!force && pending.length < SUPPLIER_BOOTSTRAP_BATCH_SIZE) return;
+    onBatch(pending.splice(0, pending.length), written, batchTotal);
+  };
+
+  const persist = async (rows: SupplierProductItem[], pageNo: number) => {
+    // `undefined` sort_seq on purpose — see the ordering note above.
+    const enriched = rows
+      .map((row) => enrichSupplier(row, undefined, syncBatch))
+      .filter(hasUsableId);
+    if (!enriched.length) return;
+    try {
+      await idbPutAll(STORE_SUPPLIER_PRODUCTS, enriched);
+      written += enriched.length;
+      if (onBatch) { pending.push(...enriched); flushBatch(false); }
+    } catch (e) {
+      console.error(`[supplier-latest] idbPutAll FAILED for page ${pageNo}:`, e);
+      failedPages.push(pageNo);
+    }
+  };
+
+  const first = await fetchSupplierPageWithRetry(1, SUPPLIER_SYNC_BATCH_SIZE, sort, latest);
+  if (!first) throw new Error("Latest-products sync failed: could not fetch the first page.");
+
+  const firstItems = first.items ?? [];
+  const total = first.total_count ?? firstItems.length;
+  batchTotal = total;
+  const size = detectPageSizeCap(SUPPLIER_SYNC_BATCH_SIZE, firstItems.length, total);
+  await persist(firstItems, 1);
+  const totalPages = size > 0 ? Math.ceil(total / size) : 1;
+  console.log(`[supplier-latest] STARTED total=${total} pageSize=${size} pages=${totalPages}`);
+  onProgress?.(written, total);
+
+  let nextPage = 2;
+  const worker = async () => {
+    for (;;) {
+      const pageNo = nextPage++;
+      if (pageNo > totalPages) return;
+      const res = await fetchSupplierPageWithRetry(pageNo, size, sort, latest);
+      if (!res) { failedPages.push(pageNo); continue; }
+      await persist(res.items ?? [], pageNo);
+      onProgress?.(written, total);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(SUPPLIER_SYNC_CONCURRENCY, Math.max(totalPages - 1, 1)) }, worker),
+  );
+
+  flushBatch(true);
+  const complete = failedPages.length === 0;
+  console.log(`[supplier-latest] ${complete ? "COMPLETE" : "PARTIAL"} written=${written}/${total}`);
+  return { written, total, complete, failedPages: failedPages.sort((a, b) => a - b) };
+}
+
+/**
  * Sync the ENTIRE supplier catalogue (all ~318k rows, latest + historical) into
  * IndexedDB. No `is_latest` filter — the client filters "Latest" vs "All" later.
  *
@@ -424,17 +657,41 @@ function detectPageSizeCap(requested: number, returned: number, total: number): 
 export async function syncAllSupplierProducts({
   pageSize = SUPPLIER_SYNC_BATCH_SIZE,
   onProgress,
+  onBatch,
+  syncBatch: syncBatchOverride,
 }: {
   pageSize?: number;
+  /** Reuse a stamp from an earlier phase so this run's stale-row cleanup treats
+   *  those rows as part of the same generation instead of deleting them. */
+  syncBatch?: number;
   onProgress?: (loaded: number, total: number) => void;
+  /**
+   * Streams rows to the caller as they are persisted, in ~`SUPPLIER_BOOTSTRAP_BATCH_SIZE`
+   * chunks, so a first-run page can paint products while the rest of the
+   * catalogue is still downloading. Rows are ALREADY in IndexedDB when this
+   * fires — the callback is a render hint, never the source of truth.
+   */
+  onBatch?: (batch: CachedSupplierProduct[], loaded: number, total: number) => void;
 } = {}): Promise<SupplierSyncResult> {
   // Page by a STABLE `id` sort so offset pagination is deterministic (the
   // default `price` sort has thousands of ties → duplicated/skipped rows).
   const sort = { sortField: "id", sortDirection: "ASC" as const };
-  const syncBatch = Date.now();
+  const syncBatch = syncBatchOverride ?? Date.now();
 
   let written = 0; // rows successfully put (running progress count)
   const failedPages: number[] = [];
+
+  // ── Batch streaming ──
+  // The upstream caps a request at 100 rows, so a 500-row "batch" is assembled
+  // from several pages rather than fetched in one call. Rows accumulate here
+  // and are handed over once the batch size is reached.
+  let batchTotal = 0; // set once page 1 reveals total_count
+  const pending: CachedSupplierProduct[] = [];
+  const flushBatch = (force: boolean) => {
+    if (!onBatch || !pending.length) return;
+    if (!force && pending.length < SUPPLIER_BOOTSTRAP_BATCH_SIZE) return;
+    onBatch(pending.splice(0, pending.length), written, batchTotal);
+  };
 
   // Persist one page of rows straight into the per-product store, stamping each
   // with its position in the API ordering. Rows with no usable `id` are skipped
@@ -448,6 +705,12 @@ export async function syncAllSupplierProducts({
     try {
       await idbPutAll(STORE_SUPPLIER_PRODUCTS, enriched);
       written += enriched.length;
+      // Only stream rows that actually reached IndexedDB, so the UI can never
+      // show a product the cache doesn't have.
+      if (onBatch) {
+        pending.push(...enriched);
+        flushBatch(false);
+      }
     } catch (e) {
       console.error(`[supplier-sync] idbPutAll FAILED for page ${pageNo} — rows NOT written:`, e);
       failedPages.push(pageNo);
@@ -466,6 +729,7 @@ export async function syncAllSupplierProducts({
 
   const firstItems = first.items ?? [];
   const total = first.total_count ?? firstItems.length;
+  batchTotal = total; // must be set BEFORE the first persistPage streams a batch
   const size = detectPageSizeCap(pageSize, firstItems.length, total);
   if (size !== pageSize) {
     console.log(`[supplier-sync] backend capped pageSize ${pageSize} → ${size}`);
@@ -479,6 +743,13 @@ export async function syncAllSupplierProducts({
   const totalPages = size > 0 ? Math.ceil(total / size) : (first.page_info?.total_pages ?? 1);
   console.log(`[supplier-sync] total_count=${total} pageSize=${size} totalPages=${totalPages} | page 1 written=${written}`);
   onProgress?.(written, total);
+
+  // Mark the cache as mid-sync BEFORE paging begins. If this run never reaches
+  // its end (tab closed, machine slept, upstream blocks us), the marker stays
+  // "running" and the next page load can tell the catalogue is incomplete —
+  // which the old code could not, because completion meta was end-only.
+  await idbSetMeta(META_SUPPLIER_STATE, "running" satisfies SupplierSyncState).catch(() => { });
+  await idbSetMeta(META_SUPPLIER_EXPECTED, total).catch(() => { });
 
   // ── Remaining pages: worker pool over a shared page cursor ──
   // No per-chunk barrier — each worker takes the next page the moment it frees
@@ -521,6 +792,10 @@ export async function syncAllSupplierProducts({
     Array.from({ length: Math.min(SUPPLIER_SYNC_CONCURRENCY, Math.max(totalPages - 1, 1)) }, worker),
   );
 
+  // Hand over whatever didn't reach a full batch, so the last few hundred rows
+  // aren't withheld from the UI.
+  flushBatch(true);
+
   // ── Retire rows from previous syncs ──
   // Only safe on a CLEAN run: after a partial sync the rows we failed to
   // re-fetch are still valid cached data, and deleting them would turn a
@@ -545,6 +820,19 @@ export async function syncAllSupplierProducts({
   // Publish this run's stamp so a later per-page sync can adopt the same
   // generation instead of writing rows the next cleanup would consider stale.
   await idbSetMeta("supplierAll:syncBatch", syncBatch).catch(() => { });
+  // Close out the integrity markers. The schema stamp is only advanced on a
+  // COMPLETE run: after a partial one some rows still carry the old shape, so
+  // claiming the new schema would hide exactly the problem it exists to expose.
+  await idbSetMeta(
+    META_SUPPLIER_STATE,
+    (complete ? "complete" : "partial") satisfies SupplierSyncState,
+  ).catch(() => { });
+  if (complete) {
+    await idbSetMeta(META_SUPPLIER_SCHEMA, SUPPLIER_CACHE_SCHEMA).catch(() => { });
+    // Latch the bootstrap permanently. From here on the page loads from cache
+    // only; refreshing is the Sync buttons' job.
+    await idbSetMeta(META_BOOTSTRAP_DONE, true).catch(() => { });
+  }
   // Drop the legacy single-blob caches now that the per-product store is canonical.
   await idbDelete(STORE_PRODUCT_QUERIES, "supplier:all").catch(() => { });
   await idbDelete(STORE_PRODUCT_QUERIES, "supplier:latest:all").catch(() => { });

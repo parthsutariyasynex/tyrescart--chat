@@ -19,6 +19,8 @@ import { matchesSearch, parseAspectRim, matchesAspectRim } from '@/services/sear
 import { Skeleton, SupplierTableSkeleton } from '@/components/Skeletons';
 import {
   getCachedSupplierProducts,
+  countCachedSupplierProducts,
+  syncLatestSupplierProducts,
   syncAllSupplierProducts,
   syncSupplierProductsPage,
   type CachedSupplierProduct,
@@ -64,6 +66,14 @@ interface Toast {
 }
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * Reused collator for column sorting. `String.prototype.localeCompare` builds a
+ * fresh collator on every call, which is fine occasionally but not when a sort
+ * is always active: with LATEST? unticked the comparator runs across ~318k rows
+ * (~5.7M comparisons). One shared instance is the same ordering, far cheaper.
+ */
+const collator = new Intl.Collator();
 
 function formatDateDDMM(rawDate?: string): string {
   if (!rawDate || !rawDate.trim()) return '-';
@@ -186,8 +196,12 @@ export default function SupplierProductsPage() {
 
   const [pageSize, setPageSize] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
-  const [sortColumn, setSortColumn] = useState<keyof Product | null>(null);
-  const [sortAsc, setSortAsc] = useState(true);
+  // Default to newest-first. Without a sort the table renders in cache order,
+  // which mirrors the API's `id ASC` — i.e. catalogue insertion order, not
+  // recency. On the live data that puts the OLDEST rows (2025-05-08) on page 1
+  // and the newest (2026-07-20) on page ~587, so the latest stock looked absent.
+  const [sortColumn, setSortColumn] = useState<keyof Product | null>('date');
+  const [sortAsc, setSortAsc] = useState(false);
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [activeDrawerItem, setActiveDrawerItem] = useState<Product | null>(null);
@@ -205,6 +219,16 @@ export default function SupplierProductsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [pageSyncing, setPageSyncing] = useState(false);
   const [fullSyncing, setFullSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{ loaded: number; total: number } | null>(null);
+  /** Synchronous "a sync is running" latch shared by BOTH sync handlers.
+   *  React state can't serve this role — it updates asynchronously, so rapid
+   *  clicks read a stale `false`. The two booleans above stay purely for UI
+   *  (spinner + disabled), which is what they're good at. */
+  const syncInFlight = useRef(false);
+  /** One-shot latch so the cold-cache bootstrap can only ever run once per mount. */
+  const bootstrapStarted = useRef(false);
+  /** True only while the cold-start latest-products phase is still running. */
+  const [bootstrapping, setBootstrapping] = useState(false);
 
   // IndexedDB-first: on load/refresh/navigation we ONLY read the cached
   // catalogue — no API request, no background sync, no revalidation. Fresh data
@@ -219,6 +243,134 @@ export default function SupplierProductsPage() {
       if (!alive) return;
       setAllProducts(cached.map(mapSupplierToProduct));
       setIsLoading(false);
+
+      // CACHE-FIRST IS UNCHANGED: with anything cached we render it and stop —
+      // no GraphQL on load, navigation or refresh. The bootstrap below runs
+      // ONLY on a cold cache, where there is nothing to be cache-first about
+      // and the alternative is an empty table until the user finds Sync.
+      // SOURCE OF TRUTH: does supplier data exist in IndexedDB? Anything cached
+      // means no auto-sync. An empty store means bootstrap — for ANY reason:
+      // first load, storage eviction, or a manual cache wipe. The
+      // `bootstrapCompleted` flag is recorded for diagnostics but deliberately
+      // does NOT gate this, so an evicted cache always self-heals.
+      if (cached.length > 0) return;
+
+      // Confirm the store really is empty rather than unreadable. The cache
+      // read above swallows IndexedDB errors and returns [], so a transient
+      // fault (blocked upgrade, quota pressure, DB locked by another tab) would
+      // otherwise look identical to an empty cache and launch a ~3,187-request
+      // sync on a device that already holds the catalogue. `countCachedSupplierProducts`
+      // propagates the error instead; "unknown" is not "empty", so we skip and
+      // let the next load — or the Sync button — settle it.
+      try {
+        if ((await countCachedSupplierProducts()) > 0) return;
+      } catch (err) {
+        console.warn('[bootstrap] cannot confirm the cache is empty — skipping auto-sync:', err);
+        return;
+      }
+      if (!alive) return;
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+      // Guards a double-run: Next enables React StrictMode in dev, which fires
+      // effects twice, and `syncInFlight` is also what the manual buttons use —
+      // so a bootstrap can never overlap a manual sync either.
+      if (syncInFlight.current || bootstrapStarted.current) return;
+      bootstrapStarted.current = true;
+
+      syncInFlight.current = true;
+      setFullSyncing(true);
+      // Hold the skeleton instead of "No products cached yet" until phase 1 has
+      // delivered the current products — during phase 1 the table is genuinely
+      // still loading, so the empty state would be telling the user something false.
+      setBootstrapping(true);
+      setSyncProgress(null);
+      // Buffer batches and commit on a short interval. Committing all ~638
+      // batches individually would re-run the filter/sort memo over an array
+      // growing to 318k rows each time and lock up the page; coalescing keeps
+      // it responsive. The FIRST batch is committed immediately so products
+      // appear as soon as they exist.
+      let buffer: Product[] = [];
+      let committedOnce = false;
+      let lastCommit = 0;
+      let lastProgress = 0;
+      const commit = () => {
+        if (!buffer.length || !alive) return;
+        const chunk = buffer;
+        buffer = [];
+        lastCommit = Date.now();
+        setAllProducts(prev => [...prev, ...chunk]);
+      };
+      const onProgress = (loaded: number, total: number) => {
+        if (!alive) return;
+        const now = Date.now();
+        if (now - lastProgress >= 150 || loaded === total) {
+          lastProgress = now;
+          setSyncProgress({ loaded, total });
+        }
+      };
+      // Phase 2 re-fetches the whole catalogue, INCLUDING the rows phase 1
+      // already delivered. IndexedDB dedupes those by keyPath "id", but the
+      // React array does not — appending blindly duplicated every latest row
+      // (measured: 382 dupes partway through a run). Track ids already shown and
+      // drop repeats. Their content is still refreshed in IndexedDB, and the
+      // final re-read below picks up the corrected `sort_seq` ordering.
+      const seenIds = new Set<number>();
+      const onBatch = (batch: CachedSupplierProduct[]) => {
+        if (!alive) return;
+        for (const row of batch) {
+          const mapped = mapSupplierToProduct(row);
+          if (seenIds.has(mapped.id)) continue;
+          seenIds.add(mapped.id);
+          buffer.push(mapped);
+        }
+        if (!committedOnce) { committedOnce = true; commit(); return; }
+        if (Date.now() - lastCommit >= 1000) commit();
+        console.log("batch", batch);
+      };
+      // ONE stamp for both phases, so phase 2's stale-row cleanup treats the
+      // rows phase 1 wrote as part of the same generation rather than leftovers.
+      const bootstrapBatch = Date.now();
+      try {
+        // ── PHASE 1 — current products only (~7.4k rows, ~74 requests) ──
+        // These are exactly what the default LATEST? view shows, so syncing them
+        // first fills the table in seconds. Paging the full catalogue by id
+        // instead would stream ~50,000 historical rows before the first handful
+        // of current ones, leaving the filtered view empty the whole time.
+        await syncLatestSupplierProducts({ syncBatch: bootstrapBatch, onProgress, onBatch });
+        if (!alive) return;
+        commit();
+        // Latest products are in and rendered — the empty state can stop being
+        // suppressed even though phase 2 is still running.
+        setBootstrapping(false);
+
+        // ── PHASE 2 — the rest of the catalogue, in the background ──
+        // Re-fetches everything, phase-1 rows included. The store's keyPath is
+        // "id", so those are upserts, not duplicates — and this pass stamps the
+        // true global `sort_seq` that a filtered pass cannot know.
+        const result = await syncAllSupplierProducts({
+          syncBatch: bootstrapBatch, onProgress, onBatch,
+        });
+        if (!alive) return;
+        commit(); // anything still buffered
+        // Re-read from IndexedDB so the final list is deduped and in canonical
+        // sort_seq order — batches arrive from 8 concurrent workers, so append
+        // order is not guaranteed to match the catalogue's.
+        setAllProducts((await getCachedSupplierProducts()).map(mapSupplierToProduct));
+        if (!result.complete) {
+          addToast(
+            `Loaded ${result.written.toLocaleString()} of ${result.total.toLocaleString()} products — ` +
+            `${result.failedPages.length} page${result.failedPages.length === 1 ? '' : 's'} failed. Sync to retry.`,
+          );
+        }
+      } catch {
+        if (alive) addToast('Could not load supplier products. Please use Sync to retry.');
+      } finally {
+        syncInFlight.current = false;
+        if (alive) {
+          setBootstrapping(false);
+          setFullSyncing(false);
+          setSyncProgress(null);
+        }
+      }
     })();
     return () => {
       alive = false;
@@ -235,11 +387,15 @@ export default function SupplierProductsPage() {
 
   // Per-Page Sync — Header button refreshes ONLY current page data
   const handlePageSync = async () => {
-    if (pageSyncing || fullSyncing) return;
+    // Ref, not state: `setPageSyncing(true)` doesn't take effect until the next
+    // render, so two clicks in the same tick would both read `false` and both
+    // fire. `syncInFlight` flips synchronously, so the second click always loses.
+    if (syncInFlight.current) return;
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       addToast('Offline: cannot sync without an internet connection.');
       return;
     }
+    syncInFlight.current = true;
     setPageSyncing(true);
     try {
       const items = await syncSupplierProductsPage({ pageSize, currentPage });
@@ -248,20 +404,35 @@ export default function SupplierProductsPage() {
     } catch {
       addToast('Sync failed. Please try again.');
     } finally {
+      syncInFlight.current = false;
       setPageSyncing(false);
     }
   };
 
   // Full Sync — Sidebar button refreshes the ENTIRE supplier catalogue
   const handleFullSync = async () => {
-    if (pageSyncing || fullSyncing) return;
+    // Same synchronous guard as handlePageSync. This one matters more: it also
+    // fires via registerModuleSync, so the sidebar button and a programmatic
+    // module sync could otherwise both start a ~3,187-request run at once.
+    if (syncInFlight.current) return;
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       addToast('Offline: cannot sync without an internet connection.');
       return;
     }
+    syncInFlight.current = true;
     setFullSyncing(true);
+    setSyncProgress(null);
+    let lastProgress = 0;
     try {
-      const result = await syncAllSupplierProducts();
+      const result = await syncAllSupplierProducts({
+        onProgress: (loaded, total) => {
+          const now = Date.now();
+          if (now - lastProgress >= 150 || loaded === total) {
+            lastProgress = now;
+            setSyncProgress({ loaded, total });
+          }
+        },
+      });
       setAllProducts(result.items.map(mapSupplierToProduct));
 
       // Report what actually landed. A run that skipped pages must NOT claim
@@ -283,7 +454,9 @@ export default function SupplierProductsPage() {
     } catch {
       addToast('Sync failed. Please try again.');
     } finally {
+      syncInFlight.current = false;
       setFullSyncing(false);
+      setSyncProgress(null);
     }
   };
 
@@ -414,7 +587,7 @@ export default function SupplierProductsPage() {
         const valA = a[sortColumn];
         const valB = b[sortColumn];
         if (typeof valA === 'string' && typeof valB === 'string') {
-          return valA.localeCompare(valB) * dir;
+          return collator.compare(valA, valB) * dir;
         }
         if (typeof valA === 'number' && typeof valB === 'number') {
           return (valA - valB) * dir;
@@ -466,7 +639,13 @@ export default function SupplierProductsPage() {
 
   // Skeleton only while reading the cache (isLoading) or during an in-progress
   // Sync that has no data yet. An empty cache with no sync shows the empty state.
-  const showSkeleton = isLoading || ((pageSyncing || fullSyncing) && allProducts.length === 0);
+  // The third clause covers the cold-start bootstrap: until the latest-products
+  // phase lands, the LATEST? view can legitimately be empty while data IS on its
+  // way, and "No products found" would be telling the user something false.
+  const showSkeleton =
+    isLoading ||
+    ((pageSyncing || fullSyncing) && allProducts.length === 0) ||
+    (bootstrapping && currentItems.length === 0);
 
   // Keep the current page within range whenever the result set shrinks (a
   // filter change, page-size change, or Latest toggle), so the table never sits
@@ -525,23 +704,23 @@ export default function SupplierProductsPage() {
   };
 
   const copyRowData = (item: Product) => {
-    const rowString = [
-      item.source,
-      item.itemCode,
-      item.category,
-      item.brand,
-      item.pattern,
-      item.sizeFull,
-      item.runflat ? 'Yes' : 'No',
-      item.year,
-      item.country,
-      item.qty,
-      `﷼${item.cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      `﷼${item.fittingPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      formatDateDDMM(item.date)
-    ].join('\t');
+    const formattedCost = (item.cost || 0).toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    const parts = [
+      item.category || '',
+      item.brand || '',
+      item.pattern || '',
+      item.sizeFull || item.size || '',
+      item.year && item.year > 0 ? item.year : '',
+      item.country && item.country !== '-' ? item.country : '',
+      item.qty ?? 0,
+      formattedCost,
+    ].filter(val => val !== '' && val !== undefined && val !== null);
+    const rowString = parts.join(' - ');
     navigator.clipboard.writeText(rowString);
-    addToast(`Copied row data for "${item.pattern || item.itemCode}" to clipboard!`);
+    addToast(`Copied: "${rowString}"`);
   };
 
   const exportCSV = () => {
@@ -664,9 +843,17 @@ export default function SupplierProductsPage() {
 
           {/* Title & Stats */}
           <div className="flex items-center gap-3">
-            <h1 className="text-lg font-bold text-slate-900 tracking-tight">Supplier Products</h1>
+            <h1 className="text-lg font-bold text-slate-900 tracking-tight">Products</h1>
             <span className="inline-flex items-center justify-center min-w-[92px] bg-emerald-50 text-emerald-700 text-xs font-semibold px-2.5 py-0.5 rounded-full border border-emerald-200/80 tabular-nums whitespace-nowrap">
-              {totalItems.toLocaleString()} items
+              {fullSyncing || pageSyncing ? (
+                syncProgress ? (
+                  `Syncing: ${syncProgress.loaded.toLocaleString()} items`
+                ) : (
+                  `Syncing... ${totalItems.toLocaleString()} items`
+                )
+              ) : (
+                `${totalItems.toLocaleString()} items`
+              )}
             </span>
           </div>
 
@@ -700,16 +887,6 @@ export default function SupplierProductsPage() {
               )}
             </div>
 
-            {/* Column Picker Modal Toggle */}
-            <button
-              onClick={() => setIsColumnModalOpen(true)}
-              className="h-9 flex items-center gap-2 px-3 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-all shadow-2xs"
-            >
-              <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
-              </svg>
-              Columns
-            </button>
 
             {/* Export Button */}
             <button
@@ -1102,7 +1279,7 @@ export default function SupplierProductsPage() {
                     {!hiddenColumns.has('qty') && <th onClick={() => handleSort('qty')} className="py-3 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap w-[60px]">Qty <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('cost') && <th onClick={() => handleSort('cost')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[115px]">Cost <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('fittingPrice') && <th onClick={() => handleSort('fittingPrice')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[125px]">Fitting Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('date') && <th className="py-3 px-3 whitespace-nowrap w-[90px]">Date</th>}
+                    {!hiddenColumns.has('date') && <th onClick={() => handleSort('date')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[90px]">Date <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     <th className="py-3 px-2 text-center whitespace-nowrap w-[65px]">Actions</th>
                   </tr>
                 </thead>
