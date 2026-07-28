@@ -1,16 +1,16 @@
 "use client";
 
-/* ─────────────────────────────────────────────────────────────
-   DASHBOARD — NOT IN USE.
-
-   The full implementation is preserved verbatim below as line comments;
-   uncomment to restore it.
-
-   The file still exports a component because the route cannot simply vanish:
-   `app/page.tsx` redirects "/" here, and the sidebar "Dashboard" item links
-   here from /products, /supplier-products and /tyre_guide/chat. Dropping the
-   default export would 404 the app's landing route.
-   ───────────────────────────────────────────────────────────── */
+// ─────────────────────────────────────────────────────────────
+// DASHBOARD — NOT IN USE.
+//
+// The full implementation is preserved verbatim at the bottom of this file as
+// line comments; uncomment to restore it.
+//
+// This file must still export a React component: `app/page.tsx` redirects "/"
+// here, and the sidebar "Dashboard" item links here from /products,
+// /supplier-products and /tyre_guide/chat. Without a valid default export the
+// route throws "The default export is not a React Component".
+// ─────────────────────────────────────────────────────────────
 export default function DashboardPage() {
   return null;
 }
