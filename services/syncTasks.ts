@@ -16,6 +16,7 @@ import {
   syncAllSupplierProducts,
   syncLatestSupplierProducts,
   countCachedSupplierProducts,
+  getSupplierSyncState,
   type CachedSupplierProduct,
 } from "./cache";
 
@@ -89,6 +90,32 @@ const tyresChatTask: SyncTaskDefinition = {
     return "Chat shortcuts synced.";
   },
 };
+
+/**
+ * Resume a catalogue sync that a hard page load killed.
+ *
+ * The manager is a JS-context singleton, so a full reload (F5, crash, restored
+ * tab) destroys an in-flight run — client-side navigation does not. The run
+ * leaves `supplierAll:syncState = "running"` in IndexedDB because only a
+ * finished run overwrites that marker, which makes an interruption detectable
+ * on the next load.
+ *
+ * This is NOT the auto-sync rule being widened: it only continues work the user
+ * already started, and only when the marker proves a run was cut short. A
+ * cleanly finished sync leaves "complete"/"partial" and is never resumed.
+ * Resuming re-runs the full pass, which is safe — every write is an upsert
+ * keyed on id.
+ */
+export async function resumeInterruptedSupplierSync(): Promise<void> {
+  if (typeof navigator !== "undefined" && !navigator.onLine) return;
+  if (syncManager.isRunning(SYNC_TASK.supplierProducts)) return;
+
+  const state = await getSupplierSyncState().catch(() => null);
+  if (state !== "running") return;
+
+  console.log("[syncTasks] previous supplier sync was interrupted — resuming");
+  void syncManager.start(SYNC_TASK.supplierProducts);
+}
 
 /** Idempotent — safe to call from multiple entry points and across fast refresh. */
 export function registerSyncTasks(): void {

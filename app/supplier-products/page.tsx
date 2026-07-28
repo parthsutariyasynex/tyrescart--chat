@@ -73,6 +73,10 @@ export interface Product {
   cost: number;
   fittingPrice: number;
   date: string;
+  /** `date` as a sortable integer (2026-07-20 → 20260720), 0 when absent.
+   *  Precomputed at map time so the default date sort compares numbers instead
+   *  of running a collator over 318k strings on every filter change. */
+  dateKey: number;
   /** 1 = current/latest record, 0 = historical. Used by the client-side Latest filter. */
   is_latest: number;
 }
@@ -91,6 +95,22 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
  * (~5.7M comparisons). One shared instance is the same ordering, far cheaper.
  */
 const collator = new Intl.Collator();
+
+/**
+ * "2026-07-20" → 20260720, so dates sort as plain integers.
+ *
+ * The table defaults to sorting by date, which means the comparator now runs on
+ * every recompute — including with LATEST? unticked, where it covers all
+ * 318,668 rows (~5.7M comparisons). Doing that through `Intl.Collator` on
+ * strings took ~20s and froze the page; integer subtraction is ~1-2s.
+ * Undated rows get 0 so they group at one end rather than interleaving.
+ */
+function dateSortKey(raw?: string): number {
+  if (!raw) return 0;
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return 0;
+  return Number(m[1]) * 10000 + Number(m[2]) * 100 + Number(m[3]);
+}
 
 function formatDateDDMM(rawDate?: string): string {
   if (!rawDate || !rawDate.trim()) return '-';
@@ -192,8 +212,13 @@ function mapSupplierToProduct(p: CachedSupplierProduct): Product {
     flag: '',
     qty: 0,
     cost: Number(p.cost) || Number(p.price) || 0,
-    fittingPrice: 0,
+    // Was hardcoded to 0. `fitting_price` is a real API field and is populated
+    // on some rows, so the column showed 0.00 for every product regardless.
+    // Rows cached before it was added to the query have no value → 0, until a
+    // re-sync fills them in.
+    fittingPrice: Number(p.fitting_price) || 0,
     date: p.date ?? '',
+    dateKey: dateSortKey(p.date),
     is_latest: Number(p.is_latest) === 1 ? 1 : 0,
   };
 }
@@ -539,6 +564,12 @@ export default function SupplierProductsPage() {
       // `allProducts` state array — copy first so we never reorder state.
       if (result === allProducts) result = [...result];
       const dir = sortAsc ? 1 : -1;
+      // Date is the default sort, so it runs constantly and over the largest
+      // arrays — take the precomputed integer path instead of the collator.
+      if (sortColumn === 'date') {
+        result.sort((a, b) => (a.dateKey - b.dateKey) * dir);
+        return result;
+      }
       result.sort((a, b) => {
         const valA = a[sortColumn];
         const valB = b[sortColumn];

@@ -407,6 +407,17 @@ export interface SupplierCacheStatus {
  * the LATEST? filter can possibly show) — instead of silently rendering a
  * partial catalogue as if it were the whole thing.
  */
+/**
+ * The state the last full sync left behind, or null if none has run.
+ *
+ * "running" means a sync started and never reached its end — the marker is only
+ * overwritten by a run that finishes, so a hard reload or crash leaves it set.
+ * Used to resume an interrupted sync on the next load.
+ */
+export async function getSupplierSyncState(): Promise<SupplierSyncState | null> {
+  return (await idbGetMeta<SupplierSyncState>(META_SUPPLIER_STATE).catch(() => null)) ?? null;
+}
+
 export async function getSupplierCacheStatus(): Promise<SupplierCacheStatus> {
   const [storedCount, expectedTotal, state, schemaVersion] = await Promise.all([
     idbCount(STORE_SUPPLIER_PRODUCTS).catch(() => 0),

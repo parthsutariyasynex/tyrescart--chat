@@ -56,6 +56,10 @@ export interface SupplierProductItem {
   size: string;
   cost?: number;
   price?: number;
+  /** Supplier's fitting/fitment charge. Mostly 0, but genuinely populated on
+   *  some rows (e.g. GCC sku BR1756515-25A = 450), so it must come from the
+   *  API rather than being defaulted client-side. */
+  fitting_price?: number;
   source_name?: string;
   /** "supplier" | "competitor" — see ProductSource. Absent on rows cached
    *  before this field was added to the query; re-sync populates it. */
