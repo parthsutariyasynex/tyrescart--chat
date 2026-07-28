@@ -137,6 +137,7 @@ export default function PosProductsPage() {
 
       setLoadingMore(true);
       for (let page = 2; page <= totalPages; page++) {
+        if (!isCurrent()) return;
         let batch: ProductsResponse;
         try {
           batch = await fetchStorefrontBatch({ ...baseParams, currentPage: page }, maxAgeMs);
@@ -183,6 +184,9 @@ export default function PosProductsPage() {
   useEffect(() => {
     loadGraphQLProducts();
     loadTyresChat();
+    return () => {
+      loadIdRef.current++;
+    };
   }, [loadGraphQLProducts, loadTyresChat]);
 
   const view = useMemo(
