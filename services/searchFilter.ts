@@ -60,10 +60,10 @@ export type LatestFlag = boolean | undefined;
 
 /* ─── Search tokenization & token rules ────────────────────── */
 
-/** Split a free-text query into trimmed, non-empty tokens (comma/whitespace separated). */
+/** Split a free-text query clause into trimmed, non-empty tokens (whitespace separated). */
 export function tokenize(search: string): string[] {
   return search
-    .split(/[,\s]+/)
+    .split(/\s+/)
     .map((s) => s.trim())
     .filter(Boolean);
 }
@@ -232,7 +232,8 @@ export function matchesToken(
 
 /**
  * Does the product match the full free-text search?
- * AND across tokens — every token must match (via matchesToken).
+ * Comma-separated clauses evaluate with OR logic between clauses.
+ * Tokens within a single clause evaluate with AND logic.
  * An empty / whitespace-only search matches everything.
  */
 export function matchesSearch(
@@ -241,13 +242,25 @@ export function matchesSearch(
   fields: readonly string[] = SEARCHABLE_FIELDS,
   sizeFields: readonly string[] = DEFAULT_SIZE_FIELDS,
 ): boolean {
-  // A size-only query is normalized to its digits first, so all spellings of a
-  // size (with/without spaces, slashes, "R") collapse to ONE token and match
-  // identically. Mixed queries (e.g. "michelin 205/55R16") tokenize normally.
-  // A whole-query rim search short-circuits before tokenizing. Skipping only
-  // the digit normalization is not enough: "R 17" would then split on the space
-  // into ["R", "17"], where "R" degrades to a substring match and "17" goes back
-  // to prefix-matching 175-width tyres — the exact bug this avoids.
+  const trimmed = search.trim();
+  if (!trimmed) return true;
+
+  if (trimmed.includes(",")) {
+    const clauses = trimmed.split(",").map((c) => c.trim()).filter(Boolean);
+    if (clauses.length > 0) {
+      return clauses.some((clause) => matchesSingleSearchClause(product, clause, fields, sizeFields));
+    }
+  }
+
+  return matchesSingleSearchClause(product, trimmed, fields, sizeFields);
+}
+
+function matchesSingleSearchClause(
+  product: ProductRecord,
+  search: string,
+  fields: readonly string[] = SEARCHABLE_FIELDS,
+  sizeFields: readonly string[] = DEFAULT_SIZE_FIELDS,
+): boolean {
   const rimOnly = parseRimOnly(search);
   if (rimOnly) return matchesRim(product, rimOnly, sizeFields);
 

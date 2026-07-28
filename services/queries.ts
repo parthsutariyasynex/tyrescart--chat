@@ -201,3 +201,105 @@ export function tyresChatQuery(vars: TyresChatQueryVars = {}): string {
     }
   }`;
 }
+
+/* ─────────────────────────────────────────────
+   tcProducts — storefront `products` for the TC Products page
+   ADDITIVE. Kept separate from `productsQuery` above, which /products uses:
+   widening that one would change that page's payload. Both live here so every
+   GraphQL query string in the app is defined in this file.
+───────────────────────────────────────────── */
+
+export type TcSortField = "name" | "position" | "relevance";
+export type TcSortDirection = "ASC" | "DESC";
+
+export interface TcProductsQueryVars {
+  search?: string;
+  pageSize?: number;
+  currentPage?: number;
+  sortField?: TcSortField;
+  sortDirection?: TcSortDirection;
+}
+
+/**
+ * Attributes Magento returns as option IDs rather than text, so the caller can
+ * resolve them through {@link tcAttributeLabelsQuery}.
+ */
+export const TC_LABELLED_ATTRIBUTES = [
+  "brand",
+  "tyre_size",
+  "runflat",
+  "year",
+  "country",
+  "oem_marking",
+] as const;
+
+/**
+ * Storefront products for the TC Products table.
+ *
+ * `brand` / `tyre_size` / `runflat` / `oem_marking` / `year` / `country` come
+ * back as INTEGER option ids (e.g. `oem_marking: 1571`), never as text — they
+ * must be resolved with tcAttributeLabelsQuery or the table shows raw numbers.
+ * `load_index` is free text ("107V").
+ */
+export function tcProductsQuery(vars: TcProductsQueryVars = {}): string {
+  const {
+    search = "",
+    pageSize = 20,
+    currentPage = 1,
+    sortField = "name",
+    sortDirection = "ASC",
+  } = vars;
+
+  // Escape any embedded double-quotes to keep the inline string valid.
+  const esc = (s: string) => s.replace(/"/g, '\\"');
+
+  // Magento REQUIRES `search` or `filter`; an empty search acts as match-all.
+  return `query {
+    products(
+      search: "${esc(search)}"
+      pageSize: ${pageSize}
+      currentPage: ${currentPage}
+      sort: { ${sortField}: ${sortDirection} }
+    ) {
+      total_count
+      page_info { current_page page_size total_pages }
+      items {
+        uid
+        sku
+        name
+        stock_status
+        url_key
+        brand
+        tyre_size
+        load_index
+        runflat
+        oem_marking
+        year
+        country
+        image { url label }
+        price_range {
+          minimum_price {
+            regular_price { value currency }
+            final_price { value currency }
+          }
+        }
+        categories { id uid name url_key }
+      }
+    }
+  }`;
+}
+
+/** Option id → label maps for {@link TC_LABELLED_ATTRIBUTES}. Fetched once. */
+export function tcAttributeLabelsQuery(): string {
+  const attrs = TC_LABELLED_ATTRIBUTES
+    .map((code) => `{ attribute_code: "${code}", entity_type: "catalog_product" }`)
+    .join(", ");
+  return `query {
+    customAttributeMetadata(attributes: [${attrs}]) {
+      items {
+        attribute_code
+        attribute_options { value label }
+      }
+    }
+  }`;
+}

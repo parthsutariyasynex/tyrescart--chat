@@ -444,6 +444,30 @@ body {
   --badge-midrange-text: #047857;
   --badge-midrange-border: #A7F3D0;
 
+  --badge-brand-emerald-bg: #ECFDF5;
+  --badge-brand-emerald-text: #065F46;
+  --badge-brand-emerald-border: #A7F3D0;
+
+  --badge-brand-teal-bg: #F0FDFA;
+  --badge-brand-teal-text: #0F766E;
+  --badge-brand-teal-border: #CCFBF1;
+
+  --badge-brand-indigo-bg: #E0E7FF;
+  --badge-brand-indigo-text: #3730A3;
+  --badge-brand-indigo-border: #C7D2FE;
+
+  --badge-brand-sky-bg: #F0F9FF;
+  --badge-brand-sky-text: #0369A1;
+  --badge-brand-sky-border: #BAE6FD;
+
+  --badge-brand-orange-bg: #FFF7ED;
+  --badge-brand-orange-text: #C2410C;
+  --badge-brand-orange-border: #FFEDD5;
+
+  --badge-brand-default-bg: #F1F5F9;
+  --badge-brand-default-text: #334155;
+  --badge-brand-default-border: #E2E8F0;
+
   --table-cell-padding-y: 12px;
   --table-cell-padding-x: 14px;
   --table-font-size: 13.5px;
@@ -457,6 +481,70 @@ body {
   --radius-full: 9999px;
 
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Dynamic Badge Utility Classes (Driven by globals.css CSS variables) ── */
+.badge-cat-premium,
+.badge-cat-tier1 {
+  background-color: var(--badge-premium-bg) !important;
+  color: var(--badge-premium-text) !important;
+  border-color: var(--badge-premium-border) !important;
+}
+
+.badge-cat-quality,
+.badge-cat-tier2 {
+  background-color: var(--badge-quality-bg) !important;
+  color: var(--badge-quality-text) !important;
+  border-color: var(--badge-quality-border) !important;
+}
+
+.badge-cat-budget,
+.badge-cat-tier3 {
+  background-color: var(--badge-budget-bg) !important;
+  color: var(--badge-budget-text) !important;
+  border-color: var(--badge-budget-border) !important;
+}
+
+.badge-cat-midrange {
+  background-color: var(--badge-midrange-bg) !important;
+  color: var(--badge-midrange-text) !important;
+  border-color: var(--badge-midrange-border) !important;
+}
+
+.badge-brand-emerald {
+  background-color: var(--badge-brand-emerald-bg) !important;
+  color: var(--badge-brand-emerald-text) !important;
+  border-color: var(--badge-brand-emerald-border) !important;
+}
+
+.badge-brand-teal {
+  background-color: var(--badge-brand-teal-bg) !important;
+  color: var(--badge-brand-teal-text) !important;
+  border-color: var(--badge-brand-teal-border) !important;
+}
+
+.badge-brand-indigo {
+  background-color: var(--badge-brand-indigo-bg) !important;
+  color: var(--badge-brand-indigo-text) !important;
+  border-color: var(--badge-brand-indigo-border) !important;
+}
+
+.badge-brand-sky {
+  background-color: var(--badge-brand-sky-bg) !important;
+  color: var(--badge-brand-sky-text) !important;
+  border-color: var(--badge-brand-sky-border) !important;
+}
+
+.badge-brand-orange {
+  background-color: var(--badge-brand-orange-bg) !important;
+  color: var(--badge-brand-orange-text) !important;
+  border-color: var(--badge-brand-orange-border) !important;
+}
+
+.badge-brand-default {
+  background-color: var(--badge-brand-default-bg) !important;
+  color: var(--badge-brand-default-text) !important;
+  border-color: var(--badge-brand-default-border) !important;
 }
 
 body.dark-theme {

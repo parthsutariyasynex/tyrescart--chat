@@ -12,8 +12,9 @@ import {
   PlusIcon,
   XMarkIcon,
   ChatBubbleLeftRightIcon,
-  TruckIcon
+  TruckIcon,
 } from "@heroicons/react/24/outline";
+import Sidebar from "@/components/Sidebar";
 import {
   fetchStorefrontBatch,
   getTyresChatCached,
@@ -213,67 +214,7 @@ export default function PosProductsPage() {
     <div className="flex h-screen w-screen overflow-hidden bg-[#f4f6f9] text-gray-800 font-sans relative">
 
       {/* 1. LEFT SIDEBAR NAVIGATION */}
-      <aside className="w-[68px] flex-none bg-white border-r border-gray-200 flex flex-col items-center justify-between py-3 z-20 shadow-xs">
-        <div className="flex flex-col items-center gap-6 w-full">
-          {/* Logo Badge (Links directly to /dashboard) */}
-          <Link
-            href="/dashboard"
-            title="TyresCart POS"
-            className="flex items-center justify-center hover:opacity-80 transition-opacity"
-          >
-            <Image
-              src="/favicon-color.png"
-              alt="TyresCart"
-              width={40}
-              height={40}
-              priority
-              className="w-10 h-10 object-contain rounded-xl"
-            />
-          </Link>
-
-          {/* Navigation Items */}
-          <nav className="flex flex-col gap-2 w-full px-2">
-            {[
-              { name: "Dashboard", icon: HomeIcon, href: "/dashboard" },
-              { name: "Products", icon: ShoppingBagIcon, href: "/products" },
-              { name: "Chat", icon: ChatBubbleLeftRightIcon, href: "/tyre_guide/chat" },
-              { name: "Supplier", icon: TruckIcon, href: "/supplier-products" },
-            ].map((item) => {
-              const Icon = item.icon;
-              const isActive = pathname === item.href || (item.href === "/products" && pathname === "/products");
-
-              return (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  title={item.name}
-                  className={`w-full py-2.5 flex flex-col items-center justify-center rounded-lg transition-all relative group focus:outline-none ${isActive
-                    ? "text-orange-500 bg-orange-50 font-semibold"
-                    : "text-gray-500 hover:text-gray-800 hover:bg-gray-100"
-                    }`}
-                >
-                  {isActive && (
-                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />
-                  )}
-                  <Icon className="w-5 h-5" />
-                  <span className="text-[10px] mt-1 tracking-tight">{item.name}</span>
-                </Link>
-              );
-            })}
-
-            {/* Sidebar Sync — full application sync (shared useSync hook) */}
-            <SidebarSyncButton />
-          </nav>
-        </div>
-
-        {/* User Profile Avatar at Bottom Left */}
-        <div className="flex flex-col items-center gap-2 pt-2 border-t border-gray-100 w-full">
-          <div className="w-9 h-9 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center text-indigo-700 font-semibold text-xs shadow-inner">
-            KL
-          </div>
-          <span className="text-[9px] text-gray-500 font-medium truncate max-w-[60px]">Klever</span>
-        </div>
-      </aside>
+      <Sidebar activeNav="Products" theme="orange" />
 
       {/* 2. MAIN FULL-WIDTH PRODUCT CATALOG AREA */}
       <main className="flex-1 flex flex-col min-w-0 bg-[#f8fafc] overflow-hidden">

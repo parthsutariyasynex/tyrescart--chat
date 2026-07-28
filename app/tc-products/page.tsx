@@ -14,6 +14,7 @@ import {
   MagnifyingGlassIcon,
   ArrowPathIcon,
   ChevronDownIcon,
+  ClipboardDocumentIcon,
   XMarkIcon
 } from '@heroicons/react/24/outline';
 import Sidebar from '@/components/Sidebar';
@@ -21,18 +22,13 @@ import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { matchesSearch, parseAspectRim, parseRimOnly, matchesAspectRim } from '@/services/searchFilter';
 import { Skeleton, SupplierTableSkeleton } from '@/components/Skeletons';
 import {
-  getCachedSupplierProducts,
-  countCachedSupplierProducts,
-  syncSupplierProductsPage,
-  type CachedSupplierProduct,
-} from '@/services/cache';
-import {
-  syncManager,
-  useSyncTask,
-  useSyncBatches,
-  useOnSyncComplete,
-} from '@/hooks/useSyncManager';
-import { SYNC_TASK } from '@/services/syncTasks';
+  fetchTcProducts,
+  fetchTcAttributeLabels,
+  labelOf,
+  type TcApiProduct,
+  type TcAttributeLabels,
+} from './api';
+import type { CachedSupplierProduct } from '@/services/cache';
 
 /**
  * Field names `searchFilter` should read on this page's `Product` shape.
@@ -81,7 +77,30 @@ export interface Product {
   dateKey: number;
   /** 1 = current/latest record, 0 = historical. Used by the client-side Latest filter. */
   is_latest: number;
+
+  /* ── TC-specific columns ── */
+  /** Unit price (API `price`, falling back to `cost`). */
+  price: number;
+  /** API `set_price` — the set-of-4 price. */
+  setOf4Price: number;
+  /** NO API SOURCE — see NO_API_FIELD. */
+  oem: string;
+  /** NO API SOURCE — see NO_API_FIELD. */
+  offer: string;
 }
+
+/**
+ * OEM, Qty and Offer have no field in the GraphQL schema. Probed against the
+ * live endpoint: `oem`, `oem_code`, `is_oem`, `offer`, `offer_price`,
+ * `discount`, `qty`, `quantity`, `stock`, `set_of_4` all return
+ * "Cannot query field ... on type Query". They render as "—" rather than being
+ * invented — deriving Offer from price vs set_price would be guessing at
+ * pricing semantics, and a wrong discount is worse than a blank.
+ */
+const NO_API_FIELD = '—';
+
+/** Units in a "set" — a full set of tyres for one car. */
+const SET_OF_4_UNITS = 4;
 
 interface Toast {
   id: number;
@@ -178,17 +197,6 @@ function productTypeLabel(source?: string): string {
 }
 
 /**
- * Stable numeric row id for a cached supplier record. Numeric ids pass through
- * unchanged; anything else maps to a negative slot derived from `sort_seq`, so
- * non-numeric ids stay distinct from each other AND from real ids.
- */
-function supplierRowId(p: CachedSupplierProduct): number {
-  const n = Number(p.id);
-  if (p.id !== "" && p.id !== null && p.id !== undefined && Number.isFinite(n)) return n;
-  return typeof p.sort_seq === "number" ? -(p.sort_seq + 1) : 0;
-}
-
-/**
  * Canonicalise the API's own `brand_category` casing (e.g. "tier1" → "Tier 1").
  *
  * Takes ONLY the category. There used to be a BRAND_CATEGORY_MAP fallback that
@@ -209,44 +217,49 @@ function normalizeCategory(cat?: string): string {
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
 }
 
-function mapSupplierToProduct(p: CachedSupplierProduct): Product {
+function mapTcProduct(p: TcApiProduct, labels: TcAttributeLabels): Product {
+  const size = labelOf(labels, 'tyre_size', p.tyre_size);
+  const li = (p.load_index ?? '').trim();
+  const regular = p.price_range?.minimum_price?.regular_price?.value ?? 0;
+  const final = p.price_range?.minimum_price?.final_price?.value ?? regular;
+  // Offer comes from the API's own regular-vs-final spread — a real discount,
+  // not a guess. Blank when there is none.
+  const pct = regular > 0 && final < regular ? Math.round(((regular - final) / regular) * 100) : 0;
+
   return {
-    // `CachedSupplierProduct.id` is `string | number`. A non-numeric id used to
-    // collapse to 0 via `Number(p.id) || 0`, so EVERY such row shared id 0 —
-    // and because `selectedIds` is a Set<number>, ticking one checkbox ticked
-    // all of them. Fall back to the row's `sort_seq` (unique per row) mapped
-    // into negative space, which cannot collide with a real numeric id.
-    // `sort_seq` is absent on rows cached before v4; those keep the old
-    // behaviour until the next full sync repopulates the field.
-    id: supplierRowId(p),
-    source: p.source_name ?? '',
+    id: Number(p.uid ? parseInt(atob(p.uid), 10) : 0) || 0,
+    source: '',
     itemCode: p.sku ?? '',
-    productType: productTypeLabel(p.product_source),
-    category: normalizeCategory(p.brand_category),
-    brand: p.brand ?? '',
-    pattern: p.product_name ?? '',
-    size: p.size ?? '',
-    sizeFull: sizeWithLoadSpeed(p.size ?? '', p.product_name ?? ''),
-    runflat: p.runflat !== undefined && p.runflat !== null
-      ? (typeof p.runflat === 'boolean' ? p.runflat : String(p.runflat).toLowerCase() === 'yes' || String(p.runflat) === '1')
-      : /run\s*flat|\bRFT\b|\bZP\b|\bSSR\b|\bMOE\b/i.test(p.product_name ?? ''),
-    year: Number(p.year) || 0,
-    country: p.country ?? '',
+    productType: '',
+    category: p.categories?.[0]?.name ?? '',
+    brand: labelOf(labels, 'brand', p.brand),
+    pattern: p.name ?? '',
+    size,
+    sizeFull: size && li ? `${size} ${li}` : size,
+    runflat: labelOf(labels, 'runflat', p.runflat) !== '',
+    year: Number(labelOf(labels, 'year', p.year)) || 0,
+    country: labelOf(labels, 'country', p.country),
     flag: '',
-    qty: 0,
-    cost: Number(p.cost) || Number(p.price) || 0,
-    // Was hardcoded to 0. `fitting_price` is a real API field and is populated
-    // on some rows, so the column showed 0.00 for every product regardless.
-    // Rows cached before it was added to the query have no value → 0, until a
-    // re-sync fills them in.
-    fittingPrice: Number(p.fitting_price) || 0,
-    date: p.date ?? '',
-    dateKey: dateSortKey(p.date),
-    is_latest: Number(p.is_latest) === 1 ? 1 : 0,
+    // `stock_status` is the only stock signal the storefront exposes
+    // (`only_x_left_in_stock` errors with "sku is not assigned to given stock").
+    qty: p.stock_status === 'IN_STOCK' ? 1 : 0,
+    cost: regular,
+    fittingPrice: 0,
+    date: '',
+    dateKey: 0,
+    is_latest: 1,
+    price: regular,
+    // Set of 4 Price is DERIVED, never fetched: the API's `price` is the
+    // per-unit figure, so a set of four is simply 4x it. Computed here at map
+    // time, which means it re-derives automatically whenever the API returns a
+    // new price — there is nothing cached or stored to go stale.
+    setOf4Price: regular * SET_OF_4_UNITS,
+    oem: NO_API_FIELD,
+    offer: pct > 0 ? `${pct}%` : NO_API_FIELD,
   };
 }
 
-export default function SupplierProductsPage() {
+export default function TcProductsPage() {
   const isOnline = useOnlineStatus();
 
   const [allProducts, setAllProducts] = useState<Product[]>([]);
@@ -269,6 +282,10 @@ export default function SupplierProductsPage() {
   const [sortAsc, setSortAsc] = useState(false);
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  /** Rows the user has added via the Action column. Client-side only — there is
+   *  no list/cart endpoint on the API yet, so this is UI state, not fake data. */
+  const [listIds, setListIds] = useState<Set<number>>(new Set());
+  const [cartIds, setCartIds] = useState<Set<number>>(new Set());
   const [activeDrawerItem, setActiveDrawerItem] = useState<Product | null>(null);
   const [isColumnModalOpen, setIsColumnModalOpen] = useState(false);
   const [isDensityMenuOpen, setIsDensityMenuOpen] = useState(false);
@@ -278,6 +295,14 @@ export default function SupplierProductsPage() {
   const [isBrandOpen, setIsBrandOpen] = useState(false);
   const [density, setDensity] = useState<'compact' | 'comfortable' | 'breathable'>('comfortable');
   const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const addToast = useCallback((msg: string) => {
+    const id = Date.now() + Math.floor(Math.random() * 1000);
+    setToasts(prev => [...prev, { id, msg }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 2800);
+  }, []);
 
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
 
@@ -289,151 +314,96 @@ export default function SupplierProductsPage() {
   /** True only while the cold-start latest-products phase is still running. */
   const [bootstrapping, setBootstrapping] = useState(false);
 
-  /* ── Global sync manager: OBSERVE, don't own ───────────────────────
-     The catalogue sync runs inside `syncManager`, outside React, so it keeps
-     running when this page unmounts. Everything below is a READ of that global
-     state — the page contributes no sync lifecycle of its own, which is what
-     lets a sync started here survive navigation to another route. */
-  const supplierSync = useSyncTask(SYNC_TASK.supplierProducts);
-  const fullSyncing = supplierSync.status === 'running';
-  const syncProgress = supplierSync.progress;
+  /* ── Storefront API loading ──────────────────────────────────────
+     Data comes from the `products` GraphQL field via ./api.ts, NOT from the
+     supplier IndexedDB cache — this page shows TyresCart's own catalogue.
+     Page 1 paints immediately, then the rest streams in the background, the
+     same shape as the /products page's batch loader. */
+  const [labels, setLabels] = useState<TcAttributeLabels>({});
+  const [loadProgress, setLoadProgress] = useState<{ loaded: number; total: number } | null>(null);
+  const [fullSyncing, setFullSyncing] = useState(false);
+  const syncProgress = loadProgress;
+  /** Invalidates an in-flight background load when the page unmounts or reloads. */
 
-  // IndexedDB-first: on load/refresh/navigation we ONLY read the cached
-  // catalogue — no API request, no background sync, no revalidation. Fresh data
-  // comes solely from the Sync buttons (handlePageSync / handleFullSync). If the cache is empty,
-  // the table shows its empty state until the user syncs.
+
+  const loadIdRef = useRef(0);
+
+  const TC_BATCH = 100;
+
+  const loadAll = useCallback(async (isManual = false) => {
+    const loadId = ++loadIdRef.current;
+    const isCurrent = () => loadId === loadIdRef.current;
+
+    setIsLoading(true);
+    if (isManual) {
+      setFullSyncing(true);
+      setLoadProgress(null);
+    }
+    try {
+      // Option-id → label maps, fetched once and reused for every row.
+      const attrLabels = await fetchTcAttributeLabels().catch(() => ({}) as TcAttributeLabels);
+      if (!isCurrent()) return;
+      setLabels(attrLabels);
+
+      const first = await fetchTcProducts({ pageSize: TC_BATCH, currentPage: 1, sortField: 'name', sortDirection: 'ASC' });
+      if (!isCurrent()) return;
+
+      const rows = first.items.map((it) => mapTcProduct(it, attrLabels));
+      setAllProducts(rows);
+      setIsLoading(false);
+
+      if (isManual) {
+        setLoadProgress({ loaded: rows.length, total: first.total_count });
+      }
+
+      const totalPages = first.page_info?.total_pages ?? 1;
+      for (let page = 2; page <= totalPages; page++) {
+        if (!isCurrent()) return;
+        let batch;
+        try {
+          batch = await fetchTcProducts({ pageSize: TC_BATCH, currentPage: page, sortField: 'name', sortDirection: 'ASC' });
+        } catch (e) {
+          console.warn(`[tc-products] page ${page}/${totalPages} failed — skipping:`, e);
+          continue;
+        }
+        if (!isCurrent()) return;
+        const mapped = batch.items.map((it) => mapTcProduct(it, attrLabels));
+        setAllProducts((prev) => [...prev, ...mapped]);
+
+        if (isManual) {
+          setLoadProgress((prev) => ({
+            loaded: (prev?.loaded ?? 0) + mapped.length,
+            total: first.total_count,
+          }));
+        }
+      }
+    } catch (e) {
+      console.error('[tc-products] load failed:', e);
+      if (isCurrent()) addToast('Could not load products. Please try again.');
+    } finally {
+      if (isCurrent()) {
+        setIsLoading(false);
+        if (isManual) {
+          setFullSyncing(false);
+          setLoadProgress(null);
+        }
+      }
+    }
+  }, [addToast]);
+
   useEffect(() => {
     document.documentElement.classList.remove('dark');
     document.body.classList.remove('dark-theme');
-    let alive = true;
-    (async () => {
-      const cached = await getCachedSupplierProducts();
-      if (!alive) return;
-      const mapped = cached.map(mapSupplierToProduct);
-      setAllProducts(mapped);
-      setIsLoading(false);
-      // Seed the batch de-dupe set with what we just loaded. Mounting DURING a
-      // running sync otherwise appends rows that are already on screen: the
-      // cache read brings in the full store, while `seenIds` starts empty on a
-      // fresh mount, so every subsequent batch is a duplicate (measured: 67,500).
-      for (const p of mapped) seenIds.current.add(p.id);
-
-      // CACHE-FIRST IS UNCHANGED: with anything cached we render it and stop —
-      // no GraphQL on load, navigation or refresh. The bootstrap below runs
-      // ONLY on a cold cache, where there is nothing to be cache-first about
-      // and the alternative is an empty table until the user finds Sync.
-      // SOURCE OF TRUTH: does supplier data exist in IndexedDB? Anything cached
-      // means no auto-sync. An empty store means bootstrap — for ANY reason:
-      // first load, storage eviction, or a manual cache wipe. The
-      // `bootstrapCompleted` flag is recorded for diagnostics but deliberately
-      // does NOT gate this, so an evicted cache always self-heals.
-      if (cached.length > 0) return;
-
-      // Confirm the store really is empty rather than unreadable. The cache
-      // read above swallows IndexedDB errors and returns [], so a transient
-      // fault (blocked upgrade, quota pressure, DB locked by another tab) would
-      // otherwise look identical to an empty cache and launch a ~3,187-request
-      // sync on a device that already holds the catalogue. `countCachedSupplierProducts`
-      // propagates the error instead; "unknown" is not "empty", so we skip and
-      // let the next load — or the Sync button — settle it.
-      try {
-        if ((await countCachedSupplierProducts()) > 0) return;
-      } catch (err) {
-        console.warn('[bootstrap] cannot confirm the cache is empty — skipping auto-sync:', err);
-        return;
-      }
-      if (!alive) return;
-      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
-
-      // Hand the work to the GLOBAL manager instead of running it inline. The
-      // page no longer owns the sync, so it survives navigation away from this
-      // route, and `start()` dedupes synchronously against a run the sidebar
-      // (or a previous mount) may already have going — which also covers React
-      // StrictMode firing this effect twice in dev.
-      //
-      // Progress, streamed rows and completion all come back through the
-      // subscriptions declared below.
-      setBootstrapping(true);
-      void syncManager.start(SYNC_TASK.supplierProducts);
-    })();
+    void loadAll(false);
+    // Bump the load id on unmount so a background run stops instead of
+    // fetching every remaining page into a dead component.
     return () => {
-      alive = false;
+      loadIdRef.current++;
     };
-  }, []);
+  }, [loadAll]);
 
-  /* ── Live rows from the global sync ──
-     Batches are emitted by the manager once each page of rows is already in
-     IndexedDB, so the UI can never show a product the cache lacks. Committing
-     every batch would re-run the filter/sort memo over an array growing to
-     318k rows (~638 times) and lock the page up, so batches are buffered and
-     flushed on an interval — with the FIRST one committed immediately so
-     products appear as soon as they exist. */
-  const batchBuffer = useRef<Product[]>([]);
-  const seenIds = useRef<Set<number>>(new Set());
-  const lastCommit = useRef(0);
-  const committedOnce = useRef(false);
-
-  const commitBatches = useCallback(() => {
-    if (!batchBuffer.current.length) return;
-    const chunk = batchBuffer.current;
-    batchBuffer.current = [];
-    lastCommit.current = Date.now();
-    setAllProducts(prev => [...prev, ...chunk]);
-  }, []);
-
-  useSyncBatches<CachedSupplierProduct>(SYNC_TASK.supplierProducts, (batch) => {
-    for (const row of batch) {
-      const mapped = mapSupplierToProduct(row);
-      // The full pass re-fetches rows the latest-only phase already delivered.
-      // IndexedDB upserts them by keyPath "id"; a React array would not, so
-      // without this the latest rows would appear twice.
-      if (seenIds.current.has(mapped.id)) continue;
-      seenIds.current.add(mapped.id);
-      batchBuffer.current.push(mapped);
-    }
-    if (!committedOnce.current) { committedOnce.current = true; commitBatches(); return; }
-    if (Date.now() - lastCommit.current >= 1000) commitBatches();
-  });
-
-  /* ── Settle up when the global sync finishes ──
-     Fires wherever the user is; if they navigated away and came back, the mount
-     effect above has already re-read the cache, so this is simply a no-op. */
-  useOnSyncComplete(SYNC_TASK.supplierProducts, () => {
-    commitBatches();
-    // Re-read from IndexedDB so the list is deduped and in canonical `sort_seq`
-    // order — batches arrive from 8 concurrent workers, so append order does not
-    // match the catalogue's. React 18+ ignores setState on an unmounted
-    // component, so a late resolve after navigation is harmless.
-    void getCachedSupplierProducts().then((rows) => {
-      setAllProducts(rows.map(mapSupplierToProduct));
-      setBootstrapping(false);
-      seenIds.current.clear();
-      committedOnce.current = false;
-    });
-  });
-
-  // Surface a failed background sync — the manager records the reason, but with
-  // no page mounted at the time there was nothing to show it.
-  useEffect(() => {
-    if (supplierSync.status === 'error' && supplierSync.error) {
-      setBootstrapping(false);
-      addToast('Could not load supplier products. Please use Sync to retry.');
-    }
-  }, [supplierSync.status, supplierSync.error]);
-
-  const addToast = (msg: string) => {
-    const id = Date.now();
-    setToasts(prev => [...prev, { id, msg }]);
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id));
-    }, 2800);
-  };
-
-  // Per-Page Sync — Header button refreshes ONLY current page data
+  // Header refresh button — re-runs the same API load with full sync banner.
   const handlePageSync = async () => {
-    // Ref, not state: `setPageSyncing(true)` doesn't take effect until the next
-    // render, so two clicks in the same tick would both read `false` and both
-    // fire. `syncInFlight` flips synchronously, so the second click always loses.
     if (syncInFlight.current) return;
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       addToast('Offline: cannot sync without an internet connection.');
@@ -442,11 +412,10 @@ export default function SupplierProductsPage() {
     syncInFlight.current = true;
     setPageSyncing(true);
     try {
-      const items = await syncSupplierProductsPage({ pageSize, currentPage });
-      setAllProducts(items.map(mapSupplierToProduct));
-      addToast(`Synced page ${currentPage} supplier products.`);
+      await loadAll(true);
+      addToast('Products refreshed.');
     } catch {
-      addToast('Sync failed. Please try again.');
+      addToast('Refresh failed. Please try again.');
     } finally {
       syncInFlight.current = false;
       setPageSyncing(false);
@@ -768,12 +737,27 @@ export default function SupplierProductsPage() {
     setSelectedIds(new Set());
   };
 
+  const addToList = (item: Product) => {
+    setListIds(prev => new Set(prev).add(item.id));
+    addToast(`Added "${item.pattern || item.brand}" to list.`);
+  };
+
+  const addToCart = (item: Product) => {
+    setCartIds(prev => new Set(prev).add(item.id));
+    addToast(`Added "${item.pattern || item.brand}" to cart.`);
+  };
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     addToast(`Copied "${text}" to clipboard!`);
   };
 
-  const copyRowData = (item: Product) => {
+  /**
+   * The single-row copy string. Extracted verbatim from `copyRowData` so the
+   * bulk copy produces byte-identical lines — there is exactly ONE format, and
+   * both entry points share it. Pure: no clipboard, no toast.
+   */
+  const buildRowString = (item: Product): string => {
     const formattedCost = (item.cost || 0).toLocaleString('en-US', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
@@ -788,21 +772,61 @@ export default function SupplierProductsPage() {
       item.qty ?? 0,
       formattedCost,
     ].filter(val => val !== '' && val !== undefined && val !== null);
-    const rowString = parts.join(' - ');
+    return parts.join(' - ');
+  };
+
+  // Single-row copy — unchanged behaviour, now just delegating the formatting.
+  const copyRowData = (item: Product) => {
+    const rowString = buildRowString(item);
     navigator.clipboard.writeText(rowString);
     addToast(`Copied: "${rowString}"`);
   };
 
+  const hasActiveFilter = useMemo(() => {
+    return (
+      Boolean(searchQuery.trim()) ||
+      supplierFilter !== 'ALL' ||
+      categoryFilter !== 'ALL' ||
+      Boolean(brandInput.trim()) ||
+      Boolean(sizeInput.trim()) ||
+      Boolean(yearInput.trim()) ||
+      Boolean(qtyInput.trim())
+    );
+  }, [searchQuery, supplierFilter, categoryFilter, brandInput, sizeInput, yearInput, qtyInput]);
+
+  /**
+   * Bulk copy — every product in the current search/filter result set, exactly
+   * as if the row-copy had been clicked on each one, joined by newlines.
+   * Only active when a search term or filter is applied.
+   */
+  const copyAllSearchResults = async () => {
+    if (!hasActiveFilter) {
+      addToast('Please enter a search query or filter first.');
+      return;
+    }
+    if (filteredProducts.length === 0) {
+      addToast('No products available to copy.');
+      return;
+    }
+    const payload = filteredProducts.map(buildRowString).join('\n');
+    try {
+      await navigator.clipboard.writeText(payload);
+      addToast(`Successfully copied ${filteredProducts.length.toLocaleString()} search results.`);
+    } catch {
+      addToast('Copy failed. Please try again.');
+    }
+  };
+
   const exportCSV = () => {
     if (!filteredProducts.length) return;
-    const headers = ['SOURCE', 'TYPE', 'CATEGORY', 'BRAND', 'TYRE PATTERN', 'SIZE', 'RUNFLAT', 'YEAR', 'COUNTRY', 'QTY', 'COST', 'FITTING PRICE', 'DATE'];
+    const headers = ['BRAND', 'TYRE SIZE', 'NAME', 'RUNFLAT', 'ORIGIN', 'YEAR', 'OEM', 'QTY', 'PRICE', 'SET OF 4 PRICE', 'OFFER'];
     const rows = filteredProducts.map(p => [
-      p.source, p.productType, p.category, p.brand, `"${p.pattern.replace(/"/g, '""')}"`, p.size, p.runflat ? 'Yes' : 'No', p.year, p.country, p.qty, p.cost.toFixed(2), p.fittingPrice.toFixed(2), p.date
+      p.brand, p.sizeFull || p.size, `"${p.pattern.replace(/"/g, '""')}"`, p.runflat ? 'Yes' : 'No', p.country, p.year, p.oem, p.qty ?? '', p.price.toFixed(2), p.setOf4Price.toFixed(2), p.offer
     ]);
     const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
     const link = document.createElement('a');
     link.setAttribute('href', encodeURI(csvContent));
-    link.setAttribute('download', 'supplier_products.csv');
+    link.setAttribute('download', 'tc_products.csv');
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -826,32 +850,32 @@ export default function SupplierProductsPage() {
   }, [density]);
 
   const categoryBadges: Record<string, string> = {
-    Premium: "bg-purple-50 text-purple-700 border-purple-200/70",
-    Quality: "bg-blue-50 text-blue-700 border-blue-200/70",
-    Budget: "bg-amber-50 text-amber-700 border-amber-200/70",
-    'Mid-Range': "bg-teal-50 text-teal-700 border-teal-200/70",
-    'Tier 1': "bg-emerald-50 text-emerald-700 border-emerald-200/70",
-    'Tier 2': "bg-sky-50 text-sky-700 border-sky-200/70",
-    'Tier 3': "bg-amber-50 text-amber-700 border-amber-200/70",
-    PREMIUM: "bg-purple-50 text-purple-700 border-purple-200/70",
-    QUALITY: "bg-blue-50 text-blue-700 border-blue-200/70",
-    BUDGET: "bg-amber-50 text-amber-700 border-amber-200/70",
-    'MID-RANGE': "bg-teal-50 text-teal-700 border-teal-200/70"
+    Premium: "badge-cat-premium",
+    Quality: "badge-cat-quality",
+    Budget: "badge-cat-budget",
+    'Mid-Range': "badge-cat-midrange",
+    'Tier 1': "badge-cat-tier1",
+    'Tier 2': "badge-cat-tier2",
+    'Tier 3': "badge-cat-tier3",
+    PREMIUM: "badge-cat-premium",
+    QUALITY: "badge-cat-quality",
+    BUDGET: "badge-cat-budget",
+    'MID-RANGE': "badge-cat-midrange"
   };
 
   const brandBadges: Record<string, string> = {
-    Bridgestone: "bg-emerald-50 text-emerald-800 border-emerald-200/70",
-    Habilead: "bg-teal-50 text-teal-800 border-teal-200/70",
-    Kumho: "bg-indigo-50 text-indigo-800 border-indigo-200/70",
-    Michelin: "bg-sky-50 text-sky-800 border-sky-200/70",
-    Continental: "bg-orange-50 text-orange-800 border-orange-200/70"
+    Bridgestone: "badge-brand-emerald",
+    Habilead: "badge-brand-teal",
+    Kumho: "badge-brand-indigo",
+    Michelin: "badge-brand-sky",
+    Continental: "badge-brand-orange"
   };
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-50 text-slate-800 font-sans antialiased selection:bg-emerald-500 selection:text-white transition-colors duration-200 relative">
 
       {/* 1. LEFT SIDEBAR NAVIGATION */}
-      <Sidebar activeNav="Supplier" />
+      <Sidebar activeNav="TC" />
 
       {/* 2. MAIN FULL-WIDTH SUPPLIER PRODUCTS AREA */}
       <main className="flex-1 flex flex-col min-w-0 bg-slate-50 overflow-hidden">
@@ -861,7 +885,7 @@ export default function SupplierProductsPage() {
 
           {/* Title & Stats */}
           <div className="flex items-center gap-3">
-            <h1 className="text-lg font-bold text-slate-900 tracking-tight">Products</h1>
+            <h1 className="text-lg font-bold text-slate-900 tracking-tight">TC Products</h1>
             <span className="inline-flex items-center justify-center min-w-[92px] bg-emerald-50 text-emerald-700 text-xs font-semibold px-2.5 py-0.5 rounded-full border border-emerald-200/80 tabular-nums whitespace-nowrap">
               {fullSyncing || pageSyncing ? (
                 syncProgress ? (
@@ -905,6 +929,22 @@ export default function SupplierProductsPage() {
               )}
             </div>
 
+
+            {/* Copy All Search Results — bulk version of the row-click copy.
+                Same formatter (`buildRowString`), one line per product. */}
+            <button
+              type="button"
+              onClick={copyAllSearchResults}
+              title={hasActiveFilter ? "Copy All Search Results" : "Please enter a search query or filter first"}
+              aria-label="Copy All Search Results"
+              className={`h-9 w-9 inline-flex items-center justify-center rounded-lg transition-colors focus:outline-none active:scale-95 ${
+                hasActiveFilter
+                  ? 'text-slate-600 hover:text-emerald-600 hover:bg-slate-100'
+                  : 'text-slate-300 hover:text-slate-400 hover:bg-slate-50'
+              }`}
+            >
+              <ClipboardDocumentIcon className="w-[18px] h-[18px]" />
+            </button>
 
             {/* Export Button */}
             <button
@@ -1392,45 +1432,41 @@ export default function SupplierProductsPage() {
               <table className="w-full min-w-[1660px] text-left border-collapse table-fixed">
                 <thead className="bg-slate-50/90 backdrop-blur sticky top-0 z-10 border-b border-slate-200">
                   <tr className="text-[11px] font-bold text-slate-500 uppercase tracking-wider select-none">
-                    {!hiddenColumns.has('source') && <th onClick={() => handleSort('source')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[100px]">Source <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('type') && <th onClick={() => handleSort('productType')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[120px]">Type <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('category') && <th onClick={() => handleSort('category')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[110px]">Category <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('brand') && <th onClick={() => handleSort('brand')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[105px]">Brand <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('pattern') && <th onClick={() => handleSort('pattern')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[360px]">Tyre Pattern <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('size') && <th onClick={() => handleSort('size')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[140px]">Size <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('runflat') && <th className="py-3 px-2 text-center whitespace-nowrap w-[75px]">Runflat</th>}
+                    {!hiddenColumns.has('brand') && <th onClick={() => handleSort('brand')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[120px]">Brand <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('size') && <th onClick={() => handleSort('size')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[150px]">Tyre Size <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('name') && <th onClick={() => handleSort('pattern')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[330px]">Name <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('runflat') && <th className="py-3 px-2 text-center whitespace-nowrap w-[85px]">RunFlat</th>}
+                    {!hiddenColumns.has('origin') && <th onClick={() => handleSort('country')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[120px]">Origin <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('year') && <th onClick={() => handleSort('year')} className="py-3 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap w-[65px]">Year <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('country') && <th onClick={() => handleSort('country')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[110px]">Country <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('qty') && <th onClick={() => handleSort('qty')} className="py-3 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap w-[60px]">Qty <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('cost') && <th onClick={() => handleSort('cost')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[115px]">Cost <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('fittingPrice') && <th onClick={() => handleSort('fittingPrice')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[125px]">Fitting Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('date') && <th onClick={() => handleSort('date')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[90px]">Date <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    <th className="py-3 px-2 text-center whitespace-nowrap w-[65px]">Actions</th>
+                    {!hiddenColumns.has('oem') && <th className="py-3 px-2 text-center whitespace-nowrap w-[80px]">OEM</th>}
+                    {!hiddenColumns.has('qty') && <th onClick={() => handleSort('qty')} className="py-3 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap w-[65px]">Qty <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('price') && <th onClick={() => handleSort('price')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[120px]">Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('setOf4Price') && <th onClick={() => handleSort('setOf4Price')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[140px]">Set of 4 Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('offer') && <th className="py-3 px-2 text-center whitespace-nowrap w-[85px]">Offer</th>}
+                    <th className="py-3 px-3 text-center whitespace-nowrap w-[210px]">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-sans">
                   {showSkeleton ? (
                     Array.from({ length: pageSize }).map((_, rIdx) => (
                       <tr key={rIdx} className="hover:bg-slate-50/50">
-                        {!hiddenColumns.has('source') && <td className={cellPaddingClass}><Skeleton className="h-5 w-16 rounded-md" /></td>}
-                        {!hiddenColumns.has('type') && <td className={cellPaddingClass}><Skeleton className="h-5 w-20 rounded-md" /></td>}
-                        {!hiddenColumns.has('category') && <td className={cellPaddingClass}><Skeleton className="h-5 w-20 rounded-md" /></td>}
-                        {!hiddenColumns.has('brand') && <td className={cellPaddingClass}><Skeleton className="h-4 w-20 rounded" /></td>}
-                        {!hiddenColumns.has('pattern') && <td className={cellPaddingClass}><Skeleton className="h-4 w-32 rounded" /></td>}
-                        {!hiddenColumns.has('size') && <td className={cellPaddingClass}><Skeleton className="h-4 w-20 rounded" /></td>}
+                        {!hiddenColumns.has('brand') && <td className={cellPaddingClass}><Skeleton className="h-5 w-20 rounded-md" /></td>}
+                        {!hiddenColumns.has('size') && <td className={cellPaddingClass}><Skeleton className="h-5 w-24 rounded-md" /></td>}
+                        {!hiddenColumns.has('name') && <td className={cellPaddingClass}><Skeleton className="h-4 w-48 rounded" /></td>}
                         {!hiddenColumns.has('runflat') && <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-4 w-10 rounded mx-auto" /></td>}
+                        {!hiddenColumns.has('origin') && <td className={cellPaddingClass}><Skeleton className="h-4 w-16 rounded" /></td>}
                         {!hiddenColumns.has('year') && <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-4 w-12 rounded mx-auto" /></td>}
-                        {!hiddenColumns.has('country') && <td className={cellPaddingClass}><Skeleton className="h-4 w-16 rounded" /></td>}
+                        {!hiddenColumns.has('oem') && <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-4 w-8 rounded mx-auto" /></td>}
                         {!hiddenColumns.has('qty') && <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-6 w-8 rounded-full mx-auto" /></td>}
-                        {!hiddenColumns.has('cost') && <td className={`${cellPaddingClass} text-right`}><Skeleton className="h-4 w-14 rounded ml-auto" /></td>}
-                        {!hiddenColumns.has('fittingPrice') && <td className={`${cellPaddingClass} text-right`}><Skeleton className="h-4 w-14 rounded ml-auto" /></td>}
-                        {!hiddenColumns.has('date') && <td className={cellPaddingClass}><Skeleton className="h-4 w-20 rounded" /></td>}
-                        <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-4 w-6 rounded mx-auto" /></td>
+                        {!hiddenColumns.has('price') && <td className={`${cellPaddingClass} text-right`}><Skeleton className="h-4 w-16 rounded ml-auto" /></td>}
+                        {!hiddenColumns.has('setOf4Price') && <td className={`${cellPaddingClass} text-right`}><Skeleton className="h-4 w-20 rounded ml-auto" /></td>}
+                        {!hiddenColumns.has('offer') && <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-4 w-10 rounded mx-auto" /></td>}
+                        <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-7 w-44 rounded-lg mx-auto" /></td>
                       </tr>
                     ))
                   ) : currentItems.length === 0 ? (
                     <tr>
-                      <td colSpan={14} className="py-16 text-center text-slate-400">
+                      <td colSpan={12} className="py-16 text-center text-slate-400">
                         <svg className="w-12 h-12 mx-auto mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                         </svg>
@@ -1456,87 +1492,54 @@ export default function SupplierProductsPage() {
                           className={`transition-all hover:bg-emerald-50/50 cursor-pointer group ${isSelected ? 'bg-emerald-50/70' : ''}`}
                         >
 
-                          {!hiddenColumns.has('source') && (
-                            <td className={cellPaddingClass}>
-                              <span className="px-2 py-0.5 bg-slate-100 rounded text-[11px] font-bold text-slate-600 border border-slate-200/60">
-                                {item.source}
-                              </span>
-                            </td>
-                          )}
-
-                          {!hiddenColumns.has('type') && (
-                            <td className={cellPaddingClass}>
-                              {item.productType ? (
-                                <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border uppercase tracking-tight ${item.productType === 'Supplier'
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
-                                  : 'bg-amber-50 text-amber-700 border-amber-200/60'
-                                  }`}>
-                                  {item.productType}
-                                </span>
-                              ) : (
-                                <span className="text-slate-400 font-medium">-</span>
-                              )}
-                            </td>
-                          )}
-
-                          {!hiddenColumns.has('category') && (
-                            <td className={cellPaddingClass}>
-                              {item.category ? (
-                                <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border uppercase tracking-tight ${categoryBadges[item.category] || 'bg-slate-100 text-slate-700'}`}>
-                                  {item.category}
-                                </span>
-                              ) : (
-                                <span className="text-slate-400 font-medium">-</span>
-                              )}
-                            </td>
-                          )}
-
                           {!hiddenColumns.has('brand') && (
                             <td className={cellPaddingClass}>
-                              <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border uppercase tracking-tight ${brandBadges[item.brand] || 'bg-slate-100 text-slate-700'}`}>
-                                {item.brand}
-                              </span>
-                            </td>
-                          )}
-
-                          {!hiddenColumns.has('pattern') && (
-                            <td className={cellPaddingClass}>
-                              <span className="font-bold text-xs text-slate-900 group-hover:text-emerald-700 transition-colors leading-relaxed">
-                                {item.pattern}
+                              <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border uppercase tracking-tight ${brandBadges[item.brand] || 'badge-brand-default'}`}>
+                                {item.brand || '-'}
                               </span>
                             </td>
                           )}
 
                           {!hiddenColumns.has('size') && (
-                            <td className={`${cellPaddingClass} whitespace-nowrap`}>
-                              <span className="px-2 py-0.5 bg-slate-100 rounded text-xs font-semibold text-slate-700 font-mono whitespace-nowrap inline-block">
-                                {item.sizeFull}
+                            <td className={cellPaddingClass}>
+                              <span className="px-2 py-0.5 text-[11px] font-semibold rounded-md bg-slate-50 text-slate-700 border border-slate-200/70 font-mono whitespace-nowrap">
+                                {item.sizeFull || item.size || '-'}
                               </span>
+                            </td>
+                          )}
+
+                          {!hiddenColumns.has('name') && (
+                            <td className={`${cellPaddingClass} text-xs font-bold text-slate-800`}>
+                              <span className="line-clamp-2">{item.pattern || '-'}</span>
                             </td>
                           )}
 
                           {!hiddenColumns.has('runflat') && (
                             <td className={`${cellPaddingClass} text-center`}>
                               {item.runflat ? (
-                                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded border border-emerald-200">Runflat</span>
+                                <span className="px-2 py-0.5 text-[11px] font-bold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60">Yes</span>
                               ) : (
                                 <span className="text-slate-400 font-medium">-</span>
                               )}
                             </td>
                           )}
 
-                          {!hiddenColumns.has('year') && (
-                            <td className={`${cellPaddingClass} text-center text-xs font-medium text-slate-600`}>
-                              {item.year && item.year > 0 ? item.year : <span className="text-slate-400 font-medium">-</span>}
-                            </td>
-                          )}
-
-                          {!hiddenColumns.has('country') && (
+                          {!hiddenColumns.has('origin') && (
                             <td className={cellPaddingClass}>
                               <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
                                 {item.country && item.country.trim() ? item.country : <span className="text-slate-400 font-medium">-</span>}
                               </div>
                             </td>
+                          )}
+
+                          {!hiddenColumns.has('year') && (
+                            <td className={`${cellPaddingClass} text-center text-xs font-semibold text-slate-700`}>
+                              {item.year && item.year > 0 ? item.year : <span className="text-slate-400 font-medium">-</span>}
+                            </td>
+                          )}
+
+                          {!hiddenColumns.has('oem') && (
+                            <td className={`${cellPaddingClass} text-center text-xs text-slate-400 font-medium`}>{item.oem}</td>
                           )}
 
                           {!hiddenColumns.has('qty') && (
@@ -1549,45 +1552,47 @@ export default function SupplierProductsPage() {
                             </td>
                           )}
 
-                          {!hiddenColumns.has('cost') && (
+                          {!hiddenColumns.has('price') && (
                             <td className={`${cellPaddingClass} text-right whitespace-nowrap`}>
-                              <div className="inline-flex items-center justify-end gap-1 text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap" dir="ltr">
-                                <span className="whitespace-nowrap">{item.cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                              <div className="inline-flex items-center justify-end text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap" dir="ltr">
+                                <span className="whitespace-nowrap">{item.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                               </div>
                             </td>
                           )}
 
-                          {!hiddenColumns.has('fittingPrice') && (
+                          {!hiddenColumns.has('setOf4Price') && (
                             <td className={`${cellPaddingClass} text-right whitespace-nowrap`}>
-                              <div className="inline-flex items-center justify-end gap-1 text-xs font-medium text-slate-500 font-mono whitespace-nowrap" dir="ltr">
-                                <span className="whitespace-nowrap">{item.fittingPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                              <div className="inline-flex items-center justify-end text-xs font-semibold text-slate-600 font-mono whitespace-nowrap" dir="ltr">
+                                <span className="whitespace-nowrap">{item.setOf4Price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                               </div>
                             </td>
                           )}
 
-                          {!hiddenColumns.has('date') && (
-                            <td className={`${cellPaddingClass} text-xs text-slate-500 whitespace-nowrap`}>
-                              {item.date && formatDateDDMM(item.date) !== '-' ? (
-                                formatDateDDMM(item.date)
-                              ) : (
-                                <span className="text-slate-400 font-medium">-</span>
-                              )}
-                            </td>
+                          {!hiddenColumns.has('offer') && (
+                            <td className={`${cellPaddingClass} text-center text-xs text-slate-400 font-medium`}>{item.offer}</td>
                           )}
 
                           <td className={`${cellPaddingClass} text-center`}>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                copyRowData(item);
-                              }}
-                              className="p-1 text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors"
-                              title="Copy row data"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
-                              </svg>
-                            </button>
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); addToList(item); }}
+                                className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-bold rounded-lg border transition-all active:scale-95 ${listIds.has(item.id)
+                                  ? 'bg-indigo-600 text-white border-indigo-600'
+                                  : 'bg-white text-indigo-700 border-indigo-200 hover:bg-indigo-50'
+                                  }`}
+                              >
+                                {listIds.has(item.id) ? 'In List' : 'Add to List'}
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); addToCart(item); }}
+                                className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-bold rounded-lg border transition-all active:scale-95 ${cartIds.has(item.id)
+                                  ? 'bg-emerald-600 text-white border-emerald-600'
+                                  : 'bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50'
+                                  }`}
+                              >
+                                {cartIds.has(item.id) ? 'In Cart' : 'Add to Cart'}
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1790,19 +1795,17 @@ export default function SupplierProductsPage() {
 
               <div className="space-y-2 max-h-64 overflow-y-auto text-xs font-medium text-slate-700">
                 {[
-                  { key: 'source', label: 'Source' },
-                  { key: 'type', label: 'Type' },
-                  { key: 'category', label: 'Category' },
                   { key: 'brand', label: 'Brand' },
-                  { key: 'pattern', label: 'Tyre Pattern' },
-                  { key: 'size', label: 'Size' },
-                  { key: 'runflat', label: 'Runflat' },
+                  { key: 'size', label: 'Tyre Size' },
+                  { key: 'name', label: 'Name' },
+                  { key: 'runflat', label: 'RunFlat' },
+                  { key: 'origin', label: 'Origin' },
                   { key: 'year', label: 'Year' },
-                  { key: 'country', label: 'Country' },
+                  { key: 'oem', label: 'OEM' },
                   { key: 'qty', label: 'Qty' },
-                  { key: 'cost', label: 'Cost' },
-                  { key: 'fittingPrice', label: 'Fitting Price' },
-                  { key: 'date', label: 'Date' }
+                  { key: 'price', label: 'Price' },
+                  { key: 'setOf4Price', label: 'Set of 4 Price' },
+                  { key: 'offer', label: 'Offer' }
                 ].map(col => (
                   <label key={col.key} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer">
                     <span>{col.label}</span>
