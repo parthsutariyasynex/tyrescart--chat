@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   HomeIcon,
   ShoppingBagIcon,
@@ -30,15 +31,16 @@ import type {
 const brandOf = (name?: string) => (name || "").trim().split(/\s+/)[0] || "";
 import { ProductGridSkeleton, Skeleton } from "@/components/Skeletons";
 import Image from "next/image";
-import LogoutButton from "@/components/LogoutButton";
 import HeaderSyncButton from "@/components/HeaderSyncButton";
 import SidebarSyncButton from "@/components/SidebarSyncButton";
 import { registerModuleSync } from "@/services/syncService";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
-import { queryProducts } from "@/services/searchFilter";
+import { queryProducts, parseAspectRim } from "@/services/searchFilter";
 import { enrichProducts, type EnrichedProduct } from "@/services/productEnrich";
 
 export default function PosProductsPage() {
+  const pathname = usePathname();
+
   // `products` is the FULL list loaded into cache so far (grows as background
   // batches arrive). The UI never renders all of it at once — it renders only a
   // fixed-size window (see VIEW_SIZE), and Next/Prev move that window over this
@@ -84,48 +86,25 @@ export default function PosProductsPage() {
   // Brands are derived from real product data (not hardcoded) and persisted
   // in IndexedDB; the list grows as more products are seen.
   const [brands, setBrands] = useState<string[]>([]);
-  // Brand filter tabs are temporarily hidden (not needed right now). The list
-  // is still harvested in the background, so the tabs can be brought back by
-  // uncommenting this line and the tabs block in the JSX below.
-  // const brandOptions = ["All", ...brands];
-  // These feed only the (currently disabled) filter bar; still fetched in the
-  // background so the tabs / TyresChat button can be re-enabled instantly.
   void brands;
   void tyresChatItems;
-  // `activeBrand` still backs the (hidden) brand tabs + reset button; the fetch
-  // now always pulls the full catalog and search runs client-side.
   void activeBrand;
 
-  // How many products each GraphQL request pulls into the cache. The background
-  // loop fetches as many batches as the catalog needs; a larger batch means
-  // fewer round-trips (7673 items ÷ 500 ≈ 16 requests). Note: Magento's
-  // storefront GraphQL may cap pageSize (often ~300) — if 500 is rejected or
-  // truncated, lower this.
+  // How many products each GraphQL request pulls into the cache.
   const BATCH_SIZE = 500;
 
-  // How many products are VISIBLE in the grid at once. Next/Prev move this
-  // window over the cached list. Independent of BATCH_SIZE (fetch size).
+  // How many products are VISIBLE in the grid at once.
   const VIEW_SIZE = 400;
 
-  // Monotonic id for the active load. Each new load (mount, filter/search
-  // change, manual sync) bumps it; the background batch loop bails the moment
-  // its id is stale, so a superseded run can never append into the new results.
+  // Monotonic id for the active load.
   const loadIdRef = useRef(0);
 
-  // 1. Storefront products — no pagination. The first batch paints instantly
-  // (cache-first), then the rest of the catalog streams in batch-by-batch in
-  // the background and is appended to the grid.
-  // `forceFresh` bypasses the cache TTL — used by the manual Sync buttons and
-  // the on-page refresh control so an explicit sync always hits GraphQL.
   const loadGraphQLProducts = useCallback(async (forceFresh = false) => {
     const loadId = ++loadIdRef.current;
     setError(null);
     setLoading(true);
-    setViewPage(0); // a fresh load always starts the window at the first slice
+    setViewPage(0);
 
-    // Fetch the FULL catalog once (match-all). Search is no longer sent to
-    // Magento — it's applied CLIENT-SIDE from the cached list via queryProducts
-    // (see below), so typing in the search box triggers NO new GraphQL request.
     const terms = "";
 
     const baseParams = {
@@ -136,20 +115,17 @@ export default function PosProductsPage() {
     };
     const maxAgeMs = forceFresh ? 0 : undefined;
 
-    // Grow the dynamic brand tab list from the leading word of each name.
     const harvestBrands = (items?: ProductItem[]) => {
       if (items?.length) {
         addKnownBrands(items.map((i) => brandOf(i.name))).then(setBrands);
       }
     };
 
-    // True while this run is still the active one (i.e. not superseded).
     const isCurrent = () => loadId === loadIdRef.current;
 
     try {
-      // First batch — paint immediately (instant from cache when fresh).
       const first = await fetchStorefrontBatch({ ...baseParams, currentPage: 1 }, maxAgeMs);
-      if (!isCurrent()) return; // a newer load started while we awaited
+      if (!isCurrent()) return;
 
       setProducts(enrichProducts(first.items || []));
       setTotalCount(first.total_count || 0);
@@ -159,10 +135,6 @@ export default function PosProductsPage() {
       const totalPages = first.page_info?.total_pages || 1;
       if (totalPages <= 1) return;
 
-      // Remaining batches — stream in the background, appending as they arrive.
-      // A batch that still fails after the proxy's own retries just stops the
-      // background fill; whatever already cached stays usable (no error, no
-      // aborted sync). It resumes on the next load / manual Sync.
       setLoadingMore(true);
       for (let page = 2; page <= totalPages; page++) {
         let batch: ProductsResponse;
@@ -172,7 +144,7 @@ export default function PosProductsPage() {
           console.warn(`[products] background batch ${page}/${totalPages} failed — stopping fill:`, err);
           break;
         }
-        if (!isCurrent()) return; // filter/search changed → stop appending
+        if (!isCurrent()) return;
         setProducts((prev) => [...prev, ...enrichProducts(batch.items || [])]);
         harvestBrands(batch.items);
       }
@@ -190,17 +162,12 @@ export default function PosProductsPage() {
     }
   }, []);
 
-  // Register this page's live refresher so the Header/Sidebar Sync buttons
-  // (via the shared useSync hook → syncService) can re-fetch products in place,
-  // updating this component's state without any reload or route change. A ref
-  // keeps the registration stable while always calling the latest fetch fn.
   const loadProductsRef = useRef(loadGraphQLProducts);
   useEffect(() => {
     loadProductsRef.current = loadGraphQLProducts;
   }, [loadGraphQLProducts]);
   useEffect(() => registerModuleSync("products", () => loadProductsRef.current(true)), []);
 
-  // 2. TyresChat — cache-first + background GraphQL sync (fetches all chat items)
   const loadTyresChat = useCallback(async () => {
     const cached = await getTyresChatCached(
       { pageSize: 200 },
@@ -209,24 +176,15 @@ export default function PosProductsPage() {
     if (cached.length) setTyresChatItems(cached);
   }, []);
 
-  // Seed the brand tabs from previously-discovered brands (persisted in IndexedDB).
   useEffect(() => {
     getKnownBrands().then(setBrands);
   }, []);
 
   useEffect(() => {
-    // Fetch on mount / when filters change. State updates happen after the
-    // awaited cache read, so this is a legitimate data-load effect.
     loadGraphQLProducts();
     loadTyresChat();
   }, [loadGraphQLProducts, loadTyresChat]);
 
-  // Client-side search + windowing over the FULL cached list. queryProducts
-  // filters (by search), sorts and slices the already-cached `products` array
-  // in memory — typing in the search box or paging triggers NO network call.
-  // Search runs on the derived structured fields (brand/size/plain_size) so
-  // "michelin" returns the complete brand set and any size format normalizes
-  // to the same match (see searchFilter.isSizeOnlyQuery / sizeMatches).
   const view = useMemo(
     () =>
       queryProducts<EnrichedProduct>(products, {
@@ -243,10 +201,8 @@ export default function PosProductsPage() {
   );
   const displayedProducts = view.items;
   const windowStart = (view.page - 1) * VIEW_SIZE;
-  const windowEnd = windowStart + displayedProducts.length; // exclusive index
+  const windowEnd = windowStart + displayedProducts.length;
   const canPrevPage = view.page > 1;
-  // Next is available while more filtered pages exist (the cache may still be
-  // filling via background batches, which grows `view.totalPages`).
   const canNextPage = view.page < view.totalPages;
 
   return (
@@ -255,9 +211,9 @@ export default function PosProductsPage() {
       {/* 1. LEFT SIDEBAR NAVIGATION */}
       <aside className="w-[68px] flex-none bg-white border-r border-gray-200 flex flex-col items-center justify-between py-3 z-20 shadow-xs">
         <div className="flex flex-col items-center gap-6 w-full">
-          {/* Logo Badge (Links directly to /dashboard/products) */}
+          {/* Logo Badge (Links directly to /dashboard) */}
           <Link
-            href="/dashboard/products"
+            href="/dashboard"
             title="TyresCart POS"
             className="flex items-center justify-center hover:opacity-80 transition-opacity"
           >
@@ -274,16 +230,13 @@ export default function PosProductsPage() {
           {/* Navigation Items */}
           <nav className="flex flex-col gap-2 w-full px-2">
             {[
-              { name: "Home", icon: HomeIcon, href: "/dashboard/products" },
+              { name: "Dashboard", icon: HomeIcon, href: "/dashboard" },
+              { name: "Products", icon: ShoppingBagIcon, href: "/products" },
               { name: "Chat", icon: ChatBubbleLeftRightIcon, href: "/tyre_guide/chat" },
               { name: "Supplier", icon: TruckIcon, href: "/supplier-products" },
-              // { name: "Cashier", icon: BanknotesIcon, action: () => {} },
-              // { name: "Orders", icon: ShoppingBagIcon, action: () => {} },
-              // { name: "Reports", icon: ChartBarIcon, action: () => {} },
             ].map((item) => {
               const Icon = item.icon;
-              // Only the current page (Home on this route) is active.
-              const isActive = item.name === "Home";
+              const isActive = pathname === item.href || (item.href === "/products" && pathname === "/products");
 
               return (
                 <Link
@@ -387,51 +340,43 @@ export default function PosProductsPage() {
                 <span>Offline</span>
               </div>
             )}
-
-            {/* <LogoutButton /> */}
           </div>
         </header>
 
-        {/* BRAND TABS & MAIN CONTENT CONTAINER */}
+        {/* MAIN CONTENT CONTAINER */}
         <div className="flex-1 flex flex-col p-6 overflow-hidden">
-
-          {/* Filter bar (brand tabs + TyresChat button) temporarily hidden —
-              not needed right now. Re-enable by uncommenting this whole block
-              and the `brandOptions` line above.
-
-          <div className="flex items-center justify-between border-b border-gray-200 pb-3 mb-6 gap-4">
-            <div className="flex-1 min-w-0 flex items-center gap-4">
-              {brandOptions.map((brand) => (
-                <button
-                  key={brand}
-                  onClick={() => {
-                    setActiveBrand(brand);
-                    setCurrentPage(1);
-                  }}
-                  className={`text-sm font-medium transition-colors relative pb-3 -mb-3 whitespace-nowrap ${activeBrand === brand
-                    ? "text-orange-500 font-semibold border-b-2 border-orange-500"
-                    : "text-gray-500 hover:text-gray-800"
-                    }`}
-                >
-                  {brand}
-                </button>
-              ))}
-            </div>
-
-            <Link
-              href="/tyre_guide/chat"
-              className="px-3.5 py-1.5 bg-orange-50 hover:bg-orange-100 text-orange-600 border border-orange-200 rounded-lg text-xs font-semibold transition-all shadow-2xs hover:shadow-xs flex items-center gap-1.5 flex-none active:scale-95 z-10"
-            >
-              <ChatBubbleLeftRightIcon className="w-4 h-4 text-orange-500" />
-              <span>TyresChat ({tyresChatItems.length > 0 ? tyresChatItems.length : 26})</span>
-            </Link>
-          </div>
-          */}
 
           {/* Width-omitted (aspect+rim) fallback notice — only for partial size matches */}
           {view.isPartialSizeMatch && (
-            <div className="mb-3 px-4 py-2 text-sm bg-amber-50 text-amber-800 border border-amber-200 rounded-lg">
-              Showing tyres matching {view.matchedPattern}. Select width for a more accurate result.
+            <div className="mb-3 p-3 text-sm bg-amber-50 text-amber-900 border border-amber-200 rounded-xl flex flex-wrap items-center justify-between gap-3 shadow-2xs">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                <span>
+                  Showing tyres matching <strong className="font-bold text-amber-950">{view.matchedPattern}</strong>. Select width for a more accurate result:
+                </span>
+              </div>
+
+              {view.availableWidths && view.availableWidths.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs font-semibold text-amber-800 mr-1">Widths:</span>
+                  {view.availableWidths.map((w) => (
+                    <button
+                      key={w}
+                      onClick={() => {
+                        const ar = parseAspectRim(searchQuery);
+                        if (ar) {
+                          setSearchQuery(`${w}/${ar.aspect}R${ar.rim}`);
+                        } else {
+                          setSearchQuery(`${w}/${view.matchedPattern.replace('***/', '')}`);
+                        }
+                      }}
+                      className="px-2.5 py-1 text-xs bg-white text-amber-900 font-bold border border-amber-300 rounded-lg hover:bg-amber-100 hover:border-amber-400 transition-all shadow-2xs cursor-pointer active:scale-95"
+                    >
+                      {w}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -491,8 +436,6 @@ export default function PosProductsPage() {
                         key={item.uid}
                         className="group bg-white rounded-xl border border-gray-100 p-3 flex flex-col justify-between shadow-xs hover:shadow-md hover:border-orange-200 transition-all duration-200 cursor-pointer relative"
                       >
-                        {/* Product Image Box (real Magento media, SVG fallback) */}
-                        {/*w-full aspect-square bg-white border border-gray-100 rounded-lg flex items-center justify-center p-3 mb-3 relative overflow-hidden group-hover:scale-[1.02] transition-transform*/}
                         <div className="w-full aspect-square bg-white rounded-lg flex items-center justify-center p-3 mb-3 relative overflow-hidden group-hover:scale-[1.02] transition-transform">
                           {imgUrl ? (
                             <Image
@@ -549,12 +492,7 @@ export default function PosProductsPage() {
                   })}
                 </div>
 
-                {/* Footer: two separate concepts —
-                    (left) how much of the catalog is cached (grows in the
-                    background), (right) which slice is currently visible, with
-                    Next/Prev that only move the window over the cache (no API). */}
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-gray-200 pt-4 mt-2 text-xs text-gray-600">
-                  {/* Total loaded in cache / filtered result count */}
                   <span className="flex items-center gap-2">
                     {loadingMore && (
                       <span className="w-3.5 h-3.5 border-2 border-orange-400 border-t-transparent rounded-full animate-spin" />
@@ -569,7 +507,6 @@ export default function PosProductsPage() {
                     </span>
                   </span>
 
-                  {/* Currently visible window + cache-only navigation */}
                   <div className="flex items-center gap-3">
                     <span>
                       Showing{" "}

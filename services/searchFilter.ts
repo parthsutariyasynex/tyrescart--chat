@@ -110,6 +110,40 @@ export function sizeMatches(query: string, sizeText: string): boolean {
   return groups.join("").startsWith(q) || groups.includes(q);
 }
 
+/* ─── Rim-only queries ─────────────────────────────────────── */
+
+/**
+ * Parse a RIM-ONLY query — "R17", "ZR17", "r 17", "R-17" → "17".
+ * Returns null for anything else (a bare "17", a full size, text).
+ *
+ * This has to be detected BEFORE the size normalization, which strips
+ * everything non-digit and would reduce "R17" to "17". That collapse is what
+ * made a deliberate rim query behave like a width prefix: "17" is a prefix of
+ * "1756515", so every 175-width tyre matched. Typing the R is the user stating
+ * which component they mean, so it must survive.
+ */
+export function parseRimOnly(query: string): string | null {
+  const m = query.trim().match(/^[Zz]?[Rr]\s*[-/]?\s*(\d{2,3})$/);
+  return m ? m[1] : null;
+}
+
+/** The rim component of a size string: the number after R/ZR, else the last group. */
+function rimOf(sizeText: string): string | null {
+  const withR = sizeText.match(/[Zz]?[Rr]\s*(\d{2,3})/);
+  if (withR) return withR[1];
+  const groups = sizeText.match(/\d+/g);
+  return groups && groups.length ? groups[groups.length - 1] : null;
+}
+
+/** True when any size field's RIM equals `rim` — never a width or aspect. */
+export function matchesRim(
+  product: ProductRecord,
+  rim: string,
+  sizeFields: readonly string[] = DEFAULT_SIZE_FIELDS,
+): boolean {
+  return sizeFields.some((f) => rimOf(fieldAsString(product, f)) === rim);
+}
+
 /**
  * True when the ENTIRE search string is a single tyre-size expression — only
  * digits and size punctuation/letters (/, \, ., -, space, R, Z, C, X). Such a
@@ -171,6 +205,12 @@ export function matchesToken(
   sizeFields: readonly string[] = DEFAULT_SIZE_FIELDS,
 ): boolean {
   if (isSizeToken(token)) {
+    // "R17" / "ZR17" means the RIM specifically — checked before the digit
+    // normalization below, which would turn it into a plain "17" and let it
+    // prefix-match 175-width tyres.
+    const rimOnly = parseRimOnly(token);
+    if (rimOnly) return matchesRim(product, rimOnly, sizeFields);
+
     // A 4-digit token also matches an exact `year`.
     if (isYearToken(token) && Number(getField(product, "year")) === Number(token)) {
       return true;
@@ -204,6 +244,13 @@ export function matchesSearch(
   // A size-only query is normalized to its digits first, so all spellings of a
   // size (with/without spaces, slashes, "R") collapse to ONE token and match
   // identically. Mixed queries (e.g. "michelin 205/55R16") tokenize normally.
+  // A whole-query rim search short-circuits before tokenizing. Skipping only
+  // the digit normalization is not enough: "R 17" would then split on the space
+  // into ["R", "17"], where "R" degrades to a substring match and "17" goes back
+  // to prefix-matching 175-width tyres — the exact bug this avoids.
+  const rimOnly = parseRimOnly(search);
+  if (rimOnly) return matchesRim(product, rimOnly, sizeFields);
+
   const normalized = isSizeOnlyQuery(search) ? toNumericOnly(search) : search;
   const tokens = tokenize(normalized);
   if (tokens.length === 0) return true;
@@ -225,20 +272,35 @@ export function matchesLatest(product: ProductRecord, latest: LatestFlag): boole
 
 /**
  * Parse a WIDTH-OMITTED tyre-size query into its aspect + rim, e.g.
- * "55R16" → { aspect: "55", rim: "16" }, "65 R15" → { aspect:"65", rim:"15" }.
- * Returns null for anything that is not exactly aspect+R+rim — full sizes like
- * "205/55R16" (they contain a width) never parse here, so exact matching keeps
- * full ownership of them.
+ * "55R16" → { aspect: "55", rim: "16" }, "40R17" → { aspect: "40", rim: "17" },
+ * "4017" → { aspect: "40", rim: "17" }.
+ * Returns null for anything that is not aspect+rim (e.g. full sizes like "205/55R16").
  */
 export function parseAspectRim(query: string): { aspect: string; rim: string } | null {
-  const m = query.trim().match(/^(\d{2})\s*[Zz]?[Rr]\s*(\d{2})$/);
-  return m ? { aspect: m[1], rim: m[2] } : null;
+  const s = query.trim();
+  if (!s) return null;
+
+  // Match "55R16", "40R17", "40 R17", "40ZR17", "40/17", "40 R 17"
+  const mWithR = s.match(/^(\d{2})\s*[Zz]?[Rr/]?\s*(\d{2})$/);
+  if (mWithR) return { aspect: mWithR[1], rim: mWithR[2] };
+
+  // Match 4 digits "4017", "5516", "6515", etc.
+  const m4Digits = s.match(/^(\d{2})(\d{2})$/);
+  if (m4Digits) {
+    const aspect = parseInt(m4Digits[1], 10);
+    const rim = parseInt(m4Digits[2], 10);
+    if (aspect >= 20 && aspect <= 85 && rim >= 10 && rim <= 30) {
+      return { aspect: m4Digits[1], rim: m4Digits[2] };
+    }
+  }
+
+  return null;
 }
 
 /** True if a size string has the given aspect ratio immediately followed by the rim (any width). */
 function sizeHasAspectRim(sizeText: string, aspect: string, rim: string): boolean {
-  // e.g. aspect 55 + rim 16 → matches "…/55 R16" / "…/55R16" / "…/55ZR16"
-  return new RegExp(`(^|\\D)${aspect}\\s*[Zz]?[Rr]\\s*${rim}(\\D|$)`).test(sizeText);
+  // e.g. aspect 40 + rim 17 → matches "…/40 R17" / "…/40R17" / "…/40ZR17" / "…/40/17"
+  return new RegExp(`(^|\\D)${aspect}\\s*[Zz]?[Rr/]?\\s*${rim}(\\D|$)`).test(sizeText);
 }
 
 /** True if any of the product's size fields matches the aspect + rim (width-omitted). */
@@ -249,6 +311,27 @@ export function matchesAspectRim(
   sizeFields: readonly string[] = DEFAULT_SIZE_FIELDS,
 ): boolean {
   return sizeFields.some((f) => sizeHasAspectRim(fieldAsString(product, f), aspect, rim));
+}
+
+/**
+ * Extract distinct numeric tyre widths (e.g. "205", "215", "225") from a list of products.
+ * Looks for standard width pattern before slash/space (e.g. 205 from "205/40R17").
+ */
+export function extractWidthsFromProducts<T extends ProductRecord>(
+  products: T[],
+  sizeFields: readonly string[] = DEFAULT_SIZE_FIELDS,
+): string[] {
+  const widths = new Set<string>();
+  for (const p of products) {
+    for (const field of sizeFields) {
+      const val = fieldAsString(p, field);
+      const m = val.match(/\b(\d{3})\s*[\/\s]/);
+      if (m) {
+        widths.add(m[1]);
+      }
+    }
+  }
+  return Array.from(widths).sort((a, b) => Number(a) - Number(b));
 }
 
 /* ─── Filtering ────────────────────────────────────────────── */
@@ -428,8 +511,10 @@ export interface QueryResult<T> {
   totalPages: number;
   /** True when the width-omitted aspect+rim FALLBACK produced these results. */
   isPartialSizeMatch: boolean;
-  /** The size pattern that matched — the query for exact, "55R16" for a fallback. */
+  /** The size pattern that matched — the query for exact, wild-card 40R17 for a fallback. */
   matchedPattern: string;
+  /** Distinct width options available for the matched partial size (e.g. ["205", "215", "225"]). */
+  availableWidths: string[];
 }
 
 /**
@@ -464,11 +549,12 @@ export function queryProducts<T extends ProductRecord>(
   );
   let isPartialSizeMatch = false;
   let matchedPattern = search.trim();
+  let availableWidths: string[] = [];
 
   // ── Priority 2: width-omitted aspect+rim FALLBACK (ADDITIVE) ──
   // Runs ONLY after exact matching, only when the query omits the width
-  // (e.g. "55R16") AND exact matching produced no results. It never alters
-  // Priority-1 output — a full size like "205/55R16" keeps its exact result.
+  // (e.g. "40R17" or "4017") AND exact matching produced no results. It never
+  // alters Priority-1 output — a full size like "205/40R17" keeps its exact result.
   if (matched.length === 0) {
     const ar = parseAspectRim(search);
     if (ar) {
@@ -477,7 +563,8 @@ export function queryProducts<T extends ProductRecord>(
       );
       if (matched.length > 0) {
         isPartialSizeMatch = true;
-        matchedPattern = `${ar.aspect}R${ar.rim}`;
+        matchedPattern = `***/${ar.aspect}R${ar.rim}`;
+        availableWidths = extractWidthsFromProducts(matched, sizeFields);
       }
     }
   }
@@ -500,5 +587,6 @@ export function queryProducts<T extends ProductRecord>(
     totalPages: pagination.totalPages,
     isPartialSizeMatch,
     matchedPattern,
+    availableWidths,
   };
 }

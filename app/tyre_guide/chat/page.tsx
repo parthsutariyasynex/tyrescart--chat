@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import {
   HomeIcon,
+  ShoppingBagIcon,
   ChatBubbleLeftRightIcon,
   TruckIcon,
   MagnifyingGlassIcon,
@@ -179,7 +180,7 @@ export default function TyreGuideChatPage() {
         <div className="flex flex-col items-center gap-6 w-full">
           {/* Logo Badge */}
           <Link
-            href="/dashboard/products"
+            href="/dashboard"
             title="TyresCart POS"
             className="flex items-center justify-center hover:opacity-80 transition-opacity"
           >
@@ -196,7 +197,8 @@ export default function TyreGuideChatPage() {
           {/* Navigation Items */}
           <nav className="flex flex-col gap-2 w-full px-2">
             {[
-              { name: "Home", icon: HomeIcon, href: "/dashboard/products" },
+              { name: "Dashboard", icon: HomeIcon, href: "/dashboard" },
+              { name: "Products", icon: ShoppingBagIcon, href: "/products" },
               { name: "Chat", icon: ChatBubbleLeftRightIcon, href: "/tyre_guide/chat" },
               { name: "Supplier", icon: TruckIcon, href: "/supplier-products" },
             ].map((item) => {

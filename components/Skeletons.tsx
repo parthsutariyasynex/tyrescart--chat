@@ -96,7 +96,7 @@ export function PosPageSkeleton() {
         <div className="flex flex-col items-center gap-6 w-full">
           <Skeleton className="w-10 h-10 rounded-xl" />
           <div className="flex flex-col gap-2 w-full px-2">
-            {Array.from({ length: 2 }).map((_, i) => (
+            {Array.from({ length: 4 }).map((_, i) => (
               <Skeleton key={i} className="w-full h-11 rounded-lg" />
             ))}
           </div>

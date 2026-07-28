@@ -614,7 +614,7 @@ export async function syncLatestSupplierProducts({
 
   let nextPage = 2;
   const worker = async () => {
-    for (;;) {
+    for (; ;) {
       const pageNo = nextPage++;
       if (pageNo > totalPages) return;
       const res = await fetchSupplierPageWithRetry(pageNo, size, sort, latest);
@@ -759,7 +759,7 @@ export async function syncAllSupplierProducts({
   let aborted = false;
 
   const worker = async () => {
-    for (;;) {
+    for (; ;) {
       if (aborted) return;
       const pageNo = nextPage++;
       if (pageNo > totalPages) return;

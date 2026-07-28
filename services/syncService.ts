@@ -27,12 +27,10 @@ export type SyncModule = "products" | "orders" | "customers" | "tyresChat" | "su
 /* ── Route → module map (longest matching prefix wins) ── */
 const ROUTE_MODULES: { prefix: string; module: SyncModule }[] = [
   { prefix: "/supplier-products", module: "supplierProducts" },
-  { prefix: "/dashboard/products", module: "products" },
+  { prefix: "/products", module: "products" },
   { prefix: "/dashboard/orders", module: "orders" },
   { prefix: "/dashboard/customers", module: "customers" },
   { prefix: "/tyre_guide/chat", module: "tyresChat" },
-  // The bare /dashboard route renders the products page, so it syncs products.
-  // Longest-prefix matching keeps the more specific routes above taking priority.
   { prefix: "/dashboard", module: "products" },
 ];
 
@@ -114,6 +112,20 @@ async function refreshModule(mod: SyncModule): Promise<void> {
     // No page mounted → refresh the data cache at the source.
     await MODULE_DATA_SYNC[mod]();
   }
+}
+
+/**
+ * Refresh ONE module and nothing else.
+ *
+ * Exported for the global sync manager's task definitions. Going through
+ * `refreshModule` preserves the existing contract: if a page for that module is
+ * mounted, its live refresher runs so on-screen state updates in place;
+ * otherwise the IndexedDB cache is refreshed at the data layer. Calling the
+ * data-layer sync directly instead would leave mounted pages showing stale
+ * state after a sync.
+ */
+export async function syncModule(mod: SyncModule): Promise<void> {
+  await refreshModule(mod);
 }
 
 /** Header Sync: refresh ONLY the current route's module. */

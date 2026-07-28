@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
   HomeIcon,
+  ShoppingBagIcon,
   ChatBubbleLeftRightIcon,
   TruckIcon,
   ArrowsPointingOutIcon,
@@ -15,17 +16,33 @@ import {
 } from '@heroicons/react/24/outline';
 import SidebarSyncButton from '@/components/SidebarSyncButton';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
-import { matchesSearch, parseAspectRim, matchesAspectRim } from '@/services/searchFilter';
+import { matchesSearch, parseAspectRim, parseRimOnly, matchesAspectRim } from '@/services/searchFilter';
 import { Skeleton, SupplierTableSkeleton } from '@/components/Skeletons';
 import {
   getCachedSupplierProducts,
   countCachedSupplierProducts,
-  syncLatestSupplierProducts,
-  syncAllSupplierProducts,
   syncSupplierProductsPage,
   type CachedSupplierProduct,
 } from '@/services/cache';
-import { registerModuleSync } from '@/services/syncService';
+import {
+  syncManager,
+  useSyncTask,
+  useSyncBatches,
+  useOnSyncComplete,
+} from '@/hooks/useSyncManager';
+import { SYNC_TASK } from '@/services/syncTasks';
+
+/**
+ * Field names `searchFilter` should read on this page's `Product` shape.
+ *
+ * The module defaults to the raw `SupplierProductItem` names
+ * (`product_name`, `sku`, `brand_category`, …); the table works with the mapped
+ * shape, so the equivalents are passed explicitly. That override is exactly why
+ * `matchesSearch` takes the field lists as parameters.
+ */
+const SEARCH_FIELDS = ['pattern', 'itemCode', 'brand', 'category', 'country', 'size'] as const;
+/** Numeric tokens are matched against the size ONLY — never name or SKU. */
+const SEARCH_SIZE_FIELDS = ['size'] as const;
 
 /** Size-box predicate: full/normalized size, with width-omitted aspect+rim fallback (e.g. "55R16"). */
 function matchesSizeInput(item: { size: string }, s: string): boolean {
@@ -218,17 +235,20 @@ export default function SupplierProductsPage() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [pageSyncing, setPageSyncing] = useState(false);
-  const [fullSyncing, setFullSyncing] = useState(false);
-  const [syncProgress, setSyncProgress] = useState<{ loaded: number; total: number } | null>(null);
-  /** Synchronous "a sync is running" latch shared by BOTH sync handlers.
-   *  React state can't serve this role — it updates asynchronously, so rapid
-   *  clicks read a stale `false`. The two booleans above stay purely for UI
-   *  (spinner + disabled), which is what they're good at. */
+  /** Synchronous latch for the PAGE-scoped sync only. The full catalogue sync
+   *  is owned by the global manager, which dedupes on its own. */
   const syncInFlight = useRef(false);
-  /** One-shot latch so the cold-cache bootstrap can only ever run once per mount. */
-  const bootstrapStarted = useRef(false);
   /** True only while the cold-start latest-products phase is still running. */
   const [bootstrapping, setBootstrapping] = useState(false);
+
+  /* ── Global sync manager: OBSERVE, don't own ───────────────────────
+     The catalogue sync runs inside `syncManager`, outside React, so it keeps
+     running when this page unmounts. Everything below is a READ of that global
+     state — the page contributes no sync lifecycle of its own, which is what
+     lets a sync started here survive navigation to another route. */
+  const supplierSync = useSyncTask(SYNC_TASK.supplierProducts);
+  const fullSyncing = supplierSync.status === 'running';
+  const syncProgress = supplierSync.progress;
 
   // IndexedDB-first: on load/refresh/navigation we ONLY read the cached
   // catalogue — no API request, no background sync, no revalidation. Fresh data
@@ -241,8 +261,14 @@ export default function SupplierProductsPage() {
     (async () => {
       const cached = await getCachedSupplierProducts();
       if (!alive) return;
-      setAllProducts(cached.map(mapSupplierToProduct));
+      const mapped = cached.map(mapSupplierToProduct);
+      setAllProducts(mapped);
       setIsLoading(false);
+      // Seed the batch de-dupe set with what we just loaded. Mounting DURING a
+      // running sync otherwise appends rows that are already on screen: the
+      // cache read brings in the full store, while `seenIds` starts empty on a
+      // fresh mount, so every subsequent batch is a duplicate (measured: 67,500).
+      for (const p of mapped) seenIds.current.add(p.id);
 
       // CACHE-FIRST IS UNCHANGED: with anything cached we render it and stop —
       // no GraphQL on load, navigation or refresh. The bootstrap below runs
@@ -270,112 +296,82 @@ export default function SupplierProductsPage() {
       }
       if (!alive) return;
       if (typeof navigator !== 'undefined' && !navigator.onLine) return;
-      // Guards a double-run: Next enables React StrictMode in dev, which fires
-      // effects twice, and `syncInFlight` is also what the manual buttons use —
-      // so a bootstrap can never overlap a manual sync either.
-      if (syncInFlight.current || bootstrapStarted.current) return;
-      bootstrapStarted.current = true;
 
-      syncInFlight.current = true;
-      setFullSyncing(true);
-      // Hold the skeleton instead of "No products cached yet" until phase 1 has
-      // delivered the current products — during phase 1 the table is genuinely
-      // still loading, so the empty state would be telling the user something false.
+      // Hand the work to the GLOBAL manager instead of running it inline. The
+      // page no longer owns the sync, so it survives navigation away from this
+      // route, and `start()` dedupes synchronously against a run the sidebar
+      // (or a previous mount) may already have going — which also covers React
+      // StrictMode firing this effect twice in dev.
+      //
+      // Progress, streamed rows and completion all come back through the
+      // subscriptions declared below.
       setBootstrapping(true);
-      setSyncProgress(null);
-      // Buffer batches and commit on a short interval. Committing all ~638
-      // batches individually would re-run the filter/sort memo over an array
-      // growing to 318k rows each time and lock up the page; coalescing keeps
-      // it responsive. The FIRST batch is committed immediately so products
-      // appear as soon as they exist.
-      let buffer: Product[] = [];
-      let committedOnce = false;
-      let lastCommit = 0;
-      let lastProgress = 0;
-      const commit = () => {
-        if (!buffer.length || !alive) return;
-        const chunk = buffer;
-        buffer = [];
-        lastCommit = Date.now();
-        setAllProducts(prev => [...prev, ...chunk]);
-      };
-      const onProgress = (loaded: number, total: number) => {
-        if (!alive) return;
-        const now = Date.now();
-        if (now - lastProgress >= 150 || loaded === total) {
-          lastProgress = now;
-          setSyncProgress({ loaded, total });
-        }
-      };
-      // Phase 2 re-fetches the whole catalogue, INCLUDING the rows phase 1
-      // already delivered. IndexedDB dedupes those by keyPath "id", but the
-      // React array does not — appending blindly duplicated every latest row
-      // (measured: 382 dupes partway through a run). Track ids already shown and
-      // drop repeats. Their content is still refreshed in IndexedDB, and the
-      // final re-read below picks up the corrected `sort_seq` ordering.
-      const seenIds = new Set<number>();
-      const onBatch = (batch: CachedSupplierProduct[]) => {
-        if (!alive) return;
-        for (const row of batch) {
-          const mapped = mapSupplierToProduct(row);
-          if (seenIds.has(mapped.id)) continue;
-          seenIds.add(mapped.id);
-          buffer.push(mapped);
-        }
-        if (!committedOnce) { committedOnce = true; commit(); return; }
-        if (Date.now() - lastCommit >= 1000) commit();
-        console.log("batch", batch);
-      };
-      // ONE stamp for both phases, so phase 2's stale-row cleanup treats the
-      // rows phase 1 wrote as part of the same generation rather than leftovers.
-      const bootstrapBatch = Date.now();
-      try {
-        // ── PHASE 1 — current products only (~7.4k rows, ~74 requests) ──
-        // These are exactly what the default LATEST? view shows, so syncing them
-        // first fills the table in seconds. Paging the full catalogue by id
-        // instead would stream ~50,000 historical rows before the first handful
-        // of current ones, leaving the filtered view empty the whole time.
-        await syncLatestSupplierProducts({ syncBatch: bootstrapBatch, onProgress, onBatch });
-        if (!alive) return;
-        commit();
-        // Latest products are in and rendered — the empty state can stop being
-        // suppressed even though phase 2 is still running.
-        setBootstrapping(false);
-
-        // ── PHASE 2 — the rest of the catalogue, in the background ──
-        // Re-fetches everything, phase-1 rows included. The store's keyPath is
-        // "id", so those are upserts, not duplicates — and this pass stamps the
-        // true global `sort_seq` that a filtered pass cannot know.
-        const result = await syncAllSupplierProducts({
-          syncBatch: bootstrapBatch, onProgress, onBatch,
-        });
-        if (!alive) return;
-        commit(); // anything still buffered
-        // Re-read from IndexedDB so the final list is deduped and in canonical
-        // sort_seq order — batches arrive from 8 concurrent workers, so append
-        // order is not guaranteed to match the catalogue's.
-        setAllProducts((await getCachedSupplierProducts()).map(mapSupplierToProduct));
-        if (!result.complete) {
-          addToast(
-            `Loaded ${result.written.toLocaleString()} of ${result.total.toLocaleString()} products — ` +
-            `${result.failedPages.length} page${result.failedPages.length === 1 ? '' : 's'} failed. Sync to retry.`,
-          );
-        }
-      } catch {
-        if (alive) addToast('Could not load supplier products. Please use Sync to retry.');
-      } finally {
-        syncInFlight.current = false;
-        if (alive) {
-          setBootstrapping(false);
-          setFullSyncing(false);
-          setSyncProgress(null);
-        }
-      }
+      void syncManager.start(SYNC_TASK.supplierProducts);
     })();
     return () => {
       alive = false;
     };
   }, []);
+
+  /* ── Live rows from the global sync ──
+     Batches are emitted by the manager once each page of rows is already in
+     IndexedDB, so the UI can never show a product the cache lacks. Committing
+     every batch would re-run the filter/sort memo over an array growing to
+     318k rows (~638 times) and lock the page up, so batches are buffered and
+     flushed on an interval — with the FIRST one committed immediately so
+     products appear as soon as they exist. */
+  const batchBuffer = useRef<Product[]>([]);
+  const seenIds = useRef<Set<number>>(new Set());
+  const lastCommit = useRef(0);
+  const committedOnce = useRef(false);
+
+  const commitBatches = useCallback(() => {
+    if (!batchBuffer.current.length) return;
+    const chunk = batchBuffer.current;
+    batchBuffer.current = [];
+    lastCommit.current = Date.now();
+    setAllProducts(prev => [...prev, ...chunk]);
+  }, []);
+
+  useSyncBatches<CachedSupplierProduct>(SYNC_TASK.supplierProducts, (batch) => {
+    for (const row of batch) {
+      const mapped = mapSupplierToProduct(row);
+      // The full pass re-fetches rows the latest-only phase already delivered.
+      // IndexedDB upserts them by keyPath "id"; a React array would not, so
+      // without this the latest rows would appear twice.
+      if (seenIds.current.has(mapped.id)) continue;
+      seenIds.current.add(mapped.id);
+      batchBuffer.current.push(mapped);
+    }
+    if (!committedOnce.current) { committedOnce.current = true; commitBatches(); return; }
+    if (Date.now() - lastCommit.current >= 1000) commitBatches();
+  });
+
+  /* ── Settle up when the global sync finishes ──
+     Fires wherever the user is; if they navigated away and came back, the mount
+     effect above has already re-read the cache, so this is simply a no-op. */
+  useOnSyncComplete(SYNC_TASK.supplierProducts, () => {
+    commitBatches();
+    // Re-read from IndexedDB so the list is deduped and in canonical `sort_seq`
+    // order — batches arrive from 8 concurrent workers, so append order does not
+    // match the catalogue's. React 18+ ignores setState on an unmounted
+    // component, so a late resolve after navigation is harmless.
+    void getCachedSupplierProducts().then((rows) => {
+      setAllProducts(rows.map(mapSupplierToProduct));
+      setBootstrapping(false);
+      seenIds.current.clear();
+      committedOnce.current = false;
+    });
+  });
+
+  // Surface a failed background sync — the manager records the reason, but with
+  // no page mounted at the time there was nothing to show it.
+  useEffect(() => {
+    if (supplierSync.status === 'error' && supplierSync.error) {
+      setBootstrapping(false);
+      addToast('Could not load supplier products. Please use Sync to retry.');
+    }
+  }, [supplierSync.status, supplierSync.error]);
 
   const addToast = (msg: string) => {
     const id = Date.now();
@@ -409,63 +405,15 @@ export default function SupplierProductsPage() {
     }
   };
 
-  // Full Sync — Sidebar button refreshes the ENTIRE supplier catalogue
-  const handleFullSync = async () => {
-    // Same synchronous guard as handlePageSync. This one matters more: it also
-    // fires via registerModuleSync, so the sidebar button and a programmatic
-    // module sync could otherwise both start a ~3,187-request run at once.
-    if (syncInFlight.current) return;
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      addToast('Offline: cannot sync without an internet connection.');
-      return;
-    }
-    syncInFlight.current = true;
-    setFullSyncing(true);
-    setSyncProgress(null);
-    let lastProgress = 0;
-    try {
-      const result = await syncAllSupplierProducts({
-        onProgress: (loaded, total) => {
-          const now = Date.now();
-          if (now - lastProgress >= 150 || loaded === total) {
-            lastProgress = now;
-            setSyncProgress({ loaded, total });
-          }
-        },
-      });
-      setAllProducts(result.items.map(mapSupplierToProduct));
-
-      // Report what actually landed. A run that skipped pages must NOT claim
-      // success — silently missing products look identical to products the
-      // supplier stopped carrying.
-      if (result.complete) {
-        addToast(`Synced all ${result.items.length.toLocaleString()} supplier products.`);
-      } else if (result.aborted) {
-        addToast(
-          `Sync stopped early: upstream stopped responding after ${result.written.toLocaleString()} of ` +
-          `${result.total.toLocaleString()} products. Previous data kept — please retry.`,
-        );
-      } else {
-        addToast(
-          `Synced ${result.written.toLocaleString()} of ${result.total.toLocaleString()} — ` +
-          `${result.failedPages.length} page${result.failedPages.length === 1 ? '' : 's'} failed. Please sync again.`,
-        );
-      }
-    } catch {
-      addToast('Sync failed. Please try again.');
-    } finally {
-      syncInFlight.current = false;
-      setFullSyncing(false);
-      setSyncProgress(null);
-    }
-  };
-
-  // Register with syncService so Sidebar Sync triggers handleFullSync
-  useEffect(() => {
-    return registerModuleSync('supplierProducts', async () => {
-      await handleFullSync();
-    });
-  }, [pageSize, currentPage]);
+  /*
+   * Full catalogue sync now lives entirely in the global manager (see
+   * `services/syncTasks.ts`) and is triggered by <SidebarSyncButton />. This
+   * page deliberately keeps NO handler for it:
+   *   - it must not stop when the user navigates away, and
+   *   - it must not also be registered via `registerModuleSync`, or a sidebar
+   *     sync would run the whole ~3,187-request pass twice.
+   * The page only observes — see `useSyncTask` / `useSyncBatches` above.
+   */
 
   const supplierRef = useRef<HTMLDivElement>(null);
   const categoryRef = useRef<HTMLDivElement>(null);
@@ -527,23 +475,31 @@ export default function SupplierProductsPage() {
     // explicitly below when nothing else has copied yet.
     let result: Product[] = allProducts;
 
-    // Search — route-faithful: tokenized (comma/space), AND across tokens, OR
-    // across fields (partial, case-insensitive). A 4-digit token also matches
-    // `year`; any numeric token also matches the size's digit sequence
-    // (plain_size) — so numbers match SKUs, names AND sizes, like the API route.
+    // Search — delegated to `services/searchFilter.ts`, the single source of
+    // truth for the search contract: tokenized on comma/whitespace, AND across
+    // tokens, OR across fields, partial and case-insensitive.
+    //
+    // This replaces an inline copy that matched numeric tokens with an
+    // UNANCHORED `sizeDigits.includes(num)` and also ran them through the text
+    // fields. That let a width query hit unrelated stock via SKU digits —
+    // measured on the live catalogue: "195" returned 326 rows of which 57 were
+    // false positives (e.g. size 33X/12.5 R22, SKU 2281953), and "55" returned
+    // 2,344 of which 1,454 were wrong. `matchesSearch` anchors a size token to
+    // a width prefix or a whole size component and never matches it against
+    // name/SKU, so short numeric searches stay precise. Full sizes are
+    // unaffected — every spelling of "205/55R16" still returns the same 61 rows.
     if (searchQuery.trim()) {
-      const tokens = searchQuery.split(/[,\s]+/).map(t => t.trim()).filter(Boolean);
-      result = result.filter(item => {
-        const fields = [item.pattern, item.itemCode, item.brand, item.category, item.country, item.size];
-        const sizeDigits = item.size.replace(/\D/g, '');
-        return tokens.every(tok => {
-          const t = tok.toLowerCase();
-          if (fields.some(f => f.toLowerCase().includes(t))) return true;
-          if (/^\d{4}$/.test(tok) && item.year === parseInt(tok, 10)) return true;
-          const num = tok.replace(/\D/g, '');
-          return !!num && sizeDigits.includes(num);
-        });
-      });
+      const q = searchQuery.trim();
+      let matched = result.filter(item => matchesSearch(item, q, SEARCH_FIELDS, SEARCH_SIZE_FIELDS));
+      // Width-omitted fallback ("55R16") — unchanged, still only when the exact
+      // pass found nothing.
+      if (matched.length === 0) {
+        const ar = parseAspectRim(q);
+        if (ar) {
+          matched = result.filter(item => matchesAspectRim(item, ar.aspect, ar.rim, ['size']));
+        }
+      }
+      result = matched;
     }
 
     // Supplier / Category — exact match on the selected dropdown value.
@@ -626,6 +582,60 @@ export default function SupplierProductsPage() {
     if (!brandInput.trim()) return brandOptions;
     return brandOptions.filter(b => b.toLowerCase().includes(brandInput.toLowerCase()));
   }, [brandOptions, brandInput]);
+
+  const partialSizeInfo = useMemo(() => {
+    const q = (searchQuery || sizeInput).trim();
+    if (!q) return null;
+
+    // Work out which of the three size components the query actually pinned
+    // down. Whatever is left unspecified is masked, so the banner mirrors the
+    // search back: width `***`, aspect `**`, rim `**`.
+    //   R13        → ***/**R13     (rim only)
+    //   13         → ***/**R13     (bare rim)
+    //   80         → ***/80R**     (aspect only)
+    //   195        → 195/**R**     (width only)
+    //   80R13      → ***/80R13     (aspect + rim, unchanged)
+    let width: string | null = null;
+    let aspect: string | null = null;
+    let rim: string | null = null;
+
+    const ar = parseAspectRim(q);
+    if (ar) {
+      aspect = ar.aspect;
+      rim = ar.rim;
+    } else {
+      const rimOnly = parseRimOnly(q);
+      if (rimOnly) {
+        rim = rimOnly;
+      } else if (/^\d{3}$/.test(q)) {
+        width = q;            // 3 digits → a tyre width
+      } else if (/^\d{2}$/.test(q)) {
+        // A bare 2-digit number is ambiguous, so split it by the ranges the two
+        // components actually occupy: rims run ~12-24 inches, aspect ratios
+        // ~25-85. So "13"/"17" read as a rim, "55"/"80" as an aspect ratio.
+        if (Number(q) <= 24) rim = q;
+        else aspect = q;
+      }
+    }
+    // Nothing identifiable, or a fully-specified size — no banner.
+    if (!width && !aspect && !rim) return null;
+
+    const widths = new Set<string>();
+    for (const item of filteredProducts) {
+      const m = item.size.match(/\b(\d{3})\s*[\/\s]/);
+      if (m) widths.add(m[1]);
+    }
+    return {
+      matchedPattern: `${width ?? '***'}/${aspect ?? '**'}R${rim ?? '**'}`,
+      // Only offer the width picker when the width is the missing piece.
+      // Searching a width already answers that question, so the chip row would
+      // just echo the query back.
+      availableWidths: width ? [] : Array.from(widths).sort((a, b) => Number(a) - Number(b)),
+      hasWidth: width !== null,
+      aspect: aspect ?? '',
+      rim: rim ?? '',
+    };
+  }, [searchQuery, sizeInput, filteredProducts]);
 
   // Count & page slice come entirely from the cached (IndexedDB) dataset — for
   // BOTH Latest and All Products modes. No server-side fetch anywhere.
@@ -776,9 +786,9 @@ export default function SupplierProductsPage() {
       {/* 1. LEFT SIDEBAR NAVIGATION */}
       <aside className="w-[68px] flex-none bg-white border-r border-slate-200 flex flex-col items-center justify-between py-3 z-30 shadow-xs">
         <div className="flex flex-col items-center gap-6 w-full">
-          {/* Logo Badge (Links directly to /dashboard/products) */}
+          {/* Logo Badge (Links to /dashboard) */}
           <Link
-            href="/dashboard/products"
+            href="/dashboard"
             title="TyresCart POS"
             className="flex items-center justify-center hover:opacity-80 transition-opacity"
           >
@@ -795,7 +805,8 @@ export default function SupplierProductsPage() {
           {/* Navigation Items */}
           <nav className="flex flex-col gap-2 w-full px-2">
             {[
-              { name: 'Home', icon: HomeIcon, href: '/dashboard/products' },
+              { name: 'Dashboard', icon: HomeIcon, href: '/dashboard' },
+              { name: 'Products', icon: ShoppingBagIcon, href: '/products' },
               { name: 'Chat', icon: ChatBubbleLeftRightIcon, href: '/tyre_guide/chat' },
               { name: 'Supplier', icon: TruckIcon, href: '/supplier-products' },
             ].map((item) => {
@@ -948,6 +959,40 @@ export default function SupplierProductsPage() {
 
         {/* SCROLLABLE INNER DASHBOARD BODY */}
         <div className="flex-1 min-h-0 flex flex-col p-6 gap-4 w-full mx-auto overflow-hidden">
+
+          {/* Width-omitted (aspect+rim) fallback notice banner */}
+          {partialSizeInfo && (
+            <div className="shrink-0 p-3 text-sm bg-amber-50 text-amber-900 border border-amber-200 rounded-xl flex flex-wrap items-center justify-between gap-3 shadow-2xs">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                <span>
+                  Showing tyres matching <strong className="font-bold text-amber-950">{partialSizeInfo.matchedPattern}</strong>.
+                  {!partialSizeInfo.hasWidth && ' Select width for a more accurate result:'}
+                </span>
+              </div>
+
+              {partialSizeInfo.availableWidths.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs font-semibold text-amber-800 mr-1">Widths:</span>
+                  {partialSizeInfo.availableWidths.map((w) => (
+                    <button
+                      key={w}
+                      onClick={() => {
+                        if (searchQuery) {
+                          setSearchQuery(`${w}/${partialSizeInfo.aspect}R${partialSizeInfo.rim}`);
+                        } else if (sizeInput) {
+                          setSizeInput(`${w}/${partialSizeInfo.aspect}R${partialSizeInfo.rim}`);
+                        }
+                      }}
+                      className="px-2.5 py-1 text-xs bg-white text-amber-900 font-bold border border-amber-300 rounded-lg hover:bg-amber-100 hover:border-amber-400 transition-all shadow-2xs cursor-pointer active:scale-95"
+                    >
+                      {w}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Filters Bar — Supplier · Category · Brand · Search · Size · Year · Qty · Latest */}
           <section className="shrink-0 bg-white border border-slate-200/90 rounded-xl p-4 shadow-2xs">
@@ -1233,7 +1278,7 @@ export default function SupplierProductsPage() {
                   </button>
 
                   {isPageSizeOpen && (
-                    <div className="absolute right-0 top-full mt-1.5 w-10 bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
+                    <div className="absolute right-0 top-full mt-1.5 w-14 bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
                       {[10, 25, 50, 100].map((size) => (
                         <button
                           key={size}
@@ -1242,7 +1287,7 @@ export default function SupplierProductsPage() {
                             setCurrentPage(1);
                             setIsPageSizeOpen(false);
                           }}
-                          className={`w-full text-left px-3.5 py-1.5 text-xs font-semibold flex items-center justify-between transition-colors ${pageSize === size
+                          className={`w-full text-left px-2.5 py-1.5 text-xs font-semibold flex items-center justify-between transition-colors ${pageSize === size
                             ? 'text-emerald-700 bg-emerald-50/80 font-bold'
                             : 'text-slate-700 hover:bg-slate-50'
                             }`}
