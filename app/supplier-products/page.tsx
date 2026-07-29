@@ -1,27 +1,32 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import Link from 'next/link';
-import Image from 'next/image';
 import {
-  HomeIcon,
-  ShoppingBagIcon,
-  ChatBubbleLeftRightIcon,
-  TruckIcon,
-  BuildingStorefrontIcon,
-  ArrowsPointingOutIcon,
-  WifiIcon,
   MagnifyingGlassIcon,
   ArrowPathIcon,
   ChevronDownIcon,
   XMarkIcon
 } from '@heroicons/react/24/outline';
-import Sidebar from '@/components/Sidebar';
+import { buildRowString } from "@/services/productFormatter";
+import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
+import { CATEGORY_BADGES_TAILWIND, BRAND_BADGES_TAILWIND } from "@/constants/badges";
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
-import { matchesSearch, parseAspectRim, parseRimOnly, matchesAspectRim } from '@/services/searchFilter';
-import { Skeleton, SupplierTableSkeleton } from '@/components/Skeletons';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import {
+  parseAspectRim,
+  parseRimOnly,
+  matchesAspectRim,
+  matchesSearch,
+  matchesLatest,
+  paginate,
+  searchWithAspectRimFallback,
+} from '@/services/searchFilter';
+import { Skeleton } from '@/components/Skeletons';
 import {
   getCachedSupplierProducts,
+  getRows,
+  setRows,
+  ROWS_KEY,
   countCachedSupplierProducts,
   syncSupplierProductsPage,
   type CachedSupplierProduct,
@@ -209,6 +214,37 @@ function normalizeCategory(cat?: string): string {
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
 }
 
+/**
+ * String interning for the supplier mapper.
+ *
+ * 319,429 rows each carry a handful of fields drawn from small vocabularies —
+ * ~10 suppliers, 2 product types, ~5 categories, ~200 brands, ~2k sizes, ~40
+ * countries, ~500 dates. `JSON.parse` (and therefore the IndexedDB read) hands
+ * back a FRESH string object per occurrence, so the catalogue held hundreds of
+ * thousands of duplicate strings: measured ~96MB retained after a full sync.
+ *
+ * Routing those fields through one shared table means every row points at the
+ * same string instance. Row identity, values and ordering are unchanged — only
+ * how many copies exist in memory.
+ *
+ * The table itself holds one entry per DISTINCT value (a few thousand), and is
+ * cleared when a sync starts a fresh generation so a re-sync cannot grow it
+ * without bound.
+ */
+const internTable = new Map<string, string>();
+
+function intern(v: string): string {
+  const hit = internTable.get(v);
+  if (hit !== undefined) return hit;
+  internTable.set(v, v);
+  return v;
+}
+
+/** Drop interned values that a new catalogue generation may no longer use. */
+function resetIntern(): void {
+  internTable.clear();
+}
+
 function mapSupplierToProduct(p: CachedSupplierProduct): Product {
   return {
     // `CachedSupplierProduct.id` is `string | number`. A non-numeric id used to
@@ -219,19 +255,19 @@ function mapSupplierToProduct(p: CachedSupplierProduct): Product {
     // `sort_seq` is absent on rows cached before v4; those keep the old
     // behaviour until the next full sync repopulates the field.
     id: supplierRowId(p),
-    source: p.source_name ?? '',
+    source: intern(p.source_name ?? ''),
     itemCode: p.sku ?? '',
-    productType: productTypeLabel(p.product_source),
-    category: normalizeCategory(p.brand_category),
-    brand: p.brand ?? '',
+    productType: intern(productTypeLabel(p.product_source)),
+    category: intern(normalizeCategory(p.brand_category)),
+    brand: intern(p.brand ?? ''),
     pattern: p.product_name ?? '',
-    size: p.size ?? '',
-    sizeFull: sizeWithLoadSpeed(p.size ?? '', p.product_name ?? ''),
+    size: intern(p.size ?? ''),
+    sizeFull: intern(sizeWithLoadSpeed(p.size ?? '', p.product_name ?? '')),
     runflat: p.runflat !== undefined && p.runflat !== null
       ? (typeof p.runflat === 'boolean' ? p.runflat : String(p.runflat).toLowerCase() === 'yes' || String(p.runflat) === '1')
       : /run\s*flat|\bRFT\b|\bZP\b|\bSSR\b|\bMOE\b/i.test(p.product_name ?? ''),
     year: Number(p.year) || 0,
-    country: p.country ?? '',
+    country: intern(p.country ?? ''),
     flag: '',
     qty: 0,
     cost: Number(p.cost) || Number(p.price) || 0,
@@ -240,16 +276,27 @@ function mapSupplierToProduct(p: CachedSupplierProduct): Product {
     // Rows cached before it was added to the query have no value → 0, until a
     // re-sync fills them in.
     fittingPrice: Number(p.fitting_price) || 0,
-    date: p.date ?? '',
+    date: intern(p.date ?? ''),
     dateKey: dateSortKey(p.date),
     is_latest: Number(p.is_latest) === 1 ? 1 : 0,
   };
 }
 
+/** Badge classes now live in constants/badges.ts; aliased so the JSX below
+ *  is untouched and this page keeps its own variant. */
+const categoryBadges = CATEGORY_BADGES_TAILWIND;
+const brandBadges = BRAND_BADGES_TAILWIND;
+
 export default function SupplierProductsPage() {
   const isOnline = useOnlineStatus();
 
-  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  /** Seeded from the session rows cache, so returning to this page paints the
+   *  full catalogue on the FIRST render instead of awaiting a bulk IndexedDB read
+   *  and re-mapping ~318k rows. Empty on a cold start, where the mount effect's
+   *  cache read fills it — cache-first behaviour is unchanged either way. */
+  const [allProducts, setAllProducts] = useState<Product[]>(
+    () => getRows<Product>(ROWS_KEY.supplierProducts) ?? [],
+  );
   const [searchQuery, setSearchQuery] = useState('');
   const [supplierFilter, setSupplierFilter] = useState('ALL');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
@@ -257,6 +304,26 @@ export default function SupplierProductsPage() {
   const [sizeInput, setSizeInput] = useState('');
   const [yearInput, setYearInput] = useState('');
   const [qtyInput, setQtyInput] = useState('');
+  /** Price Range bounds — raw input strings so the fields can be empty. */
+  const [minPriceInput, setMinPriceInput] = useState('');
+  const [maxPriceInput, setMaxPriceInput] = useState('');
+  /* ── Debounced copies for the expensive derived work ──
+     The inputs above stay bound to the raw state, so typing is never laggy.
+     Only `filteredProducts` (and what derives from it) reads these, because that
+     memo walks the whole loaded catalogue: measured at 319,429 rows, one
+     keystroke cost ~2.5s of blocked main thread, and a six-character query spent
+     ~15s recomputing results that were discarded on the next character.
+
+     Dropdowns, checkboxes and sort clicks are NOT debounced — they fire once, so
+     delaying them would only add lag. */
+  const dSearchQuery = useDebouncedValue(searchQuery);
+  const dBrandInput = useDebouncedValue(brandInput);
+  const dSizeInput = useDebouncedValue(sizeInput);
+  const dYearInput = useDebouncedValue(yearInput);
+  const dQtyInput = useDebouncedValue(qtyInput);
+  const dMinPriceInput = useDebouncedValue(minPriceInput);
+  const dMaxPriceInput = useDebouncedValue(maxPriceInput);
+
   const [latestOnly, setLatestOnly] = useState(true);
 
   const [pageSize, setPageSize] = useState(10);
@@ -307,6 +374,18 @@ export default function SupplierProductsPage() {
     document.body.classList.remove('dark-theme');
     let alive = true;
     (async () => {
+      // Rows mapped earlier this session are already on screen (seeded above).
+      // Re-reading IndexedDB would produce the same list, so skip it. This is
+      // still cache-first — and still API-free — it just skips redundant work.
+      // Note the early return matches the `cached.length > 0` branch below:
+      // rows in memory mean the store was non-empty, so no bootstrap either.
+      const memo = getRows<Product>(ROWS_KEY.supplierProducts);
+      if (memo?.length) {
+        setIsLoading(false);
+        for (const p of memo) seenIds.current.add(p.id);
+        return;
+      }
+
       const cached = await getCachedSupplierProducts();
       if (!alive) return;
       const mapped = cached.map(mapSupplierToProduct);
@@ -354,6 +433,7 @@ export default function SupplierProductsPage() {
       // Progress, streamed rows and completion all come back through the
       // subscriptions declared below.
       setBootstrapping(true);
+      resetIntern(); // fresh generation → let go of the previous vocabulary
       void syncManager.start(SYNC_TASK.supplierProducts);
     })();
     return () => {
@@ -368,6 +448,11 @@ export default function SupplierProductsPage() {
      318k rows (~638 times) and lock the page up, so batches are buffered and
      flushed on an interval — with the FIRST one committed immediately so
      products appear as soon as they exist. */
+  // Mirror the loaded rows into the session cache for the next visit.
+  useEffect(() => {
+    if (allProducts.length) setRows(ROWS_KEY.supplierProducts, allProducts);
+  }, [allProducts]);
+
   const batchBuffer = useRef<Product[]>([]);
   const seenIds = useRef<Set<number>>(new Set());
   const lastCommit = useRef(0);
@@ -536,18 +621,11 @@ export default function SupplierProductsPage() {
     // a width prefix or a whole size component and never matches it against
     // name/SKU, so short numeric searches stay precise. Full sizes are
     // unaffected — every spelling of "205/55R16" still returns the same 61 rows.
-    if (searchQuery.trim()) {
-      const q = searchQuery.trim();
-      let matched = result.filter(item => matchesSearch(item, q, SEARCH_FIELDS, SEARCH_SIZE_FIELDS));
-      // Width-omitted fallback ("55R16") — unchanged, still only when the exact
-      // pass found nothing.
-      if (matched.length === 0) {
-        const ar = parseAspectRim(q);
-        if (ar) {
-          matched = result.filter(item => matchesAspectRim(item, ar.aspect, ar.rim, ['size']));
-        }
-      }
-      result = matched;
+    // Search + the width-omitted aspect+rim fallback, both from
+    // services/searchFilter.ts — the two-step used to be inlined here and in
+    // the other product page.
+    if (dSearchQuery.trim()) {
+      result = searchWithAspectRimFallback(result, dSearchQuery.trim(), SEARCH_FIELDS, SEARCH_SIZE_FIELDS);
     }
 
     // Supplier / Category — exact match on the selected dropdown value.
@@ -555,32 +633,40 @@ export default function SupplierProductsPage() {
     if (categoryFilter !== 'ALL') result = result.filter(item => item.category === categoryFilter);
 
     // Brand — comma-separated list or typed text, partial match on ANY.
-    if (brandInput.trim()) {
-      const brands = brandInput.split(',').map(b => b.trim().toLowerCase()).filter(Boolean);
+    if (dBrandInput.trim()) {
+      const brands = dBrandInput.split(',').map(b => b.trim().toLowerCase()).filter(Boolean);
       if (brands.length) result = result.filter(item => brands.some(b => item.brand.toLowerCase().includes(b)));
     }
 
     // Size — comma-separated list, each normalized (plain_size) OR formatted-size match.
-    if (sizeInput.trim()) {
-      const sizes = sizeInput.split(',').map(s => s.trim()).filter(Boolean);
+    if (dSizeInput.trim()) {
+      const sizes = dSizeInput.split(',').map(s => s.trim()).filter(Boolean);
       if (sizes.length) result = result.filter(item => sizes.some(sz => matchesSizeInput(item, sz)));
     }
 
     // Year — comma-separated exact list (matches route's $in).
-    if (yearInput.trim()) {
-      const years = yearInput.split(',').map(y => parseInt(y.trim(), 10)).filter(y => !isNaN(y));
+    if (dYearInput.trim()) {
+      const years = dYearInput.split(',').map(y => parseInt(y.trim(), 10)).filter(y => !isNaN(y));
       if (years.length) result = result.filter(item => years.includes(item.year));
     }
 
     // Qty — minimum threshold (matches route's { $gte }).
-    if (qtyInput.trim() && !isNaN(Number(qtyInput))) {
-      const n = Number(qtyInput);
+    if (dQtyInput.trim() && !isNaN(Number(dQtyInput))) {
+      const n = Number(dQtyInput);
       result = result.filter(item => item.qty >= n);
     }
+
+    // Price range — inclusive Min/Max over the COST column. Each bound is
+    // applied only when it parses as a number, so a half-filled range still
+    // filters on the side that was entered, and a blank pair is a no-op.
+    const minPrice = parseFloat(dMinPriceInput);
+    const maxPrice = parseFloat(dMaxPriceInput);
+    if (!isNaN(minPrice)) result = result.filter(item => item.cost >= minPrice);
+    if (!isNaN(maxPrice)) result = result.filter(item => item.cost <= maxPrice);
     // Latest checkbox — client-side filter over the cached catalogue. Checked =
     // current records only (is_latest = 1); unchecked = ALL synced products.
     // Purely local; never triggers an API call.
-    if (latestOnly) result = result.filter(item => item.is_latest === 1);
+    if (latestOnly) result = result.filter(item => matchesLatest(item, true));
 
     if (sortColumn) {
       // `sort` mutates in place. If no filter ran, `result` is still the
@@ -610,7 +696,7 @@ export default function SupplierProductsPage() {
     }
 
     return result;
-  }, [allProducts, searchQuery, supplierFilter, categoryFilter, brandInput, sizeInput, yearInput, qtyInput, latestOnly, sortColumn, sortAsc]);
+  }, [allProducts, dSearchQuery, supplierFilter, categoryFilter, dBrandInput, dSizeInput, dYearInput, dQtyInput, dMinPriceInput, dMaxPriceInput, latestOnly, sortColumn, sortAsc]);
 
   // All three dropdown lists in ONE pass. Three separate useMemos each walked
   // the full 318k-row array and allocated its own intermediate — at this size
@@ -644,7 +730,7 @@ export default function SupplierProductsPage() {
   }, [brandInput]);
 
   const partialSizeInfo = useMemo(() => {
-    const q = (searchQuery || sizeInput).trim();
+    const q = (dSearchQuery || dSizeInput).trim();
     if (!q) return null;
 
     // Work out which of the three size components the query actually pinned
@@ -695,17 +781,20 @@ export default function SupplierProductsPage() {
       aspect: aspect ?? '',
       rim: rim ?? '',
     };
-  }, [searchQuery, sizeInput, filteredProducts]);
+  }, [dSearchQuery, dSizeInput, filteredProducts]);
 
   // Count & page slice come entirely from the cached (IndexedDB) dataset — for
   // BOTH Latest and All Products modes. No server-side fetch anywhere.
+  // Pagination maths from services/searchFilter.ts. `paginate` clamps the page
+  // into range, so an out-of-range page shows the last page rather than a blank
+  // slice while the clamp effect below catches up.
+  const page = useMemo(
+    () => paginate(filteredProducts, currentPage, pageSize),
+    [filteredProducts, currentPage, pageSize],
+  );
   const totalItems = filteredProducts.length;
-  const totalPages = Math.ceil(totalItems / pageSize) || 1;
-
-  const currentItems = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return filteredProducts.slice(start, start + pageSize);
-  }, [filteredProducts, currentPage, pageSize]);
+  const totalPages = page.pagination.totalPages;
+  const currentItems = page.items;
 
   // Skeleton only while reading the cache (isLoading) or during an in-progress
   // Sync that has no data yet. An empty cache with no sync shows the empty state.
@@ -742,27 +831,14 @@ export default function SupplierProductsPage() {
     setSizeInput('');
     setYearInput('');
     setQtyInput('');
+    setMinPriceInput('');
+    setMaxPriceInput('');
     setLatestOnly(true);
     setCurrentPage(1);
     addToast('Filters reset to default.');
   };
 
-  const handleSelectAll = (checked: boolean) => {
-    const newSelected = new Set(selectedIds);
-    if (checked) {
-      currentItems.forEach(p => newSelected.add(p.id));
-    } else {
-      currentItems.forEach(p => newSelected.delete(p.id));
-    }
-    setSelectedIds(newSelected);
-  };
 
-  const toggleSelectRow = (id: number, checked: boolean) => {
-    const newSelected = new Set(selectedIds);
-    if (checked) newSelected.add(id);
-    else newSelected.delete(id);
-    setSelectedIds(newSelected);
-  };
 
   const clearSelection = () => {
     setSelectedIds(new Set());
@@ -774,21 +850,9 @@ export default function SupplierProductsPage() {
   };
 
   const copyRowData = (item: Product) => {
-    const formattedCost = (item.cost || 0).toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-    const parts = [
-      item.category || '',
-      item.brand || '',
-      item.pattern || '',
-      item.sizeFull || item.size || '',
-      item.year && item.year > 0 ? item.year : '',
-      item.country && item.country !== '-' ? item.country : '',
-      item.qty ?? 0,
-      formattedCost,
-    ].filter(val => val !== '' && val !== undefined && val !== null);
-    const rowString = parts.join(' - ');
+    // Formatting lives in services/productFormatter.ts — same function the
+    // tc-products page uses, so the two can never drift apart.
+    const rowString = buildRowString(item);
     navigator.clipboard.writeText(rowString);
     addToast(`Copied: "${rowString}"`);
   };
@@ -816,7 +880,6 @@ export default function SupplierProductsPage() {
     setHiddenColumns(newHidden);
   };
 
-  const isAllPageSelected = currentItems.length > 0 && currentItems.every(p => selectedIds.has(p.id));
 
   // Cell padding class based on Density mode
   const cellPaddingClass = useMemo(() => {
@@ -825,33 +888,9 @@ export default function SupplierProductsPage() {
     return 'py-4 px-4'; // breathable
   }, [density]);
 
-  const categoryBadges: Record<string, string> = {
-    Premium: "bg-purple-50 text-purple-700 border-purple-200/70",
-    Quality: "bg-blue-50 text-blue-700 border-blue-200/70",
-    Budget: "bg-amber-50 text-amber-700 border-amber-200/70",
-    'Mid-Range': "bg-teal-50 text-teal-700 border-teal-200/70",
-    'Tier 1': "bg-emerald-50 text-emerald-700 border-emerald-200/70",
-    'Tier 2': "bg-sky-50 text-sky-700 border-sky-200/70",
-    'Tier 3': "bg-amber-50 text-amber-700 border-amber-200/70",
-    PREMIUM: "bg-purple-50 text-purple-700 border-purple-200/70",
-    QUALITY: "bg-blue-50 text-blue-700 border-blue-200/70",
-    BUDGET: "bg-amber-50 text-amber-700 border-amber-200/70",
-    'MID-RANGE': "bg-teal-50 text-teal-700 border-teal-200/70"
-  };
-
-  const brandBadges: Record<string, string> = {
-    Bridgestone: "bg-emerald-50 text-emerald-800 border-emerald-200/70",
-    Habilead: "bg-teal-50 text-teal-800 border-teal-200/70",
-    Kumho: "bg-indigo-50 text-indigo-800 border-indigo-200/70",
-    Michelin: "bg-sky-50 text-sky-800 border-sky-200/70",
-    Continental: "bg-orange-50 text-orange-800 border-orange-200/70"
-  };
-
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-50 text-slate-800 font-sans antialiased selection:bg-emerald-500 selection:text-white transition-colors duration-200 relative">
+    <div className="flex h-full w-full overflow-hidden bg-slate-50 text-slate-800 font-sans antialiased selection:bg-emerald-500 selection:text-white transition-colors duration-200 relative">
 
-      {/* 1. LEFT SIDEBAR NAVIGATION */}
-      <Sidebar activeNav="Supplier" />
 
       {/* 2. MAIN FULL-WIDTH SUPPLIER PRODUCTS AREA */}
       <main className="flex-1 flex flex-col min-w-0 bg-slate-50 overflow-hidden">
@@ -917,19 +956,7 @@ export default function SupplierProductsPage() {
               Export
             </button>
 
-            <button
-              onClick={() => {
-                if (!document.fullscreenElement) {
-                  document.documentElement.requestFullscreen();
-                } else if (document.exitFullscreen) {
-                  document.exitFullscreen();
-                }
-              }}
-              className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
-              title="Fullscreen"
-            >
-              <ArrowsPointingOutIcon className="w-5 h-5" />
-            </button>
+            <FullscreenButton tone="slate" />
 
             {/* Header Sync Button — per page sync */}
             <button
@@ -947,19 +974,7 @@ export default function SupplierProductsPage() {
             </button>
 
             {/* Online Indicator */}
-            {isOnline ? (
-              <div className="h-7 w-[95px] inline-flex items-center justify-center gap-1.5 text-emerald-700 bg-emerald-50 px-2.5 rounded-full text-xs font-semibold border border-emerald-200 shadow-2xs whitespace-nowrap">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                <WifiIcon className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Online</span>
-              </div>
-            ) : (
-              <div className="h-7 w-[95px] inline-flex items-center justify-center gap-1.5 text-rose-700 bg-rose-50 px-2.5 rounded-full text-xs font-semibold border border-rose-200 shadow-2xs whitespace-nowrap">
-                <span className="w-2 h-2 rounded-full bg-rose-500"></span>
-                <WifiIcon className="w-3.5 h-3.5 text-rose-600" />
-                <span>Offline</span>
-              </div>
-            )}
+            <OnlineStatusBadge isOnline={isOnline} variant="fixed" />
 
           </div>
         </header>
@@ -1002,8 +1017,8 @@ export default function SupplierProductsPage() {
           )}
 
           {/* Filters Bar — Supplier · Category · Brand · Search · Size · Year · Qty · Latest */}
-          <section className="shrink-0 bg-white border border-slate-200/90 rounded-xl p-4 shadow-2xs">
-            <div className="flex flex-wrap items-end gap-3">
+          <section className="shrink-0 bg-white border border-slate-200/90 rounded-xl p-4 shadow-2xs relative z-20">
+            <div className="flex flex-wrap items-end gap-2.5">
 
               {/* Supplier */}
               <div ref={supplierRef} className="flex flex-col min-w-[140px] relative">
@@ -1094,7 +1109,7 @@ export default function SupplierProductsPage() {
               </div>
 
               {/* Brand */}
-              <div ref={brandRef} className="relative flex flex-col min-w-[150px]">
+              <div ref={brandRef} className="relative flex flex-col min-w-[150px] max-w-[180px]">
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Brand</label>
                 <div className="relative">
                   <input
@@ -1230,7 +1245,7 @@ export default function SupplierProductsPage() {
               </div>
 
               {/* Search */}
-              <div className="flex flex-col flex-1 min-w-[220px]">
+              <div className="flex flex-col flex-1 min-w-[160px]">
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Search</label>
                 <div className="relative">
                   <MagnifyingGlassIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -1240,13 +1255,13 @@ export default function SupplierProductsPage() {
                     value={searchQuery}
                     onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
                     placeholder="Query..."
-                    className="h-10 w-full pl-9 pr-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
+                    className="search-field h-10 w-full pl-9 pr-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
                   />
                 </div>
               </div>
 
               {/* Size */}
-              <div className="flex flex-col w-[110px]">
+              <div className="flex flex-col w-[150px]">
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Size</label>
                 <input
                   type="text"
@@ -1258,7 +1273,7 @@ export default function SupplierProductsPage() {
               </div>
 
               {/* Year */}
-              <div className="flex flex-col w-[90px]">
+              <div className="flex flex-col w-[120px]">
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Year</label>
                 <input
                   type="text"
@@ -1270,7 +1285,7 @@ export default function SupplierProductsPage() {
               </div>
 
               {/* Qty */}
-              <div className="flex flex-col w-[90px]">
+              <div className="flex flex-col w-[110px]">
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Qty</label>
                 <input
                   type="text"
@@ -1279,6 +1294,32 @@ export default function SupplierProductsPage() {
                   placeholder="Qty..."
                   className="h-10 bg-white border border-slate-200 rounded-lg px-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
                 />
+              </div>
+
+              {/* Price Range — Min / Max over the COST column */}
+              <div className="flex flex-col w-[300px]">
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Price Range</label>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    value={minPriceInput}
+                    onChange={(e) => { setMinPriceInput(e.target.value); setCurrentPage(1); }}
+                    placeholder="Min"
+                    className="h-10 w-full min-w-0 bg-white border border-slate-200 rounded-lg px-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
+                  />
+                  <span className="text-slate-400 text-xs font-semibold shrink-0">-</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    value={maxPriceInput}
+                    onChange={(e) => { setMaxPriceInput(e.target.value); setCurrentPage(1); }}
+                    placeholder="Max"
+                    className="h-10 w-full min-w-0 bg-white border border-slate-200 rounded-lg px-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
+                  />
+                </div>
               </div>
 
               {/* Latest? */}
@@ -1430,7 +1471,15 @@ export default function SupplierProductsPage() {
                     ))
                   ) : currentItems.length === 0 ? (
                     <tr>
-                      <td colSpan={14} className="py-16 text-center text-slate-400">
+                      {/* Height matched to a full page of rows (measured 53px each) so the
+                          table body stays the same height whether it holds data, the
+                          skeleton, or this message — switching between them can't shift
+                          the layout. */}
+                      <td
+                        colSpan={14}
+                        className="py-16 text-center text-slate-400 align-middle"
+                        style={{ height: Math.min(pageSize, 10) * 53 }}
+                      >
                         <svg className="w-12 h-12 mx-auto mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                         </svg>

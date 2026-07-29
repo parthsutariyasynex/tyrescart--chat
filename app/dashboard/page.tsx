@@ -2,28 +2,19 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import Image from "next/image";
-import { usePathname } from "next/navigation";
 import {
-  HomeIcon,
   ShoppingBagIcon,
   TruckIcon,
-  BuildingStorefrontIcon,
   ChatBubbleLeftRightIcon,
   ChartBarIcon,
-  ArrowPathIcon,
   CircleStackIcon,
-  UserGroupIcon,
-  WifiIcon,
-  ArrowsPointingOutIcon
 } from "@heroicons/react/24/outline";
-import Sidebar from "@/components/Sidebar";
+import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
 import HeaderSyncButton from "@/components/HeaderSyncButton";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { countCachedSupplierProducts } from "@/services/cache";
 
 export default function DashboardPage() {
-  const pathname = usePathname();
   const isOnline = useOnlineStatus();
   const [supplierCount, setSupplierCount] = useState<number | null>(null);
 
@@ -32,49 +23,22 @@ export default function DashboardPage() {
   }, []);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#f4f6f9] text-gray-800 font-sans relative">
-      {/* 1. LEFT SIDEBAR NAVIGATION */}
-      <Sidebar activeNav="Dashboard" theme="orange" />
+    <div className="flex h-full w-full overflow-hidden bg-[#f4f6f9] text-gray-800 font-sans relative">
 
       {/* 2. MAIN DASHBOARD CONTENT AREA */}
       <main className="flex-1 flex flex-col min-w-0 bg-[#f8fafc] overflow-hidden">
         {/* TOP HEADER BAR */}
         <header className="h-16 flex-none bg-white border-b border-gray-200 px-6 flex items-center justify-between gap-4 shadow-xs">
           <div>
-            <h1 className="text-lg font-bold text-gray-800 tracking-tight">Dashboard Overview</h1>
-            <p className="text-xs text-gray-500">TyresCart POS Analytics & Control Panel</p>
+            <h1 className="text-lg font-bold text-gray-800 tracking-tight">Dashboard</h1>
           </div>
 
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => {
-                if (!document.fullscreenElement) {
-                  document.documentElement.requestFullscreen();
-                } else if (document.exitFullscreen) {
-                  document.exitFullscreen();
-                }
-              }}
-              className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
-              title="Fullscreen"
-            >
-              <ArrowsPointingOutIcon className="w-5 h-5" />
-            </button>
+            <FullscreenButton tone="gray" />
 
             <HeaderSyncButton title="Sync Dashboard" />
 
-            {isOnline ? (
-              <div className="h-7 w-[95px] inline-flex items-center justify-center gap-1.5 text-emerald-700 bg-emerald-50 px-2.5 rounded-full text-xs font-semibold border border-emerald-200 shadow-2xs whitespace-nowrap">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                <WifiIcon className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Online</span>
-              </div>
-            ) : (
-              <div className="h-7 w-[95px] inline-flex items-center justify-center gap-1.5 text-rose-700 bg-rose-50 px-2.5 rounded-full text-xs font-semibold border border-rose-200 shadow-2xs whitespace-nowrap">
-                <span className="w-2 h-2 rounded-full bg-rose-500"></span>
-                <WifiIcon className="w-3.5 h-3.5 text-rose-600" />
-                <span>Offline</span>
-              </div>
-            )}
+            <OnlineStatusBadge isOnline={isOnline} variant="fixed" />
           </div>
         </header>
 

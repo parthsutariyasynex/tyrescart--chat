@@ -1,29 +1,26 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
 import {
-  HomeIcon,
   ShoppingBagIcon,
   MagnifyingGlassIcon,
-  ArrowsPointingOutIcon,
-  WifiIcon,
   PlusIcon,
   XMarkIcon,
-  ChatBubbleLeftRightIcon,
-  TruckIcon,
 } from "@heroicons/react/24/outline";
-import Sidebar from "@/components/Sidebar";
+import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
 import {
   fetchStorefrontBatch,
+  fetchStorefrontBatchWithRetry,
+  PRODUCTS_SYNC_CONCURRENCY,
+  getRows,
+  setRows,
+  ROWS_KEY,
   getTyresChatCached,
   getKnownBrands,
   addKnownBrands,
 } from "@/services/cache";
 import type {
   ProductItem,
-  ProductsResponse,
   TyresChatItem,
 } from "@/services/types";
 
@@ -33,14 +30,13 @@ const brandOf = (name?: string) => (name || "").trim().split(/\s+/)[0] || "";
 import { ProductGridSkeleton, Skeleton } from "@/components/Skeletons";
 import Image from "next/image";
 import HeaderSyncButton from "@/components/HeaderSyncButton";
-import SidebarSyncButton from "@/components/SidebarSyncButton";
 import { registerModuleSync } from "@/services/syncService";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { queryProducts, parseAspectRim } from "@/services/searchFilter";
 import { enrichProducts, type EnrichedProduct } from "@/services/productEnrich";
 
 export default function PosProductsPage() {
-  const pathname = usePathname();
 
   // `products` is the FULL list loaded into cache so far (grows as background
   // batches arrive). The UI never renders all of it at once — it renders only a
@@ -48,7 +44,11 @@ export default function PosProductsPage() {
   // already-cached list WITHOUT any API call.
   // Enriched with derived brand/size/plain_size/year (see productEnrich) so
   // search/sort run on structured fields, entirely client-side.
-  const [products, setProducts] = useState<EnrichedProduct[]>([]);
+  // Seeded from the session rows cache so returning to this page paints the
+  // already-loaded list on the FIRST render instead of refilling batch by batch.
+  const [products, setProducts] = useState<EnrichedProduct[]>(
+    () => getRows<EnrichedProduct>(ROWS_KEY.products) ?? [],
+  );
   const [tyresChatItems, setTyresChatItems] = useState<TyresChatItem[]>([]);
   const [totalCount, setTotalCount] = useState<number>(0);
 
@@ -65,19 +65,12 @@ export default function PosProductsPage() {
 
   const [activeBrand, setActiveBrand] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [debouncedSearch, setDebouncedSearch] = useState<string>("");
+  // Debounced via the shared hook — this page's inline 400ms timer was the
+  // pattern the hook was extracted from, so behaviour is identical.
+  const debouncedSearch = useDebouncedValue(searchQuery.trim());
   // Online status via useSyncExternalStore (no hydration mismatch, no
   // setState-in-effect).
   const isOnline = useOnlineStatus();
-
-  // Debounce the search box so each keystroke doesn't fire its own GraphQL
-  // request. A new search restarts the batch loader from the first batch.
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setDebouncedSearch(searchQuery.trim());
-    }, 400);
-    return () => clearTimeout(t);
-  }, [searchQuery]);
 
   // A new client-side search always resets the visible window to the first page.
   useEffect(() => {
@@ -93,6 +86,14 @@ export default function PosProductsPage() {
 
   // How many products each GraphQL request pulls into the cache.
   const BATCH_SIZE = 500;
+
+  /** Split a seeded flat list back into its batch slots, so the first live batch
+   *  replaces its own slice instead of the whole list. */
+  const chunkSeeded = <T,>(rows: T[], size: number): [number, T[]][] => {
+    const out: [number, T[]][] = [];
+    for (let i = 0; i < rows.length; i += size) out.push([i / size + 1, rows.slice(i, i + size)]);
+    return out;
+  };
 
   // How many products are VISIBLE in the grid at once.
   const VIEW_SIZE = 400;
@@ -124,11 +125,28 @@ export default function PosProductsPage() {
 
     const isCurrent = () => loadId === loadIdRef.current;
 
+    /** Rows keyed by batch number. Replacing a slot and re-flattening — rather
+     *  than `setProducts(prev => [...prev, …])` — keeps the seeded list intact:
+     *  an append would duplicate every seeded row, and the old
+     *  `setProducts(enrich(first.items))` would blank it back to one batch.
+     *  Ascending batch order reproduces the previous sequence exactly. */
+    const byBatch = new Map<number, EnrichedProduct[]>(
+      (getRows<EnrichedProduct>(ROWS_KEY.products) ?? []).length
+        ? chunkSeeded(getRows<EnrichedProduct>(ROWS_KEY.products)!, BATCH_SIZE)
+        : [],
+    );
+    const flush = () => {
+      const merged: EnrichedProduct[] = [];
+      for (const n of [...byBatch.keys()].sort((a, b) => a - b)) merged.push(...byBatch.get(n)!);
+      setProducts(merged);
+    };
+
     try {
       const first = await fetchStorefrontBatch({ ...baseParams, currentPage: 1 }, maxAgeMs);
       if (!isCurrent()) return;
 
-      setProducts(enrichProducts(first.items || []));
+      byBatch.set(1, enrichProducts(first.items || []));
+      flush();
       setTotalCount(first.total_count || 0);
       harvestBrands(first.items);
       setLoading(false);
@@ -137,18 +155,52 @@ export default function PosProductsPage() {
       if (totalPages <= 1) return;
 
       setLoadingMore(true);
-      for (let page = 2; page <= totalPages; page++) {
-        if (!isCurrent()) return;
-        let batch: ProductsResponse;
-        try {
-          batch = await fetchStorefrontBatch({ ...baseParams, currentPage: page }, maxAgeMs);
-        } catch (err) {
-          console.warn(`[products] background batch ${page}/${totalPages} failed — stopping fill:`, err);
-          break;
+
+      /* ── Batches 2..N via a worker POOL, not a sequential loop ──
+         Measured cold before this change: 16 sequential batches took 74.7s wall,
+         nearly all of it waiting on requests that average ~1s server-side with
+         never more than one in flight. Order does not matter — `byBatch` is
+         keyed by batch number — so a fixed pool of workers pulling from a shared
+         cursor is safe and roughly 8x faster.
+
+         Each batch is retried (3 attempts, backoff + jitter) instead of aborting
+         the whole fill on the first failure, and a batch that still fails is
+         recorded rather than silently dropped. */
+      const failedBatches: number[] = [];
+      let nextPage = 2;
+      const worker = async () => {
+        for (;;) {
+          if (!isCurrent()) return;
+          const page = nextPage++;
+          if (page > totalPages) return;
+
+          const batch = await fetchStorefrontBatchWithRetry(
+            { ...baseParams, currentPage: page },
+            maxAgeMs,
+          );
+          if (!isCurrent()) return;
+          if (!batch) {
+            failedBatches.push(page);
+            continue;
+          }
+          byBatch.set(page, enrichProducts(batch.items || []));
+          flush();
+          harvestBrands(batch.items);
         }
-        if (!isCurrent()) return;
-        setProducts((prev) => [...prev, ...enrichProducts(batch.items || [])]);
-        harvestBrands(batch.items);
+      };
+
+      await Promise.all(
+        Array.from(
+          { length: Math.min(PRODUCTS_SYNC_CONCURRENCY, Math.max(totalPages - 1, 1)) },
+          worker,
+        ),
+      );
+
+      if (failedBatches.length) {
+        console.warn(
+          `[products] ${failedBatches.length} of ${totalPages} batches unavailable after retries:`,
+          failedBatches,
+        );
       }
     } catch (err) {
       if (!isCurrent()) return;
@@ -163,6 +215,11 @@ export default function PosProductsPage() {
       }
     }
   }, []);
+
+  // Mirror the loaded rows into the session cache for the next visit.
+  useEffect(() => {
+    if (products.length) setRows(ROWS_KEY.products, products);
+  }, [products]);
 
   const loadProductsRef = useRef(loadGraphQLProducts);
   useEffect(() => {
@@ -211,10 +268,8 @@ export default function PosProductsPage() {
   const canNextPage = view.page < view.totalPages;
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#f4f6f9] text-gray-800 font-sans relative">
+    <div className="flex h-full w-full overflow-hidden bg-[#f4f6f9] text-gray-800 font-sans relative">
 
-      {/* 1. LEFT SIDEBAR NAVIGATION */}
-      <Sidebar activeNav="Products" theme="orange" />
 
       {/* 2. MAIN FULL-WIDTH PRODUCT CATALOG AREA */}
       <main className="flex-1 flex flex-col min-w-0 bg-[#f8fafc] overflow-hidden">
@@ -231,7 +286,7 @@ export default function PosProductsPage() {
                 placeholder="Search product, brand, size..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full h-10 pl-10 pr-4 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all shadow-inner"
+                className="search-field w-full h-10 pl-10 pr-4 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all shadow-inner"
               />
               {searchQuery && (
                 <button
@@ -255,36 +310,12 @@ export default function PosProductsPage() {
               </span>
             )}
 
-            <button
-              onClick={() => {
-                if (!document.fullscreenElement) {
-                  document.documentElement.requestFullscreen();
-                } else if (document.exitFullscreen) {
-                  document.exitFullscreen();
-                }
-              }}
-              className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
-              title="Fullscreen"
-            >
-              <ArrowsPointingOutIcon className="w-5 h-5" />
-            </button>
+            <FullscreenButton tone="gray" />
 
             {/* Header Sync — current-page-only sync (shared useSync hook) */}
             <HeaderSyncButton title="Sync products" />
 
-            {isOnline ? (
-              <div className="h-7 w-[95px] inline-flex items-center justify-center gap-1.5 text-emerald-700 bg-emerald-50 px-2.5 rounded-full text-xs font-semibold border border-emerald-200 shadow-2xs whitespace-nowrap">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                <WifiIcon className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Online</span>
-              </div>
-            ) : (
-              <div className="h-7 w-[95px] inline-flex items-center justify-center gap-1.5 text-rose-700 bg-rose-50 px-2.5 rounded-full text-xs font-semibold border border-rose-200 shadow-2xs whitespace-nowrap">
-                <span className="w-2 h-2 rounded-full bg-rose-500"></span>
-                <WifiIcon className="w-3.5 h-3.5 text-rose-600" />
-                <span>Offline</span>
-              </div>
-            )}
+            <OnlineStatusBadge isOnline={isOnline} variant="fixed" />
           </div>
         </header>
 

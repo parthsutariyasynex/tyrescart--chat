@@ -17,12 +17,15 @@ import {
   syncLatestSupplierProducts,
   countCachedSupplierProducts,
   getSupplierSyncState,
+  syncAllTcProducts,
+  getCachedTcPages,
   type CachedSupplierProduct,
 } from "./cache";
 
 /** Stable ids so components can subscribe without importing the definitions. */
 export const SYNC_TASK = {
   supplierProducts: "supplierProducts",
+  tcProducts: "tcProducts",
   products: "products",
   tyresChat: "tyresChat",
 } as const;
@@ -61,6 +64,42 @@ const supplierProductsTask: SyncTaskDefinition = {
       return `Sync stopped early: ${nf(result.written)} of ${nf(result.total)} products. Previous data kept.`;
     }
     return `Synced ${nf(result.written)} of ${nf(result.total)} — ${result.failedPages.length} page${result.failedPages.length === 1 ? "" : "s"} failed.`;
+  },
+};
+
+
+/* ─────────────────────────────────────────────────────────────
+   TC products (~7.8k rows, ~79 requests)
+
+   Same shape as the supplier task so the page can observe it identically, but a
+   different scale and storage model: one cache record per PAGE rather than per
+   product, and no generation cleanup — a page write replaces its own entry.
+
+   `force` is not a parameter because `SyncTaskDefinition.run` takes none. The
+   task decides like the supplier one does: nothing cached → fetch everything;
+   something cached → let the read-through TTL decide per page, so a background
+   run costs zero requests when the cache is fresh. A manual Sync stays on the
+   page's own loader with `maxAgeMs: 0`, which is what makes "Refresh" mean
+   refresh regardless of this task.
+───────────────────────────────────────────────────────────── */
+const tcProductsTask: SyncTaskDefinition = {
+  id: SYNC_TASK.tcProducts,
+  label: "TC products",
+  async run({ onProgress, onBatch, signal }) {
+    const result = await syncAllTcProducts({
+      onProgress,
+      // The manager's channel is `unknown[]`; one element per page keeps the
+      // page number attached so a re-delivered batch overwrites its slot
+      // instead of duplicating rows.
+      onBatch: (batch) => onBatch([batch]),
+      signal,
+    });
+
+    if (result.aborted) {
+      return `Sync stopped early: ${nf(result.items)} of ${nf(result.total)} TC products. Previous data kept.`;
+    }
+    if (result.complete) return `Synced all ${nf(result.items)} TC products.`;
+    return `Synced ${nf(result.items)} of ${nf(result.total)} — ${result.failedPages.length} page${result.failedPages.length === 1 ? "" : "s"} failed.`;
   },
 };
 
@@ -117,9 +156,32 @@ export async function resumeInterruptedSupplierSync(): Promise<void> {
   void syncManager.start(SYNC_TASK.supplierProducts);
 }
 
+
+/**
+ * Start the tc catalogue sync when the cache holds nothing.
+ *
+ * The equivalent of the supplier bootstrap, but callable from anywhere (app
+ * start, or the page's mount effect) because it makes its own decision:
+ *   - already running → no-op, so it can never double-start,
+ *   - any cached page → no-op, the page renders the cache and the TTL handles
+ *     freshness,
+ *   - offline → no-op, a doomed run would only burn retries.
+ */
+export async function ensureTcProductsSynced(): Promise<void> {
+  if (typeof navigator !== "undefined" && !navigator.onLine) return;
+  if (syncManager.isRunning(SYNC_TASK.tcProducts)) return;
+
+  const cached = await getCachedTcPages().catch(() => []);
+  if (cached.length > 0) return;
+
+  console.log("[syncTasks] tc products cache is empty — starting background sync");
+  void syncManager.start(SYNC_TASK.tcProducts);
+}
+
 /** Idempotent — safe to call from multiple entry points and across fast refresh. */
 export function registerSyncTasks(): void {
   syncManager.registerTask(supplierProductsTask);
+  syncManager.registerTask(tcProductsTask);
   syncManager.registerTask(productsTask);
   syncManager.registerTask(tyresChatTask);
 }

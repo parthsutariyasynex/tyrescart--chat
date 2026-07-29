@@ -78,12 +78,6 @@ export function toNumericOnly(value: string): string {
   return value.replace(/\D/g, "");
 }
 
-/**
- * Normalize a size string to its digit sequence, e.g. "205/55R16" → "2055516".
- */
-export function normalizeSize(size: string): string {
-  return toNumericOnly(size);
-}
 
 /**
  * Normalization-based tyre-size match — format-agnostic, but ANCHORED so a
@@ -345,6 +339,37 @@ export function extractWidthsFromProducts<T extends ProductRecord>(
     }
   }
   return Array.from(widths).sort((a, b) => Number(a) - Number(b));
+}
+
+/**
+ * Free-text search WITH the width-omitted aspect+rim fallback, as one call.
+ *
+ * Priority 1: normal `matchesSearch` over the list.
+ * Priority 2: only when that returns NOTHING and the query is an aspect+rim
+ *   (e.g. "55R17"), fall back to matching that pattern at any width.
+ *
+ * This exact two-step was duplicated inline in /supplier-products and
+ * /tc-products; `queryProducts` already had it internally, but those pages
+ * can't use `queryProducts` (their dropdown filters and custom sort aren't
+ * expressible in it), so the step is exposed on its own here.
+ *
+ * Returns the input array untouched for an empty query — same as before.
+ */
+export function searchWithAspectRimFallback<T extends ProductRecord>(
+  items: T[],
+  search: string,
+  fields: readonly string[] = SEARCHABLE_FIELDS,
+  sizeFields: readonly string[] = DEFAULT_SIZE_FIELDS,
+): T[] {
+  const q = search.trim();
+  if (!q) return items;
+
+  const matched = items.filter((item) => matchesSearch(item, q, fields, sizeFields));
+  if (matched.length > 0) return matched;
+
+  const ar = parseAspectRim(q);
+  if (!ar) return matched;
+  return items.filter((item) => matchesAspectRim(item, ar.aspect, ar.rim, sizeFields));
 }
 
 /* ─── Filtering ────────────────────────────────────────────── */

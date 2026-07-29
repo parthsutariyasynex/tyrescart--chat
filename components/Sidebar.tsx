@@ -28,16 +28,24 @@ export const NAV_ITEMS: NavItem[] = [
 ];
 
 export interface SidebarProps {
-  /** Optional active nav item name override (e.g. 'TC', 'Supplier') */
-  activeNav?: string;
-  /** Active accent color theme ('emerald' | 'orange') */
+  /** Optional accent override. Normally derived from the route — see
+   *  {@link ORANGE_ROUTES}. */
   theme?: 'emerald' | 'orange';
 }
 
-export default function Sidebar({ activeNav, theme = 'emerald' }: SidebarProps) {
+/** Routes that used to pass `theme="orange"` when each page rendered its own
+ *  Sidebar. The Sidebar now renders once in the root layout, so it can't be
+ *  given a per-page prop — the same mapping is derived from the path instead,
+ *  which keeps every route's accent exactly as it was. */
+const ORANGE_ROUTES = ['/dashboard', '/products', '/tyre_guide'];
+
+export default function Sidebar({ theme }: SidebarProps = {}) {
   const pathname = usePathname();
 
-  const activeStyles = theme === 'orange'
+  const resolvedTheme =
+    theme ?? (ORANGE_ROUTES.some((r) => pathname?.startsWith(r)) ? 'orange' : 'emerald');
+
+  const activeStyles = resolvedTheme === 'orange'
     ? { text: 'text-orange-500 bg-orange-50 font-semibold', bar: 'bg-orange-500' }
     : { text: 'text-emerald-600 bg-emerald-50 font-semibold', bar: 'bg-emerald-600' };
 
@@ -64,9 +72,10 @@ export default function Sidebar({ activeNav, theme = 'emerald' }: SidebarProps) 
         <nav className="flex flex-col gap-2 w-full px-2">
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
-            const isActive = activeNav
-              ? activeNav === item.name
-              : pathname === item.href || (item.href === '/products' && pathname?.startsWith('/products'));
+            // Active route comes from the pathname only — the Sidebar renders once
+            // in the root layout and has no per-page props to read.
+            const isActive =
+              pathname === item.href || (item.href === '/products' && pathname?.startsWith('/products'));
 
             return (
               <Link

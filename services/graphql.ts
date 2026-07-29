@@ -4,8 +4,17 @@
  *
  * Query strings live in `./queries`; types live in `./types`.
  */
-import { productsQuery, supplierProductsQuery, tyresChatQuery } from "./queries";
+import {
+  productsQuery,
+  supplierProductsQuery,
+  tyresChatQuery,
+  tcProductsQuery,
+  tcAttributeLabelsQuery,
+  type TcProductsQueryVars,
+} from "./queries";
 import type {
+  TcAttributeLabels,
+  TcProductsResponse,
   FetchProductsParams,
   FetchSupplierProductsParams,
   ProductsResponse,
@@ -147,4 +156,44 @@ export async function fetchTyresChatGraphQL(params: {
 
   const data = await executeGraphQLQuery(query);
   return data?.tyresChat || { total_count: 0, items: [] };
+}
+
+/**
+ * Fetch the tc-products view of the storefront `products` field.
+ *
+ * A separate builder from {@link fetchProductsGraphQL} on purpose: /products
+ * uses `productsQuery`, and widening that would change its payload. Lives here
+ * rather than in the page so `syncTasks.ts` can reach it — services cannot
+ * import from `app/`.
+ */
+export async function fetchTcProductsGraphQL(
+  params: TcProductsQueryVars = {},
+): Promise<TcProductsResponse> {
+  const data = await executeGraphQLQuery(tcProductsQuery(params));
+  return (
+    data?.products ?? {
+      total_count: 0,
+      page_info: { current_page: 1, page_size: 0, total_pages: 1 },
+      items: [],
+    }
+  );
+}
+
+/**
+ * Option-id → label maps for the tc-products attributes.
+ *
+ * Magento returns brand / tyre_size / runflat / oem_marking / year / country as
+ * option IDs (`brand: 1358`), so these maps are fetched once and every row is
+ * resolved locally — no per-row lookup.
+ */
+export async function fetchTcAttributeLabelsGraphQL(): Promise<TcAttributeLabels> {
+  const data = await executeGraphQLQuery(tcAttributeLabelsQuery());
+  const out: TcAttributeLabels = {};
+  for (const item of data?.customAttributeMetadata?.items ?? []) {
+    if (!item?.attribute_code) continue;
+    const map: Record<string, string> = {};
+    for (const opt of item.attribute_options ?? []) map[String(opt.value)] = opt.label;
+    out[item.attribute_code] = map;
+  }
+  return out;
 }

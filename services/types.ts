@@ -196,3 +196,53 @@ export interface FetchProductsParams {
   sortField?: ProductsSortField;
   sortDirection?: "ASC" | "DESC";
 }
+
+/* ─────────────────────────────────────────────────────────────
+   TC Products — the storefront `products` field as the tc-products page reads
+   it. Declared here (rather than in the page's data layer) because the sync
+   task in `syncTasks.ts` consumes the same shapes, and services must not import
+   from `app/`.
+───────────────────────────────────────────────────────────── */
+
+export interface TcApiProduct {
+  uid: string;
+  sku: string;
+  name: string;
+  stock_status: string | null;
+  url_key: string | null;
+  /** Option IDs — resolve through {@link TcAttributeLabels}. */
+  brand: number | null;
+  tyre_size: number | null;
+  runflat: number | null;
+  /** OEM approval marking (e.g. "* MOE", "* ZP"). The attribute is
+   *  `oem_marking`, NOT `oem` — 274 options, null on non-OE-fitment tyres. */
+  oem_marking: number | null;
+  year: number | null;
+  country: number | null;
+  /** Free-text on this store, e.g. "107V". */
+  load_index: string | null;
+  image: { url: string | null; label: string | null } | null;
+  price_range: {
+    minimum_price: {
+      regular_price: { value: number | null; currency: string | null };
+      final_price: { value: number | null; currency: string | null };
+    };
+  } | null;
+  categories: { id: number; uid: string; name: string; url_key: string }[] | null;
+}
+
+export interface TcProductsResponse {
+  total_count: number;
+  page_info: { current_page: number; page_size: number; total_pages: number };
+  items: TcApiProduct[];
+}
+
+/** attribute_code → (option id → label). */
+export type TcAttributeLabels = Record<string, Record<string, string>>;
+
+/** One page of tc products as streamed by the sync task. Page-keyed so a batch
+ *  arriving twice overwrites its slot instead of duplicating rows. */
+export interface TcProductsBatch {
+  page: number;
+  items: TcApiProduct[];
+}

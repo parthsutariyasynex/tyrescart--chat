@@ -1,31 +1,22 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import Link from "next/link";
-import Image from "next/image";
 import {
-  HomeIcon,
-  ShoppingBagIcon,
   ChatBubbleLeftRightIcon,
-  TruckIcon,
-  BuildingStorefrontIcon,
   MagnifyingGlassIcon,
-  ArrowsPointingOutIcon,
-  WifiIcon,
   ClipboardDocumentIcon,
   CheckIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
-import Sidebar from "@/components/Sidebar";
+import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
 import { getTyresChatCached } from "@/services/cache";
 import type { TyresChatItem } from "@/services/types";
 import { useToast } from "@/components/ToastProvider";
 import { ChatGridSkeleton } from "@/components/Skeletons";
 import Masonry from "react-masonry-css";
-import LogoutButton from "@/components/LogoutButton";
 import HeaderSyncButton from "@/components/HeaderSyncButton";
-import SidebarSyncButton from "@/components/SidebarSyncButton";
 import { registerModuleSync } from "@/services/syncService";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 
 export interface FormattedShortcutItem {
@@ -163,9 +154,13 @@ export default function TyreGuideChatPage() {
     }, 2000);
   };
 
+  // Debounced so a fast typist doesn't re-filter and re-render the card grid on
+  // every character. The input stays bound to the raw state, so typing is instant.
+  const debouncedSearch = useDebouncedValue(searchQuery);
+
   const filteredShortcuts = shortcuts.filter((item) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
+    if (!debouncedSearch.trim()) return true;
+    const q = debouncedSearch.toLowerCase();
     return (
       item.title.toLowerCase().includes(q) ||
       item.description.toLowerCase().includes(q) ||
@@ -175,10 +170,8 @@ export default function TyreGuideChatPage() {
   });
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#f4f6f9] text-gray-800 font-sans relative">
+    <div className="flex h-full w-full overflow-hidden bg-[#f4f6f9] text-gray-800 font-sans relative">
 
-      {/* 1. LEFT SIDEBAR NAVIGATION */}
-      <Sidebar activeNav="Chat" theme="orange" />
 
       {/* 2. MAIN WORKSPACE CONTAINER */}
       <main className="flex-1 flex flex-col min-w-0 bg-[#f8fafc] overflow-hidden">
@@ -195,7 +188,7 @@ export default function TyreGuideChatPage() {
                 placeholder="Search shortcut or description..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full h-10 pl-10 pr-4 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-inner"
+                className="search-field w-full h-10 pl-10 pr-4 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-inner"
               />
               {searchQuery && (
                 <button
@@ -215,36 +208,12 @@ export default function TyreGuideChatPage() {
               Total: {shortcuts.length}
             </span>
 
-            <button
-              onClick={() => {
-                if (!document.fullscreenElement) {
-                  document.documentElement.requestFullscreen();
-                } else if (document.exitFullscreen) {
-                  document.exitFullscreen();
-                }
-              }}
-              className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
-              title="Fullscreen"
-            >
-              <ArrowsPointingOutIcon className="w-5 h-5" />
-            </button>
+            <FullscreenButton tone="gray" />
 
             {/* Header Sync — current-page-only sync (shared useSync hook) */}
             <HeaderSyncButton title="Sync chat shortcuts" />
 
-            {isOnline ? (
-              <div className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full text-xs font-semibold border border-emerald-200 shadow-2xs">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                <WifiIcon className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Online</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5 text-rose-700 bg-rose-50 px-2.5 py-1 rounded-full text-xs font-semibold border border-rose-200 shadow-2xs">
-                <span className="w-2 h-2 rounded-full bg-rose-500"></span>
-                <WifiIcon className="w-3.5 h-3.5 text-rose-600" />
-                <span>Offline</span>
-              </div>
-            )}
+            <OnlineStatusBadge isOnline={isOnline} variant="auto" />
 
             {/* <LogoutButton /> */}
           </div>

@@ -51,9 +51,15 @@ import {
   fetchProductsGraphQL,
   fetchSupplierProductsGraphQL,
   fetchTyresChatGraphQL,
+  fetchTcProductsGraphQL,
+  fetchTcAttributeLabelsGraphQL,
   isRetryableError,
 } from "./graphql";
+import type { TcProductsQueryVars } from "./queries";
 import type {
+  TcAttributeLabels,
+  TcProductsBatch,
+  TcProductsResponse,
   FetchProductsParams,
   FetchSupplierProductsParams,
   ProductsResponse,
@@ -199,6 +205,192 @@ export async function fetchStorefrontBatch(
     if (cached) return cached; // fall back to the (stale) cached batch
     throw err instanceof Error ? err : new Error("Products request failed");
   }
+}
+
+/**
+ * Generic await-friendly read-through, for callers whose fetcher lives outside
+ * this module (e.g. the tc-products page's own GraphQL layer).
+ *
+ * Identical semantics to {@link fetchStorefrontBatch} — fresh cache wins, a
+ * successful fetch is persisted, a failed fetch falls back to the stale entry —
+ * but the fetcher is injected, so a page can opt into the SAME caching
+ * mechanism (this object store, this TTL, this `isFresh`) without the cache
+ * layer having to import from `app/`.
+ *
+ * The record is wrapped as `{ key, ts, data }` rather than spread, so any
+ * payload shape works (object, array, Record) and `ts`/`key` can never collide
+ * with a field of `T`. Namespace `key` per caller ("tc:…") — this store is
+ * shared with the supplier and storefront query caches.
+ *
+ * NOTE: `fetchStorefrontBatch` deliberately does NOT delegate here. It stores
+ * the response spread flat, a shape it must keep to stay cache-compatible with
+ * `getStorefrontProductsCached`, which reads and writes the same keys.
+ */
+export async function getCachedQuery<T>(
+  key: string,
+  fetcher: () => Promise<T>,
+  {
+    maxAgeMs = CACHE_TTL_MS,
+    metaKey,
+  }: {
+    maxAgeMs?: number;
+    /** Meta entry stamped with the fetch time (e.g. "tcProducts:lastSync"). */
+    metaKey?: string;
+  } = {},
+): Promise<T> {
+  const cached = await idbGet<{ key: string; ts: number; data: T }>(
+    STORE_PRODUCT_QUERIES,
+    key,
+  ).catch(() => null);
+
+  if (cached && isFresh(cached.ts, maxAgeMs)) return cached.data;
+
+  // Known offline with a cached copy → serve it without attempting the request.
+  // The catch below would reach the same result, but only after every caller in
+  // a page-by-page loop has waited on its own doomed fetch (76 of them on
+  // tc-products), which turns an instant offline load into a slow one.
+  if (cached && typeof navigator !== "undefined" && navigator.onLine === false) {
+    return cached.data;
+  }
+
+  try {
+    const data = await fetcher();
+    await idbPut(STORE_PRODUCT_QUERIES, { key, ts: Date.now(), data }).catch((e) =>
+      console.error(`[cache] failed to write "${key}" to IndexedDB:`, e),
+    );
+    if (metaKey) await idbSetMeta(metaKey, Date.now()).catch(() => { });
+    return data;
+  } catch (err) {
+    // Offline or upstream failure: stale beats nothing. Only throw when there is
+    // genuinely no cached copy for this key.
+    if (cached) {
+      console.warn(`[cache] "${key}" refresh failed — serving cached copy`, err);
+      return cached.data;
+    }
+    throw err instanceof Error ? err : new Error(`Request failed for "${key}"`);
+  }
+}
+
+/**
+ * One storefront batch, retried like the supplier and tc pages are.
+ *
+ * `/products` previously gave up on the whole background fill at the first
+ * failed batch (`break`), so one transient 429/5xx silently left the catalogue
+ * short by however many batches remained — with no record that it happened.
+ * Reuses the supplier constants (3 attempts, 400ms base) and `isRetryableError`:
+ * 4xx fails fast, 429/5xx/network back off with jitter. Returns null when the
+ * batch is genuinely unavailable, so the caller can record it and keep going.
+ */
+export async function fetchStorefrontBatchWithRetry(
+  params: FetchProductsParams,
+  maxAgeMs?: number,
+): Promise<ProductsResponse | null> {
+  for (let attempt = 1; attempt <= SUPPLIER_SYNC_MAX_ATTEMPTS; attempt++) {
+    try {
+      return await fetchStorefrontBatch(params, maxAgeMs);
+    } catch (err) {
+      const last = attempt === SUPPLIER_SYNC_MAX_ATTEMPTS;
+      if (!isRetryableError(err)) {
+        console.warn(`[products] batch ${params.currentPage} failed permanently (not retryable):`, err);
+        return null;
+      }
+      if (last) {
+        console.warn(`[products] batch ${params.currentPage} failed after ${attempt} attempts:`, err);
+        return null;
+      }
+      const backoff = SUPPLIER_SYNC_RETRY_BASE_MS * 2 ** (attempt - 1);
+      await delay(backoff + Math.random() * backoff);
+    }
+  }
+  return null;
+}
+
+/** Batches fetched in parallel — same ceiling as the supplier and tc pools. */
+export const PRODUCTS_SYNC_CONCURRENCY = 8;
+
+/**
+ * Every cached entry whose key starts with `prefix`, in ONE IndexedDB read.
+ *
+ * A page that caches per-page responses (tc-products: 76 keys, storefront: one
+ * per batch) otherwise reopens a transaction per page just to rebuild what it
+ * had last time — 76 sequential awaits before the table is complete, which is
+ * what made a revisit fill in progressively instead of appearing at once.
+ *
+ * Returns raw `{ key, ts, data }` records so the caller can order them however
+ * it needs (page number lives inside `data`, and key order is lexicographic:
+ * "…currentPage:10" sorts before "…currentPage:2"). Records written by
+ * `getStorefrontProductsCached` / `fetchStorefrontBatch` are spread flat and
+ * therefore skipped — only `getCachedQuery`-shaped entries are returned.
+ */
+export async function getCachedQueriesByPrefix<T>(
+  prefix: string,
+): Promise<{ key: string; ts: number; data: T }[]> {
+  const all = await idbGetAll<{ key?: string; ts?: number; data?: T }>(
+    STORE_PRODUCT_QUERIES,
+  ).catch(() => []);
+  const out: { key: string; ts: number; data: T }[] = [];
+  for (const r of all) {
+    if (typeof r?.key !== "string" || !r.key.startsWith(prefix)) continue;
+    if (r.data === undefined) continue; // flat-shaped entry (storefront/supplier)
+    out.push({ key: r.key, ts: r.ts ?? 0, data: r.data });
+  }
+  return out;
+}
+
+/**
+ * Is a cached entry's timestamp still inside the freshness window?
+ *
+ * Exposes the exact predicate `getCachedQuery` uses, so a caller holding records
+ * from {@link getCachedQueriesByPrefix} can tell whether re-reading them through
+ * `getCachedQuery` could return anything new — without hardcoding a second copy
+ * of the TTL.
+ */
+export function isCachedQueryFresh(ts: number | undefined, maxAgeMs = CACHE_TTL_MS): boolean {
+  return isFresh(ts, maxAgeMs);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   IN-MEMORY ROWS CACHE
+
+   Keeps a page's ALREADY-MAPPED table rows alive across client-side navigation.
+   Navigating away unmounts a page, so its row state is gone; coming back had to
+   re-read IndexedDB and re-map every row before the table could paint (on the
+   supplier catalogue: one bulk read plus ~318k object maps).
+
+   Module-level on purpose: it survives route changes — the whole point — but not
+   a reload or a new tab, where IndexedDB is the source of truth and the normal
+   cache-first path runs. Nothing here fetches, revalidates or expires anything;
+   it only skips recomputing what was already computed this session.
+───────────────────────────────────────────────────────────── */
+
+/** Page-scoped keys, so two routes can never read each other's rows. */
+export const ROWS_KEY = {
+  supplierProducts: "supplier-products",
+  tcProducts: "tc-products",
+  products: "products",
+} as const;
+
+export type RowsKey = (typeof ROWS_KEY)[keyof typeof ROWS_KEY];
+
+/** Pinned to globalThis so Fast Refresh can't strand a populated cache behind a
+ *  fresh empty one — same reasoning as `cartStore` and `syncManager`. */
+declare global {
+  var __tyrescartRowsCache: Map<string, readonly unknown[]> | undefined;
+}
+
+const rowsCache: Map<string, readonly unknown[]> =
+  globalThis.__tyrescartRowsCache ?? (globalThis.__tyrescartRowsCache = new Map());
+
+/** Rows stored for this page earlier in the session, or null if none. */
+export function getRows<T>(key: RowsKey): T[] | null {
+  const rows = rowsCache.get(key) as readonly T[] | undefined;
+  return rows && rows.length ? (rows as T[]) : null;
+}
+
+/** Remember this page's rows. Stores the reference only — no copy, no
+ *  serialization — so calling it on every state change is free even at 318k. */
+export function setRows<T>(key: RowsKey, rows: readonly T[]): void {
+  rowsCache.set(key, rows);
 }
 
 /**
@@ -407,63 +599,7 @@ export interface SupplierCacheStatus {
  * the LATEST? filter can possibly show) — instead of silently rendering a
  * partial catalogue as if it were the whole thing.
  */
-/**
- * The state the last full sync left behind, or null if none has run.
- *
- * "running" means a sync started and never reached its end — the marker is only
- * overwritten by a run that finishes, so a hard reload or crash leaves it set.
- * Used to resume an interrupted sync on the next load.
- */
-export async function getSupplierSyncState(): Promise<SupplierSyncState | null> {
-  return (await idbGetMeta<SupplierSyncState>(META_SUPPLIER_STATE).catch(() => null)) ?? null;
-}
 
-export async function getSupplierCacheStatus(): Promise<SupplierCacheStatus> {
-  const [storedCount, expectedTotal, state, schemaVersion] = await Promise.all([
-    idbCount(STORE_SUPPLIER_PRODUCTS).catch(() => 0),
-    idbGetMeta<number>(META_SUPPLIER_EXPECTED).catch(() => null),
-    idbGetMeta<SupplierSyncState>(META_SUPPLIER_STATE).catch(() => null),
-    idbGetMeta<number>(META_SUPPLIER_SCHEMA).catch(() => null),
-  ]);
-
-  const expected = expectedTotal ?? 0;
-  const schema = schemaVersion ?? 0;
-
-  // An empty store is "not synced yet", not "corrupt" — the page already shows
-  // its empty state for that, so don't nag about it.
-  let issue: SupplierCacheIssue | null = null;
-  if (storedCount > 0) {
-    if (state === null) issue = "legacy";
-    else if (state === "running") issue = "interrupted";
-    else if (state === "partial" || (expected > 0 && storedCount < expected)) issue = "partial";
-    else if (schema < SUPPLIER_CACHE_SCHEMA) issue = "stale-schema";
-  }
-
-  return {
-    storedCount,
-    expectedTotal: expected,
-    state: state ?? null,
-    schemaVersion: schema,
-    issue,
-    needsSync: issue !== null,
-  };
-}
-
-/**
- * Has a full supplier sync ever completed successfully on this device?
- *
- * The cold-start bootstrap gates on this IN ADDITION to the row count, because
- * a row count of 0 is ambiguous: `getCachedSupplierProducts()` swallows
- * IndexedDB failures and returns `[]`, so a transient read error (blocked
- * version upgrade, quota pressure, a locked DB in another tab) is
- * indistinguishable from a genuinely empty cache. Without this flag such a
- * blip would kick off a ~3,187-request sync on a device that already holds the
- * whole catalogue. Returns `false` if the meta read itself fails — a first run
- * with a broken DB should still be allowed to try.
- */
-export async function hasCompletedSupplierBootstrap(): Promise<boolean> {
-  return (await idbGetMeta<boolean>(META_BOOTSTRAP_DONE).catch(() => false)) === true;
-}
 
 /**
  * How many supplier rows are cached — the source of truth for whether the
@@ -476,6 +612,25 @@ export async function hasCompletedSupplierBootstrap(): Promise<boolean> {
  */
 export async function countCachedSupplierProducts(): Promise<number> {
   return idbCount(STORE_SUPPLIER_PRODUCTS);
+}
+
+/**
+ * Describe the supplier cache without touching the network.
+ *
+ * Lets the page tell the user *why* data looks wrong — stale shape (Type column
+ * shows "—") versus incomplete (whole product ranges absent, which skews what
+ * the LATEST? filter can possibly show) — instead of silently rendering a
+ * partial catalogue as if it were the whole thing.
+ */
+/**
+ * The state the last full sync left behind, or null if none has run.
+ *
+ * "running" means a sync started and never reached its end — the marker is only
+ * overwritten by a run that finishes, so a hard reload or crash leaves it set.
+ * Used to resume an interrupted sync on the next load.
+ */
+export async function getSupplierSyncState(): Promise<SupplierSyncState | null> {
+  return (await idbGetMeta<SupplierSyncState>(META_SUPPLIER_STATE).catch(() => null)) ?? null;
 }
 
 /** Outcome of a full supplier sync. `failedPages` is empty on a clean run. */
@@ -940,4 +1095,224 @@ export async function isTyresChatRecentlySynced(maxAgeMs = 30000): Promise<boole
   const lastSync = await getTyresChatLastSyncTime();
   if (!lastSync) return false;
   return Date.now() - lastSync < maxAgeMs;
+}
+
+
+/* ─────────────────────────────────────────────────────────────
+   TC PRODUCTS — cache-first fetchers + background catalogue sync
+
+   Moved here from `app/tc-products/api.ts` (which now re-exports these, so the
+   page's imports are unchanged) for one reason: `syncTasks.ts` runs the
+   background sync and services must not import from `app/`. There is still ONE
+   implementation and ONE cache key namespace — the page and the sync task call
+   the same functions and write the same `tc:products:` entries.
+───────────────────────────────────────────────────────────── */
+
+/** Namespace for every tc-products entry in the shared `productQueries` store. */
+export const TC_CACHE_KEY_PREFIX = "tc:products:";
+
+/** Rows per request. The upstream caps a page at 100, so asking for more is moot. */
+export const TC_PAGE_SIZE = 100;
+
+/**
+ * Attribute option labels change only when a merchandiser edits an attribute
+ * set, so they get a much longer window than product data — re-downloading ~274
+ * OEM options plus brands/sizes/years on every visit is pure waste. Offline they
+ * come from cache at any age.
+ */
+const TC_LABELS_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+/** Canonical query vars for a catalogue page — identical for the page loader and
+ *  the sync task, so both hit the same cache keys instead of two parallel sets. */
+export const tcPageVars = (currentPage: number): TcProductsQueryVars => ({
+  pageSize: TC_PAGE_SIZE,
+  currentPage,
+  sortField: "name",
+  sortDirection: "ASC",
+});
+
+/**
+ * Cache-first tc products. One entry per page/filter combination, keyed on the
+ * query vars, so a page-by-page load resumes from IndexedDB instead of
+ * re-requesting the catalogue.
+ */
+export function fetchTcProductsCached(
+  params: TcProductsQueryVars = {},
+  maxAgeMs?: number,
+): Promise<TcProductsResponse> {
+  return getCachedQuery(
+    `${TC_CACHE_KEY_PREFIX}${JSON.stringify(params)}`,
+    () => fetchTcProductsGraphQL(params),
+    { maxAgeMs, metaKey: "tcProducts:lastSync" },
+  );
+}
+
+/** Cache-first attribute labels. */
+export function fetchTcAttributeLabelsCached(
+  maxAgeMs = TC_LABELS_TTL_MS,
+): Promise<TcAttributeLabels> {
+  return getCachedQuery("tc:attributeLabels", fetchTcAttributeLabelsGraphQL, {
+    maxAgeMs,
+    metaKey: "tcProducts:labelsLastSync",
+  });
+}
+
+/** When the tc catalogue last reached the API successfully (ms epoch, 0 if never). */
+export async function getTcProductsLastSyncTime(): Promise<number> {
+  return (await idbGetMeta<number>("tcProducts:lastSync").catch(() => 0)) ?? 0;
+}
+
+/** Every cached tc page, newest read in ONE IndexedDB transaction. */
+export async function getCachedTcPages(): Promise<
+  { page: number; ts: number; data: TcProductsResponse }[]
+> {
+  const recs = await getCachedQueriesByPrefix<TcProductsResponse>(TC_CACHE_KEY_PREFIX);
+  const out: { page: number; ts: number; data: TcProductsResponse }[] = [];
+  for (const r of recs) {
+    const info = r.data?.page_info;
+    // Skip entries written with a different page size — their page numbers
+    // wouldn't line up with the pages a sync requests.
+    if (!info?.current_page || info.page_size !== TC_PAGE_SIZE) continue;
+    out.push({ page: info.current_page, ts: r.ts, data: r.data });
+  }
+  return out.sort((a, b) => a.page - b.page);
+}
+
+export interface TcSyncResult {
+  /** Pages successfully read (from cache or network). */
+  pages: number;
+  /** Rows now cached across those pages. */
+  items: number;
+  total: number;
+  failedPages: number[];
+  complete: boolean;
+  aborted: boolean;
+}
+
+/** Pages fetched in parallel. Matches `SUPPLIER_SYNC_CONCURRENCY` — same host,
+ *  same proven ceiling — and is what turns ~79 × 0.9s of serial waiting into
+ *  roughly one eighth of the wall clock. */
+const TC_SYNC_CONCURRENCY = 8;
+
+/**
+ * One catalogue page, retried like the supplier pages are.
+ *
+ * Without this a transient 429/5xx left a permanent hole: the page was recorded
+ * in `failedPages` and never revisited, so the catalogue silently lost 100 rows
+ * until the next manual Sync. Firing 8 requests at once makes that materially
+ * more likely, which is why concurrency and retry land together.
+ *
+ * Reuses the supplier constants (3 attempts, 400ms base) and `isRetryableError`,
+ * so 4xx fails fast while 429/5xx/network back off. Returns null when the page
+ * is genuinely unavailable, exactly like `fetchSupplierPageWithRetry`.
+ */
+async function fetchTcPageWithRetry(
+  page: number,
+  maxAgeMs: number | undefined,
+): Promise<TcProductsResponse | null> {
+  for (let attempt = 1; attempt <= SUPPLIER_SYNC_MAX_ATTEMPTS; attempt++) {
+    try {
+      return await fetchTcProductsCached(tcPageVars(page), maxAgeMs);
+    } catch (err) {
+      const last = attempt === SUPPLIER_SYNC_MAX_ATTEMPTS;
+      if (!isRetryableError(err)) {
+        console.warn(`[tc-sync] page ${page} failed permanently (not retryable):`, err);
+        return null;
+      }
+      if (last) {
+        console.warn(`[tc-sync] page ${page} failed after ${attempt} attempts:`, err);
+        return null;
+      }
+      // Exponential backoff with jitter — spreads the retry storm so 8 workers
+      // hitting a rate limiter at once do not all come back in lockstep.
+      const backoff = SUPPLIER_SYNC_RETRY_BASE_MS * 2 ** (attempt - 1);
+      await delay(backoff + Math.random() * backoff);
+    }
+  }
+  return null;
+}
+
+/**
+ * Walk the whole tc catalogue, streaming each page as it lands.
+ *
+ * Mirrors `syncAllSupplierProducts` — `onProgress`, `onBatch`, an abort
+ * `signal`, a fixed worker pool and per-page retry — so `syncTasks.ts` treats
+ * both the same and the work survives navigation. It differs in scale and
+ * storage: 7.8k rows over ~79 requests, cached one record PER PAGE (not per
+ * product), which is why there is no batch-stamp/cursor-delete generation
+ * cleanup here.
+ *
+ * Pages are pulled by a POOL rather than a `for` loop: measured cold, the serial
+ * version spent 73s of its 83s wall clock waiting on requests that averaged
+ * 923ms each (919ms of it server-side TTFB), with never more than one in flight.
+ * Order does not matter — every consumer is keyed by page number.
+ *
+ * Every read still goes through {@link fetchTcProductsCached}, so:
+ *   - `force: false` (background/auto) reuses fresh cache entries and only
+ *     fetches what has aged out — no duplicate network traffic,
+ *   - `force: true` (manual Sync) passes `maxAgeMs: 0` and refreshes every page,
+ *   - a failed page keeps its previously cached copy instead of blanking.
+ */
+export async function syncAllTcProducts({
+  force = false,
+  onProgress,
+  onBatch,
+  signal,
+}: {
+  force?: boolean;
+  onProgress?: (loaded: number, total: number) => void;
+  onBatch?: (batch: TcProductsBatch) => void;
+  signal?: AbortSignal;
+} = {}): Promise<TcSyncResult> {
+  const maxAgeMs = force ? 0 : undefined;
+  const failedPages: number[] = [];
+  let loaded = 0;
+  let pages = 0;
+
+  const first = await fetchTcProductsCached(tcPageVars(1), maxAgeMs);
+  const total = first.total_count ?? 0;
+  const totalPages = first.page_info?.total_pages ?? 1;
+
+  pages = 1;
+  loaded += first.items.length;
+  onBatch?.({ page: 1, items: first.items });
+  onProgress?.(loaded, total);
+
+  // Shared cursor — workers pull the next page number rather than taking a fixed
+  // slice, so one slow page never idles the others.
+  let nextPage = 2;
+  const worker = async () => {
+    for (;;) {
+      if (signal?.aborted) return;
+      const page = nextPage++;
+      if (page > totalPages) return;
+
+      const res = await fetchTcPageWithRetry(page, maxAgeMs);
+      if (!res) {
+        failedPages.push(page);
+        continue;
+      }
+      pages++;
+      loaded += res.items.length;
+      onBatch?.({ page, items: res.items });
+      onProgress?.(loaded, total);
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(TC_SYNC_CONCURRENCY, Math.max(totalPages - 1, 1)) }, worker),
+  );
+
+  if (signal?.aborted) {
+    return { pages, items: loaded, total, failedPages, complete: false, aborted: true };
+  }
+
+  return {
+    pages,
+    items: loaded,
+    total,
+    failedPages,
+    complete: failedPages.length === 0,
+    aborted: false,
+  };
 }

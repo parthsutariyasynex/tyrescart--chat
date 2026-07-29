@@ -84,28 +84,19 @@ export function ChatGridSkeleton({ count = 12 }: { count?: number }) {
 }
 
 /**
- * Full-page POS skeleton — mirrors the products page chrome (sidebar, header)
- * plus the product grid. Used by route-level `loading.tsx` so the home page
- * shows a proper skeleton while it loads without any layout shift.
+ * POS content skeleton — header + product grid. Used by route-level
+ * `loading.tsx` so a page shows a proper skeleton while it loads without any
+ * layout shift.
+ *
+ * CONTENT AREA ONLY, deliberately. This used to be a `h-screen w-screen` shell
+ * that drew its own placeholder sidebar; because the real Sidebar now lives in
+ * the root layout, that placeholder covered the live one during every route
+ * transition and made client-side navigation look like a full page reload.
+ * Sized `h-full w-full` so it fills the layout's content slot instead.
  */
 export function PosPageSkeleton() {
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#f4f6f9]">
-      {/* Sidebar */}
-      <aside className="w-[68px] flex-none bg-white border-r border-gray-200 flex flex-col items-center justify-between py-3 z-20 shadow-xs">
-        <div className="flex flex-col items-center gap-6 w-full">
-          <Skeleton className="w-10 h-10 rounded-xl" />
-          <div className="flex flex-col gap-2 w-full px-2">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="w-full h-11 rounded-lg" />
-            ))}
-          </div>
-        </div>
-        <div className="flex flex-col items-center gap-2 pt-2 border-t border-gray-100 w-full">
-          <Skeleton className="w-9 h-9 rounded-full" />
-        </div>
-      </aside>
-
+    <div className="flex h-full w-full overflow-hidden bg-[#f4f6f9]">
       {/* Main */}
       <main className="flex-1 flex flex-col min-w-0 bg-[#f8fafc] overflow-hidden">
         {/* Header */}
@@ -192,10 +183,17 @@ export function SupplierTableSkeleton({ rows = 10 }: { rows?: number }) {
   );
 }
 
-/** Full Supplier Products Page Skeleton */
+/**
+ * Supplier / TC Products content skeleton — header, filter bar, table card.
+ *
+ * `h-full w-full`, not `h-screen w-screen`: it renders inside the root layout's
+ * content slot, beside the persistent Sidebar. As a full-viewport element it
+ * overlaid the whole window during route transitions, so the sidebar vanished
+ * for a frame and navigation looked like a browser reload.
+ */
 export function SupplierProductsPageSkeleton() {
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-50 font-sans">
+    <div className="flex h-full w-full overflow-hidden bg-slate-50 font-sans">
       <div className="flex-1 flex flex-col min-w-0 bg-slate-50 overflow-hidden">
         {/* Header Skeleton */}
         <header className="h-16 flex-none bg-white border-b border-slate-200 px-6 flex items-center justify-between gap-4 shadow-2xs">

@@ -1836,3 +1836,18 @@ body.dark-theme .btn-icon-only {
   position: relative;
   top: 1px;
 }
+
+/* ── Search field placeholder ─────────────────────────────────
+   The placeholder is a hint, not content, so it renders smaller and softer
+   than the value the user types. ONLY ::placeholder is styled — the input's
+   own height, padding and font-size are untouched, so no field changes size
+   and nothing in the filter bar shifts.
+   Applied via the `search-field` class on the search inputs of the filter and
+   header bars (supplier-products, tc-products, products, chat). */
+.search-field::placeholder {
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  color: #94a3b8; /* slate-400 */
+  opacity: 0.85;
+}

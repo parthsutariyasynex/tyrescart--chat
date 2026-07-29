@@ -18,7 +18,6 @@ import {
   isProductsRecentlySynced,
   isTyresChatRecentlySynced,
   isSupplierProductsRecentlySynced,
-  syncAllSupplierProducts,
   syncSupplierProductsPage,
 } from "./cache";
 

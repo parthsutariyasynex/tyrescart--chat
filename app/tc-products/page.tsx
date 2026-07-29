@@ -1,34 +1,48 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import Link from 'next/link';
-import Image from 'next/image';
 import {
-  HomeIcon,
-  ShoppingBagIcon,
-  ChatBubbleLeftRightIcon,
-  TruckIcon,
-  BuildingStorefrontIcon,
-  ArrowsPointingOutIcon,
-  WifiIcon,
   MagnifyingGlassIcon,
   ArrowPathIcon,
   ChevronDownIcon,
   ClipboardDocumentIcon,
-  XMarkIcon
+  XMarkIcon,
+  BookmarkIcon,
+  ShoppingCartIcon,
 } from '@heroicons/react/24/outline';
-import Sidebar from '@/components/Sidebar';
+import { buildRowString, buildBulkCopyString } from "@/services/productFormatter";
+import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
+import { CATEGORY_BADGES_SEMANTIC, BRAND_BADGES_SEMANTIC } from "@/constants/badges";
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
-import { matchesSearch, parseAspectRim, parseRimOnly, matchesAspectRim } from '@/services/searchFilter';
-import { Skeleton, SupplierTableSkeleton } from '@/components/Skeletons';
 import {
-  fetchTcProducts,
-  fetchTcAttributeLabels,
-  labelOf,
+  parseAspectRim,
+  parseRimOnly,
+  matchesAspectRim,
+  matchesSearch,
+  paginate,
+  searchWithAspectRimFallback,
+} from '@/services/searchFilter';
+import { useCart } from '@/hooks/useCart';
+import {
+  getCachedTcPages,
+  isCachedQueryFresh,
+  getRows,
+  setRows,
+  ROWS_KEY,
+} from '@/services/cache';
+import { syncManager } from '@/services/syncManager';
+import { SYNC_TASK } from '@/services/syncTasks';
+import { useSyncTask, useSyncBatches, useOnSyncComplete } from '@/hooks/useSyncManager';
+import { Skeleton } from '@/components/Skeletons';
+import {
+  fetchTcProductsCached,
+  fetchTcAttributeLabelsCached,
+  tcPageVars,
+  type TcProductsBatch,
   type TcApiProduct,
   type TcAttributeLabels,
 } from './api';
-import type { CachedSupplierProduct } from '@/services/cache';
+
 
 /**
  * Field names `searchFilter` should read on this page's `Product` shape.
@@ -107,8 +121,6 @@ interface Toast {
   msg: string;
 }
 
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
 /**
  * Reused collator for column sorting. `String.prototype.localeCompare` builds a
  * fresh collator on every call, which is fine occasionally but not when a sort
@@ -116,85 +128,6 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
  * (~5.7M comparisons). One shared instance is the same ordering, far cheaper.
  */
 const collator = new Intl.Collator();
-
-/**
- * "2026-07-20" → 20260720, so dates sort as plain integers.
- *
- * The table defaults to sorting by date, which means the comparator now runs on
- * every recompute — including with LATEST? unticked, where it covers all
- * 318,668 rows (~5.7M comparisons). Doing that through `Intl.Collator` on
- * strings took ~20s and froze the page; integer subtraction is ~1-2s.
- * Undated rows get 0 so they group at one end rather than interleaving.
- */
-function dateSortKey(raw?: string): number {
-  if (!raw) return 0;
-  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!m) return 0;
-  return Number(m[1]) * 10000 + Number(m[2]) * 100 + Number(m[3]);
-}
-
-function formatDateDDMM(rawDate?: string): string {
-  if (!rawDate || !rawDate.trim()) return '-';
-  const str = rawDate.trim();
-  const d = new Date(str);
-  if (!isNaN(d.getTime())) {
-    const day = String(d.getDate()).padStart(2, '0');
-    const monthStr = MONTH_NAMES[d.getMonth()] || String(d.getMonth() + 1).padStart(2, '0');
-    return `${day}-${monthStr}`;
-  }
-  const match = str.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/) || str.match(/(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
-  if (match) {
-    if (match[1].length === 4) {
-      const day = match[3].padStart(2, '0');
-      const monthIdx = parseInt(match[2], 10) - 1;
-      const monthStr = MONTH_NAMES[monthIdx] || match[2].padStart(2, '0');
-      return `${day}-${monthStr}`;
-    } else {
-      const day = match[1].padStart(2, '0');
-      const monthIdx = parseInt(match[2], 10) - 1;
-      const monthStr = MONTH_NAMES[monthIdx] || match[2].padStart(2, '0');
-      return `${day}-${monthStr}`;
-    }
-  }
-  return str;
-}
-
-/**
- * Append the Load Index + Speed Rating (e.g. "99H", "94Y", "129/126R") to the
- * tyre size when present. The supplier feed's `load_index` field is empty, so
- * it's parsed from the product name: find the size, then the rating token that
- * follows it — skipping a ply-rating like "10PR". Load index may be a dual
- * value (129/126); the speed rating is a single trailing letter. Returns the
- * size unchanged when no rating is found. No hardcoded values.
- *   "215/55 R18" + "LING LONG 215/55R18 99H HP010 2026" → "215/55 R18 99H"
- */
-function sizeWithLoadSpeed(size: string, productName: string): string {
-  if (!size) return size;
-  const m = (productName || '').match(
-    /\d{2,3}\s*\/\s*\d{2}\s*Z?R?\s*\d{2}\s+(?:\d{1,2}PR\s+)?(\d{2,3}(?:\/\d{2,3})?[A-Z])(?![A-Z])/i,
-  );
-  const rating = m ? m[1].toUpperCase().replace(/\s+/g, '') : '';
-  return rating ? `${size} ${rating}` : size;
-}
-
-/**
- * Map a cached supplier record (REAL supplierProducts GraphQL data) into the
- * table's Product shape. Fields the supplier feed doesn't provide (qty,
- * fittingPrice, date, flag) default to empty/0; `runflat` is inferred from the
- * product name.
- */
-/**
- * Human label for the feed's `product_source` discriminator.
- *
- * `supplierProducts` is a combined feed: it returns both sides of the catalogue
- * and `product_source` says which. Rows cached before that field was added to
- * the query have no value, so they render as "—" rather than being guessed at.
- */
-function productTypeLabel(source?: string): string {
-  if (source === 'supplier') return 'Supplier';
-  if (source === 'competitor') return 'Competitor';
-  return '';
-}
 
 /**
  * Canonicalise the API's own `brand_category` casing (e.g. "tier1" → "Tier 1").
@@ -217,8 +150,41 @@ function normalizeCategory(cat?: string): string {
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
 }
 
-function mapTcProduct(p: TcApiProduct, labels: TcAttributeLabels): Product {
-  const size = labelOf(labels, 'tyre_size', p.tyre_size);
+/**
+ * Per-attribute option maps, resolved ONCE per batch.
+ *
+ * `labelOf(labels, 'brand', id)` did two property lookups plus a `String(id)`
+ * allocation for each of five attributes on every row. Measured on the live
+ * catalogue that mapping cost ~1.1ms/row — ~8.2s for 7,809 rows, and it re-runs
+ * on every mount's cache hydration. Resolving the five maps up front turns each
+ * lookup into a single indexed read with no allocation.
+ */
+interface TcLabelMaps {
+  size: Record<string, string>;
+  brand: Record<string, string>;
+  runflat: Record<string, string>;
+  year: Record<string, string>;
+  country: Record<string, string>;
+}
+
+const EMPTY_MAP: Record<string, string> = {};
+
+function prepareTcLabels(labels: TcAttributeLabels): TcLabelMaps {
+  return {
+    size: labels.tyre_size ?? EMPTY_MAP,
+    brand: labels.brand ?? EMPTY_MAP,
+    runflat: labels.runflat ?? EMPTY_MAP,
+    year: labels.year ?? EMPTY_MAP,
+    country: labels.country ?? EMPTY_MAP,
+  };
+}
+
+/** Indexed read, no `String()` allocation; '' for a missing/absent option. */
+const lbl = (m: Record<string, string>, id: number | null): string =>
+  id === null || id === undefined ? '' : m[id] ?? '';
+
+function mapTcProduct(p: TcApiProduct, maps: TcLabelMaps): Product {
+  const size = lbl(maps.size, p.tyre_size);
   const li = (p.load_index ?? '').trim();
   const regular = p.price_range?.minimum_price?.regular_price?.value ?? 0;
   const final = p.price_range?.minimum_price?.final_price?.value ?? regular;
@@ -232,13 +198,13 @@ function mapTcProduct(p: TcApiProduct, labels: TcAttributeLabels): Product {
     itemCode: p.sku ?? '',
     productType: '',
     category: p.categories?.[0]?.name ?? '',
-    brand: labelOf(labels, 'brand', p.brand),
+    brand: lbl(maps.brand, p.brand),
     pattern: p.name ?? '',
     size,
     sizeFull: size && li ? `${size} ${li}` : size,
-    runflat: labelOf(labels, 'runflat', p.runflat) !== '',
-    year: Number(labelOf(labels, 'year', p.year)) || 0,
-    country: labelOf(labels, 'country', p.country),
+    runflat: lbl(maps.runflat, p.runflat) !== '',
+    year: Number(lbl(maps.year, p.year)) || 0,
+    country: lbl(maps.country, p.country),
     flag: '',
     // `stock_status` is the only stock signal the storefront exposes
     // (`only_x_left_in_stock` errors with "sku is not assigned to given stock").
@@ -259,18 +225,32 @@ function mapTcProduct(p: TcApiProduct, labels: TcAttributeLabels): Product {
   };
 }
 
+/** Badge classes now live in constants/badges.ts; aliased so the JSX below
+ *  is untouched and this page keeps its own variant. */
+const categoryBadges = CATEGORY_BADGES_SEMANTIC;
+const brandBadges = BRAND_BADGES_SEMANTIC;
+
 export default function TcProductsPage() {
   const isOnline = useOnlineStatus();
 
-  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  /** Seeded from the session rows cache so returning to this page paints the
+   *  full table on the FIRST render — no await, no progressive fill. Empty on a
+   *  cold start, where the IndexedDB path below fills it. */
+  const [allProducts, setAllProducts] = useState<Product[]>(
+    () => getRows<Product>(ROWS_KEY.tcProducts) ?? [],
+  );
   const [searchQuery, setSearchQuery] = useState('');
-  const [supplierFilter, setSupplierFilter] = useState('ALL');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [brandInput, setBrandInput] = useState('');
   const [sizeInput, setSizeInput] = useState('');
   const [yearInput, setYearInput] = useState('');
   const [qtyInput, setQtyInput] = useState('');
-  const [latestOnly, setLatestOnly] = useState(true);
+  /** Price Range bounds — kept as raw strings so a field can be empty. */
+  const [minPriceInput, setMinPriceInput] = useState('');
+  const [maxPriceInput, setMaxPriceInput] = useState('');
+  /** RunFlat-only toggle — true = show only products where runflat === true.
+   *  Defaults to true so the page opens pre-filtered to runflat products. */
+  const [runflatOnly, setRunflatOnly] = useState(true);
 
   const [pageSize, setPageSize] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
@@ -285,12 +265,13 @@ export default function TcProductsPage() {
   /** Rows the user has added via the Action column. Client-side only — there is
    *  no list/cart endpoint on the API yet, so this is UI state, not fake data. */
   const [listIds, setListIds] = useState<Set<number>>(new Set());
-  const [cartIds, setCartIds] = useState<Set<number>>(new Set());
+  /** Persisted, offline-first cart — survives refresh, navigation and offline. */
+  const cart = useCart();
   const [activeDrawerItem, setActiveDrawerItem] = useState<Product | null>(null);
   const [isColumnModalOpen, setIsColumnModalOpen] = useState(false);
   const [isDensityMenuOpen, setIsDensityMenuOpen] = useState(false);
   const [isPageSizeOpen, setIsPageSizeOpen] = useState(false);
-  const [isSupplierOpen, setIsSupplierOpen] = useState(false);
+  // isSupplierOpen removed — Supplier dropdown is not used on TC Products page.
   const [isCategoryOpen, setIsCategoryOpen] = useState(false);
   const [isBrandOpen, setIsBrandOpen] = useState(false);
   const [density, setDensity] = useState<'compact' | 'comfortable' | 'breathable'>('comfortable');
@@ -311,64 +292,161 @@ export default function TcProductsPage() {
   /** Synchronous latch for the PAGE-scoped sync only. The full catalogue sync
    *  is owned by the global manager, which dedupes on its own. */
   const syncInFlight = useRef(false);
-  /** True only while the cold-start latest-products phase is still running. */
-  const [bootstrapping, setBootstrapping] = useState(false);
+  /**
+   * True while `loadAll` is still walking the catalogue's pages.
+   *
+   * Needed because `isLoading` clears as soon as page 1 lands, while the
+   * remaining ~78 pages keep arriving for up to a minute. With a cold cache and
+   * RUNFLAT? checked, the first page can legitimately contain no matching rows —
+   * and the table then said "No products found", which is false: the data is on
+   * its way. Replaces a frozen `bootstrapping` flag that was always false, so
+   * the skeleton clause guarding this case never actually fired.
+   */
+  const [backgroundLoading, setBackgroundLoading] = useState(false);
 
   /* ── Storefront API loading ──────────────────────────────────────
      Data comes from the `products` GraphQL field via ./api.ts, NOT from the
      supplier IndexedDB cache — this page shows TyresCart's own catalogue.
      Page 1 paints immediately, then the rest streams in the background, the
      same shape as the /products page's batch loader. */
-  const [labels, setLabels] = useState<TcAttributeLabels>({});
   const [loadProgress, setLoadProgress] = useState<{ loaded: number; total: number } | null>(null);
   const [fullSyncing, setFullSyncing] = useState(false);
-  const syncProgress = loadProgress;
+
+  /* ── The catalogue sync lives in the GLOBAL manager ──
+     Same architecture as supplier-products: the work is a registered task, so it
+     keeps running when the user navigates away and cannot be started twice
+     (`start()` dedupes synchronously). This page only observes it. */
+  const tcSync = useSyncTask(SYNC_TASK.tcProducts);
+  const taskRunning = tcSync.status === 'running';
+  /** Progress from whichever is active: a manual page refresh, or the background task. */
+  const syncProgress = loadProgress ?? tcSync.progress;
+
+  /**
+   * Rows keyed by catalogue page — the single source of truth for the table,
+   * written by BOTH the manual loader and the background task's batches.
+   *
+   * A ref (not state) because batches arrive outside React's render cycle, and
+   * page-keyed (not appended) because that makes a re-delivered batch idempotent:
+   * it overwrites its own slot. Supplier-products needs a `seenIds` set for the
+   * same guarantee precisely because it appends.
+   */
+  const pagesRef = useRef<Map<number, Product[]>>(new Map());
+  const labelsRef = useRef<TcAttributeLabels>({});
+
+  /** Rebuild the flat list from the page map, in catalogue order. */
+  const flushPages = useCallback(() => {
+    const ordered = [...pagesRef.current.keys()].sort((a, b) => a - b);
+    const merged: Product[] = [];
+    for (const p of ordered) merged.push(...pagesRef.current.get(p)!);
+    setAllProducts(merged);
+  }, []);
   /** Invalidates an in-flight background load when the page unmounts or reloads. */
 
 
   const loadIdRef = useRef(0);
-
-  const TC_BATCH = 100;
 
   const loadAll = useCallback(async (isManual = false) => {
     const loadId = ++loadIdRef.current;
     const isCurrent = () => loadId === loadIdRef.current;
 
     setIsLoading(true);
+    setBackgroundLoading(true);
     if (isManual) {
       setFullSyncing(true);
       setLoadProgress(null);
     }
+    // A manual Sync must hit the network; the automatic load on mount is
+    // cache-first (instant repaint on refresh, and it works offline).
+    const maxAgeMs = isManual ? 0 : undefined;
+
+    // The shared page map — the background task's batches land in the same one,
+    // so neither path can duplicate the other's rows.
+    const byPage = pagesRef.current;
+    const flush = flushPages;
+
     try {
       // Option-id → label maps, fetched once and reused for every row.
-      const attrLabels = await fetchTcAttributeLabels().catch(() => ({}) as TcAttributeLabels);
+      const attrLabels = await fetchTcAttributeLabelsCached(maxAgeMs).catch(
+        () => ({}) as TcAttributeLabels,
+      );
       if (!isCurrent()) return;
-      setLabels(attrLabels);
+      labelsRef.current = attrLabels;
+      const maps = prepareTcLabels(attrLabels);
 
-      const first = await fetchTcProducts({ pageSize: TC_BATCH, currentPage: 1, sortField: 'name', sortDirection: 'ASC' });
+      // Pre-fill from IndexedDB in ONE read (not 79 sequential ones), so a
+      // revisit or refresh paints the whole table before any revalidation runs.
+      const cachedPages = await getCachedTcPages();
+      if (!isCurrent()) return;
+      /** Ages of the entries actually used, for the freshness check below. */
+      const usedTs: number[] = [];
+      let cachedTotalPages = 0;
+      for (const rec of cachedPages) {
+        byPage.set(rec.page, rec.data.items.map((it) => mapTcProduct(it, maps)));
+        usedTs.push(rec.ts);
+        if (rec.page === 1) cachedTotalPages = rec.data.page_info?.total_pages ?? 0;
+      }
+      if (byPage.size) {
+        flush();
+        setIsLoading(false);
+      }
+
+      // WHOLE CATALOGUE ALREADY CACHED AND FRESH → nothing to do.
+      // Every read below would be served from IndexedDB without a fetch, so it
+      // could only hand back rows already on screen. Same TTL, same cache-first
+      // contract, minus ~79 redundant transactions per visit.
+      if (
+        !isManual &&
+        cachedTotalPages > 0 &&
+        byPage.size >= cachedTotalPages &&
+        usedTs.every((ts) => isCachedQueryFresh(ts))
+      ) {
+        return;
+      }
+
+      // ── AUTOMATIC LOAD → hand the walk to the GLOBAL MANAGER ──
+      // Anything still to fetch is done by the registered task rather than here,
+      // which is what makes it survive navigation. `start()` dedupes
+      // synchronously, so a run already going (from another route, the sidebar,
+      // or React StrictMode's double effect) is joined, never restarted. Rows
+      // arrive through `useSyncBatches` into the same `pagesRef` map.
+      //
+      // The manual path below stays inline: it must force `maxAgeMs: 0` on every
+      // page, which the task cannot express (`run` takes no arguments).
+      if (!isManual) {
+        void syncManager.start(SYNC_TASK.tcProducts);
+        return;
+      }
+
+      const first = await fetchTcProductsCached(tcPageVars(1), maxAgeMs);
       if (!isCurrent()) return;
 
-      const rows = first.items.map((it) => mapTcProduct(it, attrLabels));
-      setAllProducts(rows);
+      byPage.set(1, first.items.map((it) => mapTcProduct(it, maps)));
+      flush();
       setIsLoading(false);
 
       if (isManual) {
-        setLoadProgress({ loaded: rows.length, total: first.total_count });
+        setLoadProgress({ loaded: byPage.get(1)!.length, total: first.total_count });
       }
 
       const totalPages = first.page_info?.total_pages ?? 1;
+      /** Cleared by any page that didn't come back — see the trim below. */
+      let everyPageOk = true;
       for (let page = 2; page <= totalPages; page++) {
         if (!isCurrent()) return;
         let batch;
         try {
-          batch = await fetchTcProducts({ pageSize: TC_BATCH, currentPage: page, sortField: 'name', sortDirection: 'ASC' });
+          batch = await fetchTcProductsCached(tcPageVars(page), maxAgeMs);
         } catch (e) {
+          // Only reached when the page failed AND was never cached — offline
+          // pages resolve from IndexedDB inside the cached fetcher.
           console.warn(`[tc-products] page ${page}/${totalPages} failed — skipping:`, e);
+          everyPageOk = false;
           continue;
         }
         if (!isCurrent()) return;
-        const mapped = batch.items.map((it) => mapTcProduct(it, attrLabels));
-        setAllProducts((prev) => [...prev, ...mapped]);
+        const mapped = batch.items.map((it) => mapTcProduct(it, maps));
+        byPage.set(page, mapped);
+        flush();
 
         if (isManual) {
           setLoadProgress((prev) => ({
@@ -377,19 +455,87 @@ export default function TcProductsPage() {
           }));
         }
       }
+
+      // Retire pre-filled pages that no longer exist (catalogue shrank), so a
+      // stale cache can't leave phantom rows on screen.
+      //
+      // ONLY after a complete, clean pass. `totalPages` comes from one response,
+      // and trusting it unconditionally is destructive: a single degraded reply
+      // (rate-limited, truncated, `total_pages: 1`) would delete every
+      // pre-filled page and collapse a full table to a handful of rows. If any
+      // page failed, or the pass was cut short, the cached pages stay — stale
+      // extra rows are recoverable, a wiped table is not.
+      if (everyPageOk && totalPages >= 1 && isCurrent()) {
+        let trimmed = false;
+        for (const page of byPage.keys()) {
+          if (page > totalPages) { byPage.delete(page); trimmed = true; }
+        }
+        if (trimmed) flush();
+      }
     } catch (e) {
+      // Reaching here means page 1 had no cached copy either — a genuinely cold
+      // start with no network, not a normal offline load.
       console.error('[tc-products] load failed:', e);
-      if (isCurrent()) addToast('Could not load products. Please try again.');
+      if (isCurrent()) {
+        addToast(
+          typeof navigator !== 'undefined' && !navigator.onLine
+            ? 'Offline and no cached products yet. Connect once to load the catalogue.'
+            : 'Could not load products. Please try again.',
+        );
+      }
     } finally {
       if (isCurrent()) {
         setIsLoading(false);
+        setBackgroundLoading(false);
         if (isManual) {
           setFullSyncing(false);
           setLoadProgress(null);
         }
       }
     }
-  }, [addToast]);
+  }, [addToast, flushPages]);
+
+  /* ── Live rows from the global sync ──
+     The task writes each page to IndexedDB BEFORE emitting it, so the UI can
+     never show a product the cache lacks. Batches land in the same page-keyed
+     map the loader uses, which makes them idempotent: a page re-delivered (a
+     second run, a remount mid-sync) overwrites its slot instead of appending a
+     duplicate. No `seenIds` bookkeeping needed, unlike supplier-products.
+
+     A page mounting mid-sync misses batches emitted earlier — its mount-time
+     bulk cache read covers exactly those, since they are already persisted. */
+  useSyncBatches<TcProductsBatch>(SYNC_TASK.tcProducts, (batches) => {
+    const maps = prepareTcLabels(labelsRef.current);
+    for (const b of batches) {
+      if (!b?.page) continue;
+      pagesRef.current.set(b.page, b.items.map((it) => mapTcProduct(it, maps)));
+    }
+    flushPages();
+    setIsLoading(false);
+  });
+
+  /* ── Settle up when the global sync finishes ──
+     Fires wherever the user is. Nothing to reconcile — the page map is already
+     canonical and in catalogue order — so this only clears the loading flag for
+     a page that was mounted throughout. */
+  useOnSyncComplete(SYNC_TASK.tcProducts, () => {
+    setIsLoading(false);
+    setBackgroundLoading(false);
+  });
+
+  // Surface a failed background sync — the manager records the reason, but with
+  // no page mounted at the time there was nothing to show it.
+  useEffect(() => {
+    if (tcSync.status === 'error' && tcSync.error) {
+      addToast('Could not load TC products. Please use Sync to retry.');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tcSync.status, tcSync.error]);
+
+  // Mirror the loaded rows into the session cache for the next visit.
+  useEffect(() => {
+    if (allProducts.length) setRows(ROWS_KEY.tcProducts, allProducts);
+  }, [allProducts]);
 
   useEffect(() => {
     document.documentElement.classList.remove('dark');
@@ -407,6 +553,13 @@ export default function TcProductsPage() {
     if (syncInFlight.current) return;
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       addToast('Offline: cannot sync without an internet connection.');
+      return;
+    }
+    // A background run is already fetching every page. Letting the manual path
+    // start as well would double every request for no benefit — the task's rows
+    // land in the same map either way.
+    if (syncManager.isRunning(SYNC_TASK.tcProducts)) {
+      addToast('Sync already in progress…');
       return;
     }
     syncInFlight.current = true;
@@ -432,7 +585,7 @@ export default function TcProductsPage() {
    * The page only observes — see `useSyncTask` / `useSyncBatches` above.
    */
 
-  const supplierRef = useRef<HTMLDivElement>(null);
+  // supplierRef removed — Supplier dropdown is not used on TC Products page.
   const categoryRef = useRef<HTMLDivElement>(null);
   const brandRef = useRef<HTMLDivElement>(null);
   const pageSizeRef = useRef<HTMLDivElement>(null);
@@ -442,9 +595,6 @@ export default function TcProductsPage() {
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node;
-      if (supplierRef.current && !supplierRef.current.contains(target)) {
-        setIsSupplierOpen(false);
-      }
       if (categoryRef.current && !categoryRef.current.contains(target)) {
         setIsCategoryOpen(false);
       }
@@ -474,7 +624,6 @@ export default function TcProductsPage() {
         setIsColumnModalOpen(false);
         setIsDensityMenuOpen(false);
         setIsPageSizeOpen(false);
-        setIsSupplierOpen(false);
         setIsCategoryOpen(false);
         setIsBrandOpen(false);
       }
@@ -505,22 +654,15 @@ export default function TcProductsPage() {
     // a width prefix or a whole size component and never matches it against
     // name/SKU, so short numeric searches stay precise. Full sizes are
     // unaffected — every spelling of "205/55R16" still returns the same 61 rows.
+    // Search + the width-omitted aspect+rim fallback, both from
+    // services/searchFilter.ts — the two-step used to be inlined here and in
+    // the other product page.
     if (searchQuery.trim()) {
-      const q = searchQuery.trim();
-      let matched = result.filter(item => matchesSearch(item, q, SEARCH_FIELDS, SEARCH_SIZE_FIELDS));
-      // Width-omitted fallback ("55R16") — unchanged, still only when the exact
-      // pass found nothing.
-      if (matched.length === 0) {
-        const ar = parseAspectRim(q);
-        if (ar) {
-          matched = result.filter(item => matchesAspectRim(item, ar.aspect, ar.rim, ['size']));
-        }
-      }
-      result = matched;
+      result = searchWithAspectRimFallback(result, searchQuery.trim(), SEARCH_FIELDS, SEARCH_SIZE_FIELDS);
     }
 
-    // Supplier / Category — exact match on the selected dropdown value.
-    if (supplierFilter !== 'ALL') result = result.filter(item => item.source === supplierFilter);
+    // Category — exact match on the selected dropdown value.
+    // Supplier filter removed: TC Products page has a single source.
     if (categoryFilter !== 'ALL') result = result.filter(item => item.category === categoryFilter);
 
     // Brand — comma-separated list or typed text, partial match on ANY.
@@ -546,10 +688,18 @@ export default function TcProductsPage() {
       const n = Number(qtyInput);
       result = result.filter(item => item.qty >= n);
     }
-    // Latest checkbox — client-side filter over the cached catalogue. Checked =
-    // current records only (is_latest = 1); unchecked = ALL synced products.
-    // Purely local; never triggers an API call.
-    if (latestOnly) result = result.filter(item => item.is_latest === 1);
+
+    // Price range — inclusive Min/Max over the PRICE column. Each bound is
+    // applied only when it parses as a number, so a half-filled range still
+    // filters on the side that was entered and a blank pair is a no-op.
+    const minPrice = parseFloat(minPriceInput);
+    const maxPrice = parseFloat(maxPriceInput);
+    if (!isNaN(minPrice)) result = result.filter(item => item.price >= minPrice);
+    if (!isNaN(maxPrice)) result = result.filter(item => item.price <= maxPrice);
+
+    // RunFlat checkbox — when checked, only products with runflat === true are shown.
+    // Purely client-side; never triggers an API call.
+    if (runflatOnly) result = result.filter(item => item.runflat === true);
 
     if (sortColumn) {
       // `sort` mutates in place. If no filter ran, `result` is still the
@@ -579,23 +729,21 @@ export default function TcProductsPage() {
     }
 
     return result;
-  }, [allProducts, searchQuery, supplierFilter, categoryFilter, brandInput, sizeInput, yearInput, qtyInput, latestOnly, sortColumn, sortAsc]);
+  }, [allProducts, searchQuery, categoryFilter, brandInput, sizeInput, yearInput, qtyInput, minPriceInput, maxPriceInput, runflatOnly, sortColumn, sortAsc]);
 
   // All three dropdown lists in ONE pass. Three separate useMemos each walked
   // the full 318k-row array and allocated its own intermediate — at this size
   // that is three full scans plus three throwaway arrays every time the
   // catalogue changes. One reduce over the array gives the same three lists.
-  const { supplierOptions, categoryOptions, brandOptions } = useMemo(() => {
-    const sources = new Set<string>();
+  // supplierOptions removed — Supplier filter is not used on TC Products page.
+  const { categoryOptions, brandOptions } = useMemo(() => {
     const categories = new Set<string>();
     const brands = new Set<string>();
     for (const p of allProducts) {
-      if (p.source) sources.add(p.source);
       if (p.category) categories.add(normalizeCategory(p.category));
       if (p.brand) brands.add(p.brand);
     }
     return {
-      supplierOptions: Array.from(sources).sort(),
       categoryOptions: Array.from(categories).sort(),
       brandOptions: Array.from(brands).sort(),
     };
@@ -668,23 +816,26 @@ export default function TcProductsPage() {
 
   // Count & page slice come entirely from the cached (IndexedDB) dataset — for
   // BOTH Latest and All Products modes. No server-side fetch anywhere.
+  // Pagination maths from services/searchFilter.ts. `paginate` clamps the page
+  // into range, so an out-of-range page shows the last page rather than a blank
+  // slice while the clamp effect below catches up.
+  const page = useMemo(
+    () => paginate(filteredProducts, currentPage, pageSize),
+    [filteredProducts, currentPage, pageSize],
+  );
   const totalItems = filteredProducts.length;
-  const totalPages = Math.ceil(totalItems / pageSize) || 1;
+  const totalPages = page.pagination.totalPages;
+  const currentItems = page.items;
 
-  const currentItems = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return filteredProducts.slice(start, start + pageSize);
-  }, [filteredProducts, currentPage, pageSize]);
-
-  // Skeleton only while reading the cache (isLoading) or during an in-progress
-  // Sync that has no data yet. An empty cache with no sync shows the empty state.
-  // The third clause covers the cold-start bootstrap: until the latest-products
-  // phase lands, the LATEST? view can legitimately be empty while data IS on its
-  // way, and "No products found" would be telling the user something false.
+  // Skeleton while the first read is in flight, during a Sync that has no data
+  // yet, or — the third clause — whenever the background page-by-page fill is
+  // still running and the current view has nothing to show. That last case is
+  // what keeps "No products found" off the screen while data is still arriving;
+  // only a finished load with a genuinely empty result reaches the empty state.
   const showSkeleton =
-    isLoading ||
+    (isLoading && allProducts.length === 0) ||
     ((pageSyncing || fullSyncing) && allProducts.length === 0) ||
-    (bootstrapping && currentItems.length === 0);
+    ((backgroundLoading || taskRunning) && currentItems.length === 0);
 
   // Keep the current page within range whenever the result set shrinks (a
   // filter change, page-size change, or Latest toggle), so the table never sits
@@ -705,45 +856,85 @@ export default function TcProductsPage() {
 
   const resetFilters = () => {
     setSearchQuery('');
-    setSupplierFilter('ALL');
     setCategoryFilter('ALL');
     setBrandInput('');
     setSizeInput('');
     setYearInput('');
     setQtyInput('');
-    setLatestOnly(true);
+    setMinPriceInput('');
+    setMaxPriceInput('');
+    setRunflatOnly(true); // reset to default (checked)
     setCurrentPage(1);
     addToast('Filters reset to default.');
   };
 
-  const handleSelectAll = (checked: boolean) => {
-    const newSelected = new Set(selectedIds);
-    if (checked) {
-      currentItems.forEach(p => newSelected.add(p.id));
-    } else {
-      currentItems.forEach(p => newSelected.delete(p.id));
-    }
-    setSelectedIds(newSelected);
-  };
 
-  const toggleSelectRow = (id: number, checked: boolean) => {
-    const newSelected = new Set(selectedIds);
-    if (checked) newSelected.add(id);
-    else newSelected.delete(id);
-    setSelectedIds(newSelected);
-  };
 
   const clearSelection = () => {
     setSelectedIds(new Set());
   };
 
-  const addToList = (item: Product) => {
-    setListIds(prev => new Set(prev).add(item.id));
-    addToast(`Added "${item.pattern || item.brand}" to list.`);
+
+  //old add to list code 
+  // const addToList = (item: Product) => {
+  // setListIds(prev => new Set(prev).add(item.id));
+  // addToast(`Added "${item.pattern || item.brand}" to list.`);
+
+  /**
+   * toggleList — adds or removes a product from the client-side "List" set.
+   *
+   * HOW IT WORKS (current — UI only):
+   *   - `listIds` is a React state Set<number> that lives only in memory.
+   *   - Clicking the Bookmark icon once  → adds item.id  → icon turns indigo (filled).
+   *   - Clicking the Bookmark icon again → removes item.id → icon reverts to outline.
+   *   - No API call is made; data is lost on page refresh.
+   *
+   * HOW TO WIRE TO A REAL API IN THE FUTURE:
+   *   1. Create a backend endpoint, e.g. POST /api/list  { productId } to add
+   *      and DELETE /api/list/:productId to remove.
+   *   2. Replace the setListIds lines below with your API calls (fetch/axios).
+   *   3. Initialise `listIds` from an API fetch in a useEffect on mount.
+   *   4. Consider optimistic UI: update state immediately, roll back on error.
+   *
+   * TO REMOVE THIS FEATURE ENTIRELY:
+   *   1. Delete this function.
+   *   2. Delete the `listIds` and `setListIds` state declaration (~line 287).
+   *   3. Remove the Bookmark <button> block from the Action <td> in the table.
+   *   4. Remove `BookmarkIcon` from the heroicons import at the top of the file.
+   */
+  const toggleList = (item: Product) => {
+    const alreadyInList = listIds.has(item.id);
+    setListIds(prev => {
+      const next = new Set(prev);
+      if (alreadyInList) {
+        next.delete(item.id);   // ← remove from list
+      } else {
+        next.add(item.id);      // ← add to list
+      }
+      return next;
+    });
+    addToast(
+      alreadyInList
+        ? `Removed "${item.pattern || item.brand}" from list.`
+        : `Added "${item.pattern || item.brand}" to list.`
+    );
   };
 
+  /**
+   * Add to the PERSISTED cart (IndexedDB via cartStore), not component state.
+   * A `Set<number>` in React state was lost on refresh and on navigating away —
+   * unacceptable for a POS mid-sale. Re-adding the same product bumps its
+   * quantity rather than duplicating a line (the store keys on product id).
+   */
   const addToCart = (item: Product) => {
-    setCartIds(prev => new Set(prev).add(item.id));
+    cart.add({
+      id: item.id,
+      sku: item.itemCode,
+      name: item.pattern,
+      brand: item.brand,
+      size: item.sizeFull || item.size,
+      price: item.price,
+    });
     addToast(`Added "${item.pattern || item.brand}" to cart.`);
   };
 
@@ -752,28 +943,6 @@ export default function TcProductsPage() {
     addToast(`Copied "${text}" to clipboard!`);
   };
 
-  /**
-   * The single-row copy string. Extracted verbatim from `copyRowData` so the
-   * bulk copy produces byte-identical lines — there is exactly ONE format, and
-   * both entry points share it. Pure: no clipboard, no toast.
-   */
-  const buildRowString = (item: Product): string => {
-    const formattedCost = (item.cost || 0).toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-    const parts = [
-      item.category || '',
-      item.brand || '',
-      item.pattern || '',
-      item.sizeFull || item.size || '',
-      item.year && item.year > 0 ? item.year : '',
-      item.country && item.country !== '-' ? item.country : '',
-      item.qty ?? 0,
-      formattedCost,
-    ].filter(val => val !== '' && val !== undefined && val !== null);
-    return parts.join(' - ');
-  };
 
   // Single-row copy — unchanged behaviour, now just delegating the formatting.
   const copyRowData = (item: Product) => {
@@ -785,14 +954,16 @@ export default function TcProductsPage() {
   const hasActiveFilter = useMemo(() => {
     return (
       Boolean(searchQuery.trim()) ||
-      supplierFilter !== 'ALL' ||
       categoryFilter !== 'ALL' ||
       Boolean(brandInput.trim()) ||
       Boolean(sizeInput.trim()) ||
       Boolean(yearInput.trim()) ||
-      Boolean(qtyInput.trim())
+      Boolean(qtyInput.trim()) ||
+      Boolean(minPriceInput.trim()) ||
+      Boolean(maxPriceInput.trim()) ||
+      runflatOnly
     );
-  }, [searchQuery, supplierFilter, categoryFilter, brandInput, sizeInput, yearInput, qtyInput]);
+  }, [searchQuery, categoryFilter, brandInput, sizeInput, yearInput, qtyInput, minPriceInput, maxPriceInput, runflatOnly]);
 
   /**
    * Bulk copy — every product in the current search/filter result set, exactly
@@ -808,7 +979,7 @@ export default function TcProductsPage() {
       addToast('No products available to copy.');
       return;
     }
-    const payload = filteredProducts.map(buildRowString).join('\n');
+    const payload = buildBulkCopyString(filteredProducts);
     try {
       await navigator.clipboard.writeText(payload);
       addToast(`Successfully copied ${filteredProducts.length.toLocaleString()} search results.`);
@@ -840,7 +1011,6 @@ export default function TcProductsPage() {
     setHiddenColumns(newHidden);
   };
 
-  const isAllPageSelected = currentItems.length > 0 && currentItems.every(p => selectedIds.has(p.id));
 
   // Cell padding class based on Density mode
   const cellPaddingClass = useMemo(() => {
@@ -849,33 +1019,9 @@ export default function TcProductsPage() {
     return 'py-4 px-4'; // breathable
   }, [density]);
 
-  const categoryBadges: Record<string, string> = {
-    Premium: "badge-cat-premium",
-    Quality: "badge-cat-quality",
-    Budget: "badge-cat-budget",
-    'Mid-Range': "badge-cat-midrange",
-    'Tier 1': "badge-cat-tier1",
-    'Tier 2': "badge-cat-tier2",
-    'Tier 3': "badge-cat-tier3",
-    PREMIUM: "badge-cat-premium",
-    QUALITY: "badge-cat-quality",
-    BUDGET: "badge-cat-budget",
-    'MID-RANGE': "badge-cat-midrange"
-  };
-
-  const brandBadges: Record<string, string> = {
-    Bridgestone: "badge-brand-emerald",
-    Habilead: "badge-brand-teal",
-    Kumho: "badge-brand-indigo",
-    Michelin: "badge-brand-sky",
-    Continental: "badge-brand-orange"
-  };
-
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-50 text-slate-800 font-sans antialiased selection:bg-emerald-500 selection:text-white transition-colors duration-200 relative">
+    <div className="flex h-full w-full overflow-hidden bg-slate-50 text-slate-800 font-sans antialiased selection:bg-emerald-500 selection:text-white transition-colors duration-200 relative">
 
-      {/* 1. LEFT SIDEBAR NAVIGATION */}
-      <Sidebar activeNav="TC" />
 
       {/* 2. MAIN FULL-WIDTH SUPPLIER PRODUCTS AREA */}
       <main className="flex-1 flex flex-col min-w-0 bg-slate-50 overflow-hidden">
@@ -887,7 +1033,7 @@ export default function TcProductsPage() {
           <div className="flex items-center gap-3">
             <h1 className="text-lg font-bold text-slate-900 tracking-tight">TC Products</h1>
             <span className="inline-flex items-center justify-center min-w-[92px] bg-emerald-50 text-emerald-700 text-xs font-semibold px-2.5 py-0.5 rounded-full border border-emerald-200/80 tabular-nums whitespace-nowrap">
-              {fullSyncing || pageSyncing ? (
+              {fullSyncing || pageSyncing || taskRunning ? (
                 syncProgress ? (
                   `Syncing: ${syncProgress.loaded.toLocaleString()} items`
                 ) : (
@@ -937,11 +1083,10 @@ export default function TcProductsPage() {
               onClick={copyAllSearchResults}
               title={hasActiveFilter ? "Copy All Search Results" : "Please enter a search query or filter first"}
               aria-label="Copy All Search Results"
-              className={`h-9 w-9 inline-flex items-center justify-center rounded-lg transition-colors focus:outline-none active:scale-95 ${
-                hasActiveFilter
-                  ? 'text-slate-600 hover:text-emerald-600 hover:bg-slate-100'
-                  : 'text-slate-300 hover:text-slate-400 hover:bg-slate-50'
-              }`}
+              className={`h-9 w-9 inline-flex items-center justify-center rounded-lg transition-colors focus:outline-none active:scale-95 ${hasActiveFilter
+                ? 'text-slate-600 hover:text-emerald-600 hover:bg-slate-100'
+                : 'text-slate-300 hover:text-slate-400 hover:bg-slate-50'
+                }`}
             >
               <ClipboardDocumentIcon className="w-[18px] h-[18px]" />
             </button>
@@ -957,19 +1102,7 @@ export default function TcProductsPage() {
               Export
             </button>
 
-            <button
-              onClick={() => {
-                if (!document.fullscreenElement) {
-                  document.documentElement.requestFullscreen();
-                } else if (document.exitFullscreen) {
-                  document.exitFullscreen();
-                }
-              }}
-              className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
-              title="Fullscreen"
-            >
-              <ArrowsPointingOutIcon className="w-5 h-5" />
-            </button>
+            <FullscreenButton tone="slate" />
 
             {/* Header Sync Button — per page sync */}
             <button
@@ -978,7 +1111,7 @@ export default function TcProductsPage() {
                 handlePageSync();
                 e.currentTarget.blur();
               }}
-              disabled={pageSyncing || fullSyncing}
+              disabled={pageSyncing || fullSyncing || taskRunning}
               title="Sync current page supplier products"
               aria-label="Sync current page supplier products"
               className="p-2 text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-50 focus:outline-none"
@@ -987,19 +1120,7 @@ export default function TcProductsPage() {
             </button>
 
             {/* Online Indicator */}
-            {isOnline ? (
-              <div className="h-7 w-[95px] inline-flex items-center justify-center gap-1.5 text-emerald-700 bg-emerald-50 px-2.5 rounded-full text-xs font-semibold border border-emerald-200 shadow-2xs whitespace-nowrap">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                <WifiIcon className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Online</span>
-              </div>
-            ) : (
-              <div className="h-7 w-[95px] inline-flex items-center justify-center gap-1.5 text-rose-700 bg-rose-50 px-2.5 rounded-full text-xs font-semibold border border-rose-200 shadow-2xs whitespace-nowrap">
-                <span className="w-2 h-2 rounded-full bg-rose-500"></span>
-                <WifiIcon className="w-3.5 h-3.5 text-rose-600" />
-                <span>Offline</span>
-              </div>
-            )}
+            <OnlineStatusBadge isOnline={isOnline} variant="fixed" />
 
           </div>
         </header>
@@ -1041,53 +1162,9 @@ export default function TcProductsPage() {
             </div>
           )}
 
-          {/* Filters Bar — Supplier · Category · Brand · Search · Size · Year · Qty · Latest */}
+          {/* Filters Bar — Category · Brand · Search · Size · Year · Qty · RunFlat */}
           <section className="shrink-0 bg-white border border-slate-200/90 rounded-xl p-4 shadow-2xs">
-            <div className="flex flex-wrap items-end gap-3">
-
-              {/* Supplier */}
-              <div ref={supplierRef} className="flex flex-col min-w-[140px] relative">
-                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Supplier</label>
-                <button
-                  onClick={() => {
-                    setIsSupplierOpen(!isSupplierOpen);
-                    setIsCategoryOpen(false);
-                    setIsBrandOpen(false);
-                    setIsPageSizeOpen(false);
-                    setIsDensityMenuOpen(false);
-                  }}
-                  className="h-10 bg-white border border-slate-200 rounded-lg px-3 flex items-center justify-between text-sm font-medium text-slate-700 hover:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs transition-all cursor-pointer"
-                >
-                  <span className="truncate">{supplierFilter === 'ALL' ? 'All' : supplierFilter}</span>
-                  <svg className={`w-4 h-4 text-slate-400 ml-2 shrink-0 transition-transform ${isSupplierOpen ? 'rotate-180 text-emerald-600' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-
-                {isSupplierOpen && (
-                  <div className="absolute left-0 top-full mt-1.5 w-48 bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 max-h-60 overflow-y-auto animate-in fade-in zoom-in-95 duration-100">
-                    <button
-                      onClick={() => { setSupplierFilter('ALL'); setCurrentPage(1); setIsSupplierOpen(false); }}
-                      className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${supplierFilter === 'ALL' ? 'text-emerald-700 bg-emerald-50/80 font-bold' : 'text-slate-700 hover:bg-slate-50'
-                        }`}
-                    >
-                      <span>All</span>
-                      {supplierFilter === 'ALL' && <span className="text-emerald-600 font-bold">✓</span>}
-                    </button>
-                    {supplierOptions.map((s) => (
-                      <button
-                        key={s}
-                        onClick={() => { setSupplierFilter(s); setCurrentPage(1); setIsSupplierOpen(false); }}
-                        className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${supplierFilter === s ? 'text-emerald-700 bg-emerald-50/80 font-bold' : 'text-slate-700 hover:bg-slate-50'
-                          }`}
-                      >
-                        <span className="truncate">{s}</span>
-                        {supplierFilter === s && <span className="text-emerald-600 font-bold">✓</span>}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+            <div className="flex flex-nowrap items-end gap-2.5 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
 
               {/* Category */}
               <div ref={categoryRef} className="flex flex-col min-w-[140px] relative">
@@ -1095,7 +1172,6 @@ export default function TcProductsPage() {
                 <button
                   onClick={() => {
                     setIsCategoryOpen(!isCategoryOpen);
-                    setIsSupplierOpen(false);
                     setIsBrandOpen(false);
                     setIsPageSizeOpen(false);
                     setIsDensityMenuOpen(false);
@@ -1134,7 +1210,7 @@ export default function TcProductsPage() {
               </div>
 
               {/* Brand */}
-              <div ref={brandRef} className="relative flex flex-col min-w-[150px]">
+              <div ref={brandRef} className="relative flex flex-col min-w-[150px] max-w-[180px]">
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Brand</label>
                 <div className="relative">
                   <input
@@ -1142,7 +1218,6 @@ export default function TcProductsPage() {
                     value={brandInput}
                     onFocus={() => {
                       setIsBrandOpen(true);
-                      setIsSupplierOpen(false);
                       setIsCategoryOpen(false);
                       setIsPageSizeOpen(false);
                       setIsDensityMenuOpen(false);
@@ -1150,7 +1225,6 @@ export default function TcProductsPage() {
                     onChange={(e) => {
                       setBrandInput(e.target.value);
                       setIsBrandOpen(true);
-                      setIsSupplierOpen(false);
                       setIsCategoryOpen(false);
                       setIsPageSizeOpen(false);
                       setIsDensityMenuOpen(false);
@@ -1172,7 +1246,6 @@ export default function TcProductsPage() {
                     <ChevronDownIcon
                       onClick={() => {
                         setIsBrandOpen(!isBrandOpen);
-                        setIsSupplierOpen(false);
                         setIsCategoryOpen(false);
                         setIsPageSizeOpen(false);
                         setIsDensityMenuOpen(false);
@@ -1270,7 +1343,7 @@ export default function TcProductsPage() {
               </div>
 
               {/* Search */}
-              <div className="flex flex-col flex-1 min-w-[220px]">
+              <div className="flex flex-col flex-1 min-w-[150px]">
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Search</label>
                 <div className="relative">
                   <MagnifyingGlassIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -1280,13 +1353,13 @@ export default function TcProductsPage() {
                     value={searchQuery}
                     onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
                     placeholder="Query..."
-                    className="h-10 w-full pl-9 pr-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
+                    className="search-field h-10 w-full pl-9 pr-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
                   />
                 </div>
               </div>
 
               {/* Size */}
-              <div className="flex flex-col w-[110px]">
+              <div className="flex flex-col w-[170px]">
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Size</label>
                 <input
                   type="text"
@@ -1298,7 +1371,7 @@ export default function TcProductsPage() {
               </div>
 
               {/* Year */}
-              <div className="flex flex-col w-[90px]">
+              <div className="flex flex-col w-[140px]">
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Year</label>
                 <input
                   type="text"
@@ -1310,7 +1383,7 @@ export default function TcProductsPage() {
               </div>
 
               {/* Qty */}
-              <div className="flex flex-col w-[90px]">
+              <div className="flex flex-col w-[130px]">
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Qty</label>
                 <input
                   type="text"
@@ -1321,15 +1394,41 @@ export default function TcProductsPage() {
                 />
               </div>
 
-              {/* Latest? */}
+              {/* Price Range — Min / Max over the PRICE column */}
+              <div className="flex flex-col w-[300px]">
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Price Range</label>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    value={minPriceInput}
+                    onChange={(e) => { setMinPriceInput(e.target.value); setCurrentPage(1); }}
+                    placeholder="Min"
+                    className="h-10 w-full min-w-0 bg-white border border-slate-200 rounded-lg px-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
+                  />
+                  <span className="text-slate-400 text-xs font-semibold shrink-0">-</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    value={maxPriceInput}
+                    onChange={(e) => { setMaxPriceInput(e.target.value); setCurrentPage(1); }}
+                    placeholder="Max"
+                    className="h-10 w-full min-w-0 bg-white border border-slate-200 rounded-lg px-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
+                  />
+                </div>
+              </div>
+
+              {/* RunFlat? — filters to runflat === true products only */}
               <label className="flex items-center gap-2 h-10 text-slate-600 text-sm font-medium cursor-pointer select-none">
                 <input
                   type="checkbox"
-                  checked={latestOnly}
-                  onChange={(e) => { setLatestOnly(e.target.checked); setCurrentPage(1); }}
+                  checked={runflatOnly}
+                  onChange={(e) => { setRunflatOnly(e.target.checked); setCurrentPage(1); }}
                   className="w-4 h-4 rounded border-slate-300 text-emerald-600 accent-emerald-600 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:ring-offset-0 focus:outline-none cursor-pointer"
                 />
-                LATEST?
+                RUNFLAT?
               </label>
 
               {/* Search button */}
@@ -1443,7 +1542,7 @@ export default function TcProductsPage() {
                     {!hiddenColumns.has('price') && <th onClick={() => handleSort('price')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[120px]">Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('setOf4Price') && <th onClick={() => handleSort('setOf4Price')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[140px]">Set of 4 Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('offer') && <th className="py-3 px-2 text-center whitespace-nowrap w-[85px]">Offer</th>}
-                    <th className="py-3 px-3 text-center whitespace-nowrap w-[210px]">Action</th>
+                    <th className="py-3 px-3 text-center whitespace-nowrap w-[100px]">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-sans">
@@ -1461,12 +1560,20 @@ export default function TcProductsPage() {
                         {!hiddenColumns.has('price') && <td className={`${cellPaddingClass} text-right`}><Skeleton className="h-4 w-16 rounded ml-auto" /></td>}
                         {!hiddenColumns.has('setOf4Price') && <td className={`${cellPaddingClass} text-right`}><Skeleton className="h-4 w-20 rounded ml-auto" /></td>}
                         {!hiddenColumns.has('offer') && <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-4 w-10 rounded mx-auto" /></td>}
-                        <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-7 w-44 rounded-lg mx-auto" /></td>
+                        <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-7 w-16 rounded-lg mx-auto" /></td>
                       </tr>
                     ))
                   ) : currentItems.length === 0 ? (
                     <tr>
-                      <td colSpan={12} className="py-16 text-center text-slate-400">
+                      {/* Height matched to a full page of rows (measured 53px each) so the
+                          table body stays the same height whether it holds data, the
+                          skeleton, or this message — switching between them can't shift
+                          the layout. */}
+                      <td
+                        colSpan={12}
+                        className="py-16 text-center text-slate-400 align-middle"
+                        style={{ height: Math.min(pageSize, 10) * 53 }}
+                      >
                         <svg className="w-12 h-12 mx-auto mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                         </svg>
@@ -1517,7 +1624,7 @@ export default function TcProductsPage() {
                           {!hiddenColumns.has('runflat') && (
                             <td className={`${cellPaddingClass} text-center`}>
                               {item.runflat ? (
-                                <span className="px-2 py-0.5 text-[11px] font-bold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60">Yes</span>
+                                <span className="px-2 py-0.5 text-[11px] font-bold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60">Runflat</span>
                               ) : (
                                 <span className="text-slate-400 font-medium">-</span>
                               )}
@@ -1574,23 +1681,27 @@ export default function TcProductsPage() {
 
                           <td className={`${cellPaddingClass} text-center`}>
                             <div className="flex items-center justify-center gap-1.5">
+                              {/* List toggle button — calls toggleList() to add or remove.
+                                  To disable this button, delete this entire <button> block. */}
                               <button
-                                onClick={(e) => { e.stopPropagation(); addToList(item); }}
-                                className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-bold rounded-lg border transition-all active:scale-95 ${listIds.has(item.id)
-                                  ? 'bg-indigo-600 text-white border-indigo-600'
-                                  : 'bg-white text-indigo-700 border-indigo-200 hover:bg-indigo-50'
+                                onClick={(e) => { e.stopPropagation(); toggleList(item); }}
+                                title={listIds.has(item.id) ? 'Remove from List' : 'Add to List'}
+                                className={`w-8 h-8 flex items-center justify-center rounded-lg border transition-all active:scale-95 ${listIds.has(item.id)
+                                  ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700'
+                                  : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50'
                                   }`}
                               >
-                                {listIds.has(item.id) ? 'In List' : 'Add to List'}
+                                <BookmarkIcon className="w-4 h-4" />
                               </button>
                               <button
                                 onClick={(e) => { e.stopPropagation(); addToCart(item); }}
-                                className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-bold rounded-lg border transition-all active:scale-95 ${cartIds.has(item.id)
+                                title="Add to Cart"
+                                className={`w-8 h-8 flex items-center justify-center rounded-lg border transition-all active:scale-95 ${cart.has(item.id)
                                   ? 'bg-emerald-600 text-white border-emerald-600'
                                   : 'bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50'
                                   }`}
                               >
-                                {cartIds.has(item.id) ? 'In Cart' : 'Add to Cart'}
+                                <ShoppingCartIcon className="w-4 h-4" />
                               </button>
                             </div>
                           </td>

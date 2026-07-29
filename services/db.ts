@@ -23,11 +23,17 @@ const DB_NAME = "tyrescart-pos";
 // the already-loaded array — but IndexedDB maintained all five on every put,
 // costing ~5 extra index writes per row (~1.6M on a 318k-row sync). Removing
 // them is purely a write-throughput win; no read path changes.
-const DB_VERSION = 4;
+// v5: adds the `cart` store for offline-first cart persistence. Purely
+// additive — no existing store is touched, so a user's synced catalogue
+// survives the upgrade untouched. (Phase 4 will add `orders`/`outbox` at v6;
+// they are NOT created here because empty speculative stores are just dead
+// schema.)
+const DB_VERSION = 5;
 
 export const STORE_PRODUCT_QUERIES = "productQueries";
 export const STORE_SUPPLIER_PRODUCTS = "supplierProducts";
 export const STORE_TYRES_CHAT = "tyresChat";
+export const STORE_CART = "cart";
 export const STORE_META = "meta";
 
 /**
@@ -75,6 +81,11 @@ function openDB(): Promise<IDBDatabase> {
         for (const name of ["brand", "size", "year", "source_name", "is_latest"]) {
           if (store.indexNames.contains(name)) store.deleteIndex(name);
         }
+      }
+      if (!db.objectStoreNames.contains(STORE_CART)) {
+        // One record per cart line, keyed by product id so add-to-cart is an
+        // upsert and quantities can't duplicate a line.
+        db.createObjectStore(STORE_CART, { keyPath: "id" });
       }
       if (!db.objectStoreNames.contains(STORE_META)) {
         db.createObjectStore(STORE_META, { keyPath: "key" });

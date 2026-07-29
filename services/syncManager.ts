@@ -244,7 +244,6 @@ class SyncManager {
  * it to globalThis keeps one instance across reloads.
  */
 declare global {
-  // eslint-disable-next-line no-var
   var __tyrescartSyncManager: SyncManager | undefined;
 }
 
