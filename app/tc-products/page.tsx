@@ -25,7 +25,6 @@ import {
 import { useCart } from '@/hooks/useCart';
 import {
   getCachedTcPages,
-  isCachedQueryFresh,
   getRows,
   setRows,
   ROWS_KEY,
@@ -377,12 +376,9 @@ export default function TcProductsPage() {
       // revisit or refresh paints the whole table before any revalidation runs.
       const cachedPages = await getCachedTcPages();
       if (!isCurrent()) return;
-      /** Ages of the entries actually used, for the freshness check below. */
-      const usedTs: number[] = [];
       let cachedTotalPages = 0;
       for (const rec of cachedPages) {
         byPage.set(rec.page, rec.data.items.map((it) => mapTcProduct(it, maps)));
-        usedTs.push(rec.ts);
         if (rec.page === 1) cachedTotalPages = rec.data.page_info?.total_pages ?? 0;
       }
       if (byPage.size) {
@@ -390,16 +386,17 @@ export default function TcProductsPage() {
         setIsLoading(false);
       }
 
-      // WHOLE CATALOGUE ALREADY CACHED AND FRESH → nothing to do.
-      // Every read below would be served from IndexedDB without a fetch, so it
-      // could only hand back rows already on screen. Same TTL, same cache-first
-      // contract, minus ~79 redundant transactions per visit.
-      if (
-        !isManual &&
-        cachedTotalPages > 0 &&
-        byPage.size >= cachedTotalPages &&
-        usedTs.every((ts) => isCachedQueryFresh(ts))
-      ) {
+      // ANYTHING CACHED → render it and stop. Same rule supplier-products uses
+      // (`if (cached.length > 0) return;`): a cache that holds the catalogue is
+      // never refreshed automatically, only by the Sync buttons.
+      //
+      // This used to also require every entry to be within the 5-minute
+      // freshness window. All 79 pages are written within the same ~13s, so they
+      // expired together, and any visit more than 5 minutes after the last sync
+      // re-walked the whole catalogue — the progress banner counting up from
+      // zero every time the user came back from another page. Staleness is now
+      // the operator's call via Sync, exactly as on supplier-products.
+      if (!isManual && cachedTotalPages > 0 && byPage.size >= cachedTotalPages) {
         return;
       }
 
