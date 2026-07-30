@@ -99,6 +99,16 @@ interface ReadThroughCallbacks<T> {
  */
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+/**
+ * "Any cached copy counts as fresh" — pass as `maxAgeMs` to get the rule the
+ * catalogue pages follow: render whatever IndexedDB holds and never revalidate
+ * on your own, leaving refreshes to the Sync buttons (which pass 0).
+ *
+ * An EMPTY cache still fetches: every read-through checks the entry exists
+ * before it checks the age.
+ */
+export const CACHE_ANY_AGE = Number.POSITIVE_INFINITY;
+
 /** True when a cache timestamp is within the freshness window. */
 const isFresh = (ts: number | undefined, maxAgeMs: number): boolean =>
   typeof ts === "number" && maxAgeMs > 0 && Date.now() - ts < maxAgeMs;

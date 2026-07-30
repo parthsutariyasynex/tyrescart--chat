@@ -9,7 +9,7 @@ import {
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
-import { getTyresChatCached } from "@/services/cache";
+import { getTyresChatCached, CACHE_ANY_AGE } from "@/services/cache";
 import type { TyresChatItem } from "@/services/types";
 import { useToast } from "@/components/ToastProvider";
 import { ChatGridSkeleton } from "@/components/Skeletons";
@@ -96,7 +96,11 @@ export default function TyreGuideChatPage() {
       const cachedItems = await getTyresChatCached(
         { pageSize: 200 },
         {
-          maxAgeMs: forceFresh ? 0 : undefined,
+          // Anything cached is good enough — the same rule supplier-products,
+          // tc-products and /products follow. Passive mounts previously used the
+          // 5-minute TTL, so every visit after that fired one background
+          // GraphQL call just for walking past the page. A Sync still passes 0.
+          maxAgeMs: forceFresh ? 0 : CACHE_ANY_AGE,
           onFresh: (freshItems) => {
             setShortcuts(mapApiItems(freshItems));
             setError(null);
