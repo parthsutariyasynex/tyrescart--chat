@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { DatabaseZap } from 'lucide-react';
 import {
   MagnifyingGlassIcon,
   ArrowPathIcon,
@@ -376,27 +377,24 @@ export default function TcProductsPage() {
       // revisit or refresh paints the whole table before any revalidation runs.
       const cachedPages = await getCachedTcPages();
       if (!isCurrent()) return;
-      let cachedTotalPages = 0;
       for (const rec of cachedPages) {
         byPage.set(rec.page, rec.data.items.map((it) => mapTcProduct(it, maps)));
-        if (rec.page === 1) cachedTotalPages = rec.data.page_info?.total_pages ?? 0;
       }
       if (byPage.size) {
         flush();
         setIsLoading(false);
       }
 
-      // ANYTHING CACHED → render it and stop. Same rule supplier-products uses
-      // (`if (cached.length > 0) return;`): a cache that holds the catalogue is
-      // never refreshed automatically, only by the Sync buttons.
+      // ANY cached page → render it and stop. Auto-sync fires ONLY when
+      // IndexedDB holds nothing for this page, exactly like supplier-products
+      // (`if (cached.length > 0) return;`).
       //
-      // This used to also require every entry to be within the 5-minute
-      // freshness window. All 79 pages are written within the same ~13s, so they
-      // expired together, and any visit more than 5 minutes after the last sync
-      // re-walked the whole catalogue — the progress banner counting up from
-      // zero every time the user came back from another page. Staleness is now
-      // the operator's call via Sync, exactly as on supplier-products.
-      if (!isManual && cachedTotalPages > 0 && byPage.size >= cachedTotalPages) {
+      // Deliberately `> 0`, not "is the cache complete": a PARTIAL cache — an
+      // interrupted first sync, evicted storage, a catalogue that grew a page —
+      // must not trigger network work either. Requiring completeness meant 50 of
+      // 79 cached pages restarted the whole 79-page walk on the next visit.
+      // Filling the gaps is the Sync button's job.
+      if (!isManual && cachedPages.length > 0) {
         return;
       }
 
@@ -1113,7 +1111,7 @@ export default function TcProductsPage() {
               aria-label="Sync current page supplier products"
               className="p-2 text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-50 focus:outline-none"
             >
-              <ArrowPathIcon className={`w-5 h-5 ${pageSyncing ? 'animate-spin text-emerald-600' : ''}`} />
+              <DatabaseZap className={`w-5 h-5 ${pageSyncing ? 'animate-pulse text-emerald-600' : ''}`} />
             </button>
 
             {/* Online Indicator */}
@@ -1528,9 +1526,9 @@ export default function TcProductsPage() {
               <table className="w-full min-w-[1660px] text-left border-collapse table-fixed">
                 <thead className="bg-slate-50/90 backdrop-blur sticky top-0 z-10 border-b border-slate-200">
                   <tr className="text-[11px] font-bold text-slate-500 uppercase tracking-wider select-none">
-                    {!hiddenColumns.has('brand') && <th onClick={() => handleSort('brand')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[120px]">Brand <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('brand') && <th onClick={() => handleSort('brand')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[130px]">Brand <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('size') && <th onClick={() => handleSort('size')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[150px]">Tyre Size <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('name') && <th onClick={() => handleSort('pattern')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[330px]">Name <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('name') && <th onClick={() => handleSort('pattern')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[320px]">Name <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('runflat') && <th className="py-3 px-2 text-center whitespace-nowrap w-[85px]">RunFlat</th>}
                     {!hiddenColumns.has('origin') && <th onClick={() => handleSort('country')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[120px]">Origin <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('year') && <th onClick={() => handleSort('year')} className="py-3 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap w-[65px]">Year <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
@@ -1597,8 +1595,8 @@ export default function TcProductsPage() {
                         >
 
                           {!hiddenColumns.has('brand') && (
-                            <td className={cellPaddingClass}>
-                              <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border uppercase tracking-tight ${brandBadges[item.brand] || 'badge-brand-default'}`}>
+                            <td className={`${cellPaddingClass} whitespace-nowrap`}>
+                              <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border uppercase tracking-tight whitespace-nowrap inline-block ${brandBadges[item.brand] || 'badge-brand-default'}`}>
                                 {item.brand || '-'}
                               </span>
                             </td>
@@ -1619,9 +1617,9 @@ export default function TcProductsPage() {
                           )}
 
                           {!hiddenColumns.has('runflat') && (
-                            <td className={`${cellPaddingClass} text-center`}>
+                            <td className={`${cellPaddingClass} text-center whitespace-nowrap`}>
                               {item.runflat ? (
-                                <span className="px-2 py-0.5 text-[11px] font-bold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60">Runflat</span>
+                                <span className="px-2.5 py-0.5 text-[11px] font-bold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60 whitespace-nowrap inline-block">Runflat</span>
                               ) : (
                                 <span className="text-slate-400 font-medium">-</span>
                               )}
@@ -1629,8 +1627,8 @@ export default function TcProductsPage() {
                           )}
 
                           {!hiddenColumns.has('origin') && (
-                            <td className={cellPaddingClass}>
-                              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+                            <td className={`${cellPaddingClass} whitespace-nowrap`}>
+                              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 whitespace-nowrap">
                                 {item.country && item.country.trim() ? item.country : <span className="text-slate-400 font-medium">-</span>}
                               </div>
                             </td>

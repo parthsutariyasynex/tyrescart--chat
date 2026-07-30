@@ -153,12 +153,10 @@ export default function PosProductsPage() {
         const cached = await getCachedStorefrontPages(BATCH_SIZE);
         if (!isCurrent()) return;
         if (cached.length) {
-          let cachedTotalPages = 0;
           let cachedTotalCount = 0;
           for (const rec of cached) {
             byBatch.set(rec.page, enrichProducts(rec.data.items || []));
             if (rec.page === 1) {
-              cachedTotalPages = rec.data.page_info?.total_pages || 0;
               cachedTotalCount = rec.data.total_count || 0;
             }
           }
@@ -166,10 +164,11 @@ export default function PosProductsPage() {
           if (cachedTotalCount) setTotalCount(cachedTotalCount);
           setLoading(false);
 
-          if (cachedTotalPages > 0 && byBatch.size >= cachedTotalPages) {
-            harvestBrands(cached[0]?.data.items);
-            return;
-          }
+          // ANY cached batch → stop here. Same rule as supplier and tc: auto-fetch
+          // only when IndexedDB is empty for this page. A partial cache is kept
+          // as-is rather than re-fetched; completing it is the Sync button's job.
+          harvestBrands(cached[0]?.data.items);
+          return;
         }
       }
 

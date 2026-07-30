@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { DatabaseZap } from 'lucide-react';
 import {
   MagnifyingGlassIcon,
   ArrowPathIcon,
@@ -970,7 +971,7 @@ export default function SupplierProductsPage() {
               aria-label="Sync current page supplier products"
               className="p-2 text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-50 focus:outline-none"
             >
-              <ArrowPathIcon className={`w-5 h-5 ${pageSyncing ? 'animate-spin text-emerald-600' : ''}`} />
+              <DatabaseZap className={`w-5 h-5 ${pageSyncing ? 'animate-pulse text-emerald-600' : ''}`} />
             </button>
 
             {/* Online Indicator */}
@@ -1430,14 +1431,14 @@ export default function SupplierProductsPage() {
             {/* Scrollable Table — fills the card and scrolls INTERNALLY so row
                 count / page size never changes the card height (no layout shift). */}
             <div className="flex-1 min-h-0 overflow-auto [scrollbar-gutter:stable]">
-              <table className="w-full min-w-[1660px] text-left border-collapse table-fixed">
+              <table className="w-full min-w-[1680px] text-left border-collapse table-fixed">
                 <thead className="bg-slate-50/90 backdrop-blur sticky top-0 z-10 border-b border-slate-200">
                   <tr className="text-[11px] font-bold text-slate-500 uppercase tracking-wider select-none">
                     {!hiddenColumns.has('source') && <th onClick={() => handleSort('source')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[100px]">Source <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('type') && <th onClick={() => handleSort('productType')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[120px]">Type <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('category') && <th onClick={() => handleSort('category')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[110px]">Category <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('brand') && <th onClick={() => handleSort('brand')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[105px]">Brand <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('pattern') && <th onClick={() => handleSort('pattern')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[360px]">Tyre Pattern <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('brand') && <th onClick={() => handleSort('brand')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[130px]">Brand <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('pattern') && <th onClick={() => handleSort('pattern')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[350px]">Tyre Pattern <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('size') && <th onClick={() => handleSort('size')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[140px]">Size <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('runflat') && <th className="py-3 px-2 text-center whitespace-nowrap w-[75px]">Runflat</th>}
                     {!hiddenColumns.has('year') && <th onClick={() => handleSort('year')} className="py-3 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap w-[65px]">Year <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
@@ -1506,17 +1507,17 @@ export default function SupplierProductsPage() {
                         >
 
                           {!hiddenColumns.has('source') && (
-                            <td className={cellPaddingClass}>
-                              <span className="px-2 py-0.5 bg-slate-100 rounded text-[11px] font-bold text-slate-600 border border-slate-200/60">
+                            <td className={`${cellPaddingClass} whitespace-nowrap`}>
+                              <span className="px-2 py-0.5 bg-slate-100 rounded text-[11px] font-bold text-slate-600 border border-slate-200/60 whitespace-nowrap inline-block">
                                 {item.source}
                               </span>
                             </td>
                           )}
 
                           {!hiddenColumns.has('type') && (
-                            <td className={cellPaddingClass}>
+                            <td className={`${cellPaddingClass} whitespace-nowrap`}>
                               {item.productType ? (
-                                <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border uppercase tracking-tight ${item.productType === 'Supplier'
+                                <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border uppercase tracking-tight whitespace-nowrap inline-block ${item.productType === 'Supplier'
                                   ? 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
                                   : 'bg-amber-50 text-amber-700 border-amber-200/60'
                                   }`}>
@@ -1529,9 +1530,9 @@ export default function SupplierProductsPage() {
                           )}
 
                           {!hiddenColumns.has('category') && (
-                            <td className={cellPaddingClass}>
+                            <td className={`${cellPaddingClass} whitespace-nowrap`}>
                               {item.category ? (
-                                <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border uppercase tracking-tight ${categoryBadges[item.category] || 'bg-slate-100 text-slate-700'}`}>
+                                <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border uppercase tracking-tight whitespace-nowrap inline-block ${categoryBadges[item.category] || 'bg-slate-100 text-slate-700'}`}>
                                   {item.category}
                                 </span>
                               ) : (
@@ -1541,8 +1542,8 @@ export default function SupplierProductsPage() {
                           )}
 
                           {!hiddenColumns.has('brand') && (
-                            <td className={cellPaddingClass}>
-                              <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border uppercase tracking-tight ${brandBadges[item.brand] || 'bg-slate-100 text-slate-700'}`}>
+                            <td className={`${cellPaddingClass} whitespace-nowrap`}>
+                              <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border uppercase tracking-tight whitespace-nowrap inline-block ${brandBadges[item.brand] || 'bg-slate-100 text-slate-700'}`}>
                                 {item.brand}
                               </span>
                             </td>
@@ -1565,9 +1566,9 @@ export default function SupplierProductsPage() {
                           )}
 
                           {!hiddenColumns.has('runflat') && (
-                            <td className={`${cellPaddingClass} text-center`}>
+                            <td className={`${cellPaddingClass} text-center whitespace-nowrap`}>
                               {item.runflat ? (
-                                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded border border-emerald-200">Runflat</span>
+                                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded border border-emerald-200 whitespace-nowrap inline-block">Runflat</span>
                               ) : (
                                 <span className="text-slate-400 font-medium">-</span>
                               )}
@@ -1575,14 +1576,14 @@ export default function SupplierProductsPage() {
                           )}
 
                           {!hiddenColumns.has('year') && (
-                            <td className={`${cellPaddingClass} text-center text-xs font-medium text-slate-600`}>
+                            <td className={`${cellPaddingClass} text-center text-xs font-medium text-slate-600 whitespace-nowrap`}>
                               {item.year && item.year > 0 ? item.year : <span className="text-slate-400 font-medium">-</span>}
                             </td>
                           )}
 
                           {!hiddenColumns.has('country') && (
-                            <td className={cellPaddingClass}>
-                              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+                            <td className={`${cellPaddingClass} whitespace-nowrap`}>
+                              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 whitespace-nowrap">
                                 {item.country && item.country.trim() ? item.country : <span className="text-slate-400 font-medium">-</span>}
                               </div>
                             </td>

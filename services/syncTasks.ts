@@ -18,8 +18,6 @@ import {
   countCachedSupplierProducts,
   getSupplierSyncState,
   syncAllTcProducts,
-  getCachedTcPages,
-  getTcSyncState,
   type CachedSupplierProduct,
 } from "./cache";
 
@@ -163,50 +161,15 @@ export async function resumeInterruptedSupplierSync(): Promise<void> {
 }
 
 
-/**
- * Start the tc catalogue sync when the cache holds nothing.
- *
- * The equivalent of the supplier bootstrap, but callable from anywhere (app
- * start, or the page's mount effect) because it makes its own decision:
- *   - already running → no-op, so it can never double-start,
- *   - any cached page → no-op, the page renders the cache and the TTL handles
- *     freshness,
- *   - offline → no-op, a doomed run would only burn retries.
- */
-export async function ensureTcProductsSynced(): Promise<void> {
-  if (typeof navigator !== "undefined" && !navigator.onLine) return;
-  if (syncManager.isRunning(SYNC_TASK.tcProducts)) return;
-
-  const cached = await getCachedTcPages().catch(() => []);
-  if (cached.length > 0) return;
-
-  console.log("[syncTasks] tc products cache is empty — starting background sync");
-  void syncManager.start(SYNC_TASK.tcProducts);
-}
-
-/**
- * Resume a tc catalogue sync that a hard page load killed.
- *
- * The tc counterpart of {@link resumeInterruptedSupplierSync}, and for the same
- * reason: the manager is a JS-context singleton, so a reload (F5, crash,
- * restored tab) destroys an in-flight run while client-side navigation does not.
- * Only a finished run overwrites `tcProducts:syncState`, so "running" left in
- * IndexedDB proves the last attempt was cut short.
- *
- * This does NOT widen the auto-sync rule — it only continues work the user
- * already started. A cleanly finished sync leaves "complete"/"partial" and is
- * never resumed. Re-running is safe: every write is an upsert keyed by page.
- */
-export async function resumeInterruptedTcSync(): Promise<void> {
-  if (typeof navigator !== "undefined" && !navigator.onLine) return;
-  if (syncManager.isRunning(SYNC_TASK.tcProducts)) return;
-
-  const state = await getTcSyncState().catch(() => null);
-  if (state !== "running") return;
-
-  console.log("[syncTasks] previous tc sync was interrupted — resuming");
-  void syncManager.start(SYNC_TASK.tcProducts);
-}
+/* tc has NO auto-resume, deliberately.
+   Requirement: tc-products and /products auto-sync only when IndexedDB is
+   completely empty, and never otherwise — so an interrupted run is NOT picked
+   back up on the next app start. It leaves a partial cache, which the page
+   renders as-is; the user completes it with the Sync button. `tcProducts:syncState`
+   is still written by the sync and is diagnostic only (inspect it in DevTools to
+   see whether the last run finished). supplier-products keeps its resume path:
+   its catalogue is 319k rows over ~3,200 requests, where losing a half-finished
+   run to a stray reload is a materially different cost. */
 
 /** Idempotent — safe to call from multiple entry points and across fast refresh. */
 export function registerSyncTasks(): void {

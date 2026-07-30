@@ -4,7 +4,7 @@
  * Header (top-right) Sync button. Syncs ONLY the current page's data.
  * Contains no sync logic — it just calls the shared `useSync` hook.
  */
-import { ArrowPathIcon } from "@heroicons/react/24/outline";
+import { DatabaseZap } from "lucide-react";
 import { useSync } from "@/hooks/useSync";
 
 export default function HeaderSyncButton({
@@ -28,7 +28,7 @@ export default function HeaderSyncButton({
       aria-label={title}
       className={`p-2 text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50 focus:outline-none ${className}`}
     >
-      <ArrowPathIcon className={`w-5 h-5 ${isSyncing ? "animate-spin text-orange-500" : ""}`} />
+      <DatabaseZap className={`w-5 h-5 ${isSyncing ? "animate-pulse text-orange-500" : ""}`} />
     </button>
   );
 }
