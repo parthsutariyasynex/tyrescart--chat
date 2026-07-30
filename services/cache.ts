@@ -1111,6 +1111,18 @@ export async function isTyresChatRecentlySynced(maxAgeMs = 30000): Promise<boole
 /** Namespace for every tc-products entry in the shared `productQueries` store. */
 export const TC_CACHE_KEY_PREFIX = "tc:products:";
 
+/** "running" is written BEFORE paging starts, so a sync killed by a hard reload
+ *  is still detectable — the marker never gets upgraded to complete/partial.
+ *  Mirrors `supplierAll:syncState`. */
+const META_TC_STATE = "tcProducts:syncState";
+
+export type TcSyncState = "running" | "complete" | "partial";
+
+/** Last recorded state of the tc catalogue sync, or null if it never ran. */
+export async function getTcSyncState(): Promise<TcSyncState | null> {
+  return (await idbGetMeta<TcSyncState>(META_TC_STATE).catch(() => null)) ?? null;
+}
+
 /** Rows per request. The upstream caps a page at 100, so asking for more is moot. */
 export const TC_PAGE_SIZE = 100;
 
@@ -1269,6 +1281,10 @@ export async function syncAllTcProducts({
   let loaded = 0;
   let pages = 0;
 
+  // Written before paging starts and only upgraded at the end, so a run killed
+  // by a hard reload leaves "running" behind for `resumeInterruptedTcSync`.
+  await idbSetMeta(META_TC_STATE, "running" satisfies TcSyncState).catch(() => { });
+
   const first = await fetchTcProductsCached(tcPageVars(1), maxAgeMs);
   const total = first.total_count ?? 0;
   const totalPages = first.page_info?.total_pages ?? 1;
@@ -1281,17 +1297,31 @@ export async function syncAllTcProducts({
   // Shared cursor — workers pull the next page number rather than taking a fixed
   // slice, so one slow page never idles the others.
   let nextPage = 2;
+  /** Consecutive failures across all workers — trips the breaker below. */
+  let failureStreak = 0;
+  let tripped = false;
   const worker = async () => {
     for (;;) {
-      if (signal?.aborted) return;
+      if (signal?.aborted || tripped) return;
       const page = nextPage++;
       if (page > totalPages) return;
 
       const res = await fetchTcPageWithRetry(page, maxAgeMs);
       if (!res) {
         failedPages.push(page);
+        // Circuit breaker, same guard supplier-sync uses: once the upstream has
+        // started refusing us (a WAF block, a rate limiter), hammering it with
+        // the remaining pages only deepens the hole. Stop and keep what we have.
+        if (++failureStreak >= SUPPLIER_SYNC_FAILURE_STREAK_LIMIT) {
+          tripped = true;
+          console.warn(
+            `[tc-sync] ABORTED — ${failureStreak} consecutive page failures. Previous data kept.`,
+          );
+          return;
+        }
         continue;
       }
+      failureStreak = 0;
       pages++;
       loaded += res.items.length;
       onBatch?.({ page, items: res.items });
@@ -1303,16 +1333,12 @@ export async function syncAllTcProducts({
     Array.from({ length: Math.min(TC_SYNC_CONCURRENCY, Math.max(totalPages - 1, 1)) }, worker),
   );
 
-  if (signal?.aborted) {
-    return { pages, items: loaded, total, failedPages, complete: false, aborted: true };
-  }
+  const aborted = Boolean(signal?.aborted) || tripped;
+  const complete = !aborted && failedPages.length === 0;
+  await idbSetMeta(
+    META_TC_STATE,
+    (complete ? "complete" : "partial") satisfies TcSyncState,
+  ).catch(() => { });
 
-  return {
-    pages,
-    items: loaded,
-    total,
-    failedPages,
-    complete: failedPages.length === 0,
-    aborted: false,
-  };
+  return { pages, items: loaded, total, failedPages, complete, aborted };
 }

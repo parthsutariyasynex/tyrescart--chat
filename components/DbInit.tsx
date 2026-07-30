@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { ensureDb } from "@/services/db";
-import { resumeInterruptedSupplierSync } from "@/services/syncTasks";
+import { resumeInterruptedSupplierSync, resumeInterruptedTcSync } from "@/services/syncTasks";
 
 /**
  * Creates the IndexedDB database (and its object stores) as soon as the app
@@ -26,7 +26,10 @@ export default function DbInit() {
     void (async () => {
       await ensureDb();
       await resumeInterruptedSupplierSync().catch((e) =>
-        console.warn("[DbInit] could not resume interrupted sync:", e),
+        console.warn("[DbInit] could not resume interrupted supplier sync:", e),
+      );
+      await resumeInterruptedTcSync().catch((e) =>
+        console.warn("[DbInit] could not resume interrupted tc sync:", e),
       );
     })();
   }, []);

@@ -19,6 +19,7 @@ import {
   getSupplierSyncState,
   syncAllTcProducts,
   getCachedTcPages,
+  getTcSyncState,
   type CachedSupplierProduct,
 } from "./cache";
 
@@ -87,6 +88,11 @@ const tcProductsTask: SyncTaskDefinition = {
   label: "TC products",
   async run({ onProgress, onBatch, signal }) {
     const result = await syncAllTcProducts({
+      // Always hit the network, like the supplier full pass. This task runs on a
+      // cold cache (nothing to reuse) or from a Sync button (where the point IS
+      // fresh data) — never as idle revalidation, since the page no longer
+      // auto-syncs a populated cache.
+      force: true,
       onProgress,
       // The manager's channel is `unknown[]`; one element per page keeps the
       // page number attached so a re-delivered batch overwrites its slot
@@ -175,6 +181,30 @@ export async function ensureTcProductsSynced(): Promise<void> {
   if (cached.length > 0) return;
 
   console.log("[syncTasks] tc products cache is empty — starting background sync");
+  void syncManager.start(SYNC_TASK.tcProducts);
+}
+
+/**
+ * Resume a tc catalogue sync that a hard page load killed.
+ *
+ * The tc counterpart of {@link resumeInterruptedSupplierSync}, and for the same
+ * reason: the manager is a JS-context singleton, so a reload (F5, crash,
+ * restored tab) destroys an in-flight run while client-side navigation does not.
+ * Only a finished run overwrites `tcProducts:syncState`, so "running" left in
+ * IndexedDB proves the last attempt was cut short.
+ *
+ * This does NOT widen the auto-sync rule — it only continues work the user
+ * already started. A cleanly finished sync leaves "complete"/"partial" and is
+ * never resumed. Re-running is safe: every write is an upsert keyed by page.
+ */
+export async function resumeInterruptedTcSync(): Promise<void> {
+  if (typeof navigator !== "undefined" && !navigator.onLine) return;
+  if (syncManager.isRunning(SYNC_TASK.tcProducts)) return;
+
+  const state = await getTcSyncState().catch(() => null);
+  if (state !== "running") return;
+
+  console.log("[syncTasks] previous tc sync was interrupted — resuming");
   void syncManager.start(SYNC_TASK.tcProducts);
 }
 
