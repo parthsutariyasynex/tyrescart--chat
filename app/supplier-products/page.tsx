@@ -1018,7 +1018,7 @@ export default function SupplierProductsPage() {
           )}
 
           {/* Filters Bar — Supplier · Category · Brand · Search · Size · Year · Qty · Latest */}
-          <section className="shrink-0 bg-white border border-slate-200/90 rounded-xl p-4 shadow-2xs relative z-20">
+          <section className="shrink-0 bg-white border border-slate-200/90 rounded-xl p-4 shadow-2xs relative z-30">
             <div className="flex flex-wrap items-end gap-2.5">
 
               {/* Supplier */}

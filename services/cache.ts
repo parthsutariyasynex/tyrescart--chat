@@ -1373,6 +1373,23 @@ export async function syncAllTcProducts({
 
   const aborted = Boolean(signal?.aborted) || tripped;
   const complete = !aborted && failedPages.length === 0;
+
+  // Retire cached pages beyond the catalogue's current end (it shrank), so a
+  // stale entry can't leave phantom rows on screen.
+  //
+  // ONLY after a complete, clean pass: `totalPages` comes from one response, and
+  // trusting it unconditionally is destructive — a single degraded reply
+  // (rate-limited, truncated, `total_pages: 1`) would delete every cached page
+  // and collapse a full table to a handful of rows. Stale extra rows are
+  // recoverable; a wiped cache is not.
+  if (complete && totalPages >= 1) {
+    const stale = (await getCachedTcPages().catch(() => [])).filter((r) => r.page > totalPages);
+    for (const rec of stale) {
+      await idbDelete(STORE_PRODUCT_QUERIES, `${TC_CACHE_KEY_PREFIX}${JSON.stringify(tcPageVars(rec.page))}`)
+        .catch(() => { });
+    }
+    if (stale.length) console.log(`[tc-sync] retired ${stale.length} page(s) beyond page ${totalPages}`);
+  }
   await idbSetMeta(
     META_TC_STATE,
     (complete ? "complete" : "partial") satisfies TcSyncState,

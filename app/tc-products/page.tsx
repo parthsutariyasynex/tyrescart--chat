@@ -35,9 +35,7 @@ import { SYNC_TASK } from '@/services/syncTasks';
 import { useSyncTask, useSyncBatches, useOnSyncComplete } from '@/hooks/useSyncManager';
 import { Skeleton } from '@/components/Skeletons';
 import {
-  fetchTcProductsCached,
   fetchTcAttributeLabelsCached,
-  tcPageVars,
   type TcProductsBatch,
   type TcApiProduct,
   type TcAttributeLabels,
@@ -309,8 +307,6 @@ export default function TcProductsPage() {
      supplier IndexedDB cache — this page shows TyresCart's own catalogue.
      Page 1 paints immediately, then the rest streams in the background, the
      same shape as the /products page's batch loader. */
-  const [loadProgress, setLoadProgress] = useState<{ loaded: number; total: number } | null>(null);
-  const [fullSyncing, setFullSyncing] = useState(false);
 
   /* ── The catalogue sync lives in the GLOBAL manager ──
      Same architecture as supplier-products: the work is a registered task, so it
@@ -318,8 +314,8 @@ export default function TcProductsPage() {
      (`start()` dedupes synchronously). This page only observes it. */
   const tcSync = useSyncTask(SYNC_TASK.tcProducts);
   const taskRunning = tcSync.status === 'running';
-  /** Progress from whichever is active: a manual page refresh, or the background task. */
-  const syncProgress = loadProgress ?? tcSync.progress;
+  /** Progress of the one sync there is — manual and automatic are the same task now. */
+  const syncProgress = tcSync.progress;
 
   /**
    * Rows keyed by catalogue page — the single source of truth for the table,
@@ -345,131 +341,58 @@ export default function TcProductsPage() {
 
   const loadIdRef = useRef(0);
 
-  const loadAll = useCallback(async (isManual = false) => {
+  /**
+   * Paint whatever IndexedDB holds, and hand any actual fetching to the manager.
+   *
+   * This no longer fetches anything itself. It used to carry a second, INLINE
+   * page-by-page loop for the manual Sync path, because `SyncTaskDefinition.run`
+   * takes no arguments and so could not be told "force". The task now always
+   * forces, which removes the reason for the duplicate path — and with it a
+   * sequential walk that took ~80s where the pooled task takes ~14s, plus the
+   * risk of the two paths fetching the same pages at once.
+   */
+  const loadAll = useCallback(async () => {
     const loadId = ++loadIdRef.current;
     const isCurrent = () => loadId === loadIdRef.current;
 
     setIsLoading(true);
     setBackgroundLoading(true);
-    if (isManual) {
-      setFullSyncing(true);
-      setLoadProgress(null);
-    }
-    // A manual Sync must hit the network; the automatic load on mount is
-    // cache-first (instant repaint on refresh, and it works offline).
-    const maxAgeMs = isManual ? 0 : undefined;
-
-    // The shared page map — the background task's batches land in the same one,
-    // so neither path can duplicate the other's rows.
-    const byPage = pagesRef.current;
-    const flush = flushPages;
 
     try {
       // Option-id → label maps, fetched once and reused for every row.
-      const attrLabels = await fetchTcAttributeLabelsCached(maxAgeMs).catch(
+      const attrLabels = await fetchTcAttributeLabelsCached().catch(
         () => ({}) as TcAttributeLabels,
       );
       if (!isCurrent()) return;
       labelsRef.current = attrLabels;
       const maps = prepareTcLabels(attrLabels);
 
-      // Pre-fill from IndexedDB in ONE read (not 79 sequential ones), so a
-      // revisit or refresh paints the whole table before any revalidation runs.
+      // Pre-fill from IndexedDB in ONE read (not 86 sequential ones), so a
+      // revisit or refresh paints the whole table immediately.
       const cachedPages = await getCachedTcPages();
       if (!isCurrent()) return;
       for (const rec of cachedPages) {
-        byPage.set(rec.page, rec.data.items.map((it) => mapTcProduct(it, maps)));
+        pagesRef.current.set(rec.page, rec.data.items.map((it) => mapTcProduct(it, maps)));
       }
-      if (byPage.size) {
-        flush();
+      if (pagesRef.current.size) {
+        flushPages();
         setIsLoading(false);
       }
 
-      // ANY cached page → render it and stop. Auto-sync fires ONLY when
-      // IndexedDB holds nothing for this page, exactly like supplier-products
-      // (`if (cached.length > 0) return;`).
-      //
-      // Deliberately `> 0`, not "is the cache complete": a PARTIAL cache — an
-      // interrupted first sync, evicted storage, a catalogue that grew a page —
-      // must not trigger network work either. Requiring completeness meant 50 of
-      // 79 cached pages restarted the whole 79-page walk on the next visit.
-      // Filling the gaps is the Sync button's job.
-      if (!isManual && cachedPages.length > 0) {
-        return;
-      }
+      // ANY cached page → stop. Auto-sync fires ONLY when IndexedDB holds
+      // nothing for this page, exactly like supplier-products. Deliberately
+      // `> 0`, not "is the cache complete": a PARTIAL cache must not trigger
+      // network work either — filling gaps is the Sync button's job.
+      if (cachedPages.length > 0) return;
 
-      // ── AUTOMATIC LOAD → hand the walk to the GLOBAL MANAGER ──
-      // Anything still to fetch is done by the registered task rather than here,
-      // which is what makes it survive navigation. `start()` dedupes
-      // synchronously, so a run already going (from another route, the sidebar,
-      // or React StrictMode's double effect) is joined, never restarted. Rows
-      // arrive through `useSyncBatches` into the same `pagesRef` map.
-      //
-      // The manual path below stays inline: it must force `maxAgeMs: 0` on every
-      // page, which the task cannot express (`run` takes no arguments).
-      if (!isManual) {
-        void syncManager.start(SYNC_TASK.tcProducts);
-        return;
-      }
-
-      const first = await fetchTcProductsCached(tcPageVars(1), maxAgeMs);
-      if (!isCurrent()) return;
-
-      byPage.set(1, first.items.map((it) => mapTcProduct(it, maps)));
-      flush();
-      setIsLoading(false);
-
-      if (isManual) {
-        setLoadProgress({ loaded: byPage.get(1)!.length, total: first.total_count });
-      }
-
-      const totalPages = first.page_info?.total_pages ?? 1;
-      /** Cleared by any page that didn't come back — see the trim below. */
-      let everyPageOk = true;
-      for (let page = 2; page <= totalPages; page++) {
-        if (!isCurrent()) return;
-        let batch;
-        try {
-          batch = await fetchTcProductsCached(tcPageVars(page), maxAgeMs);
-        } catch (e) {
-          // Only reached when the page failed AND was never cached — offline
-          // pages resolve from IndexedDB inside the cached fetcher.
-          console.warn(`[tc-products] page ${page}/${totalPages} failed — skipping:`, e);
-          everyPageOk = false;
-          continue;
-        }
-        if (!isCurrent()) return;
-        const mapped = batch.items.map((it) => mapTcProduct(it, maps));
-        byPage.set(page, mapped);
-        flush();
-
-        if (isManual) {
-          setLoadProgress((prev) => ({
-            loaded: (prev?.loaded ?? 0) + mapped.length,
-            total: first.total_count,
-          }));
-        }
-      }
-
-      // Retire pre-filled pages that no longer exist (catalogue shrank), so a
-      // stale cache can't leave phantom rows on screen.
-      //
-      // ONLY after a complete, clean pass. `totalPages` comes from one response,
-      // and trusting it unconditionally is destructive: a single degraded reply
-      // (rate-limited, truncated, `total_pages: 1`) would delete every
-      // pre-filled page and collapse a full table to a handful of rows. If any
-      // page failed, or the pass was cut short, the cached pages stay — stale
-      // extra rows are recoverable, a wiped table is not.
-      if (everyPageOk && totalPages >= 1 && isCurrent()) {
-        let trimmed = false;
-        for (const page of byPage.keys()) {
-          if (page > totalPages) { byPage.delete(page); trimmed = true; }
-        }
-        if (trimmed) flush();
-      }
+      // Cold cache → the registered task does the walk, so it survives
+      // navigation. `start()` dedupes synchronously, so a run already going
+      // (another route, the sidebar, StrictMode's double effect) is joined,
+      // never restarted. Rows arrive through `useSyncBatches`.
+      void syncManager.start(SYNC_TASK.tcProducts);
     } catch (e) {
-      // Reaching here means page 1 had no cached copy either — a genuinely cold
-      // start with no network, not a normal offline load.
+      // Reaching here means even the cache read failed — a genuinely cold start
+      // with no network, not a normal offline load.
       console.error('[tc-products] load failed:', e);
       if (isCurrent()) {
         addToast(
@@ -482,10 +405,6 @@ export default function TcProductsPage() {
       if (isCurrent()) {
         setIsLoading(false);
         setBackgroundLoading(false);
-        if (isManual) {
-          setFullSyncing(false);
-          setLoadProgress(null);
-        }
       }
     }
   }, [addToast, flushPages]);
@@ -535,7 +454,7 @@ export default function TcProductsPage() {
   useEffect(() => {
     document.documentElement.classList.remove('dark');
     document.body.classList.remove('dark-theme');
-    void loadAll(false);
+    void loadAll();
     // Bump the load id on unmount so a background run stops instead of
     // fetching every remaining page into a dead component.
     return () => {
@@ -550,9 +469,8 @@ export default function TcProductsPage() {
       addToast('Offline: cannot sync without an internet connection.');
       return;
     }
-    // A background run is already fetching every page. Letting the manual path
-    // start as well would double every request for no benefit — the task's rows
-    // land in the same map either way.
+    // Already running (sidebar, another route, a previous click) → join it
+    // rather than queueing a second pass over the same pages.
     if (syncManager.isRunning(SYNC_TASK.tcProducts)) {
       addToast('Sync already in progress…');
       return;
@@ -560,15 +478,19 @@ export default function TcProductsPage() {
     syncInFlight.current = true;
     setPageSyncing(true);
     try {
-      await loadAll(true);
-      addToast('Products refreshed.');
+      // The SAME pooled task the automatic sync uses: 8 workers, per-page retry
+      // with backoff, circuit breaker, `force: true` so every page is refetched.
+      // Progress and rows come back through `useSyncTask` / `useSyncBatches`.
+      await syncManager.start(SYNC_TASK.tcProducts);
+      const msg = syncManager.getTask(SYNC_TASK.tcProducts)?.message;
+      addToast(msg || 'Products refreshed.');
     } catch {
       addToast('Refresh failed. Please try again.');
     } finally {
       syncInFlight.current = false;
       setPageSyncing(false);
     }
-  };
+  };;
 
   /*
    * Full catalogue sync now lives entirely in the global manager (see
@@ -829,7 +751,7 @@ export default function TcProductsPage() {
   // only a finished load with a genuinely empty result reaches the empty state.
   const showSkeleton =
     (isLoading && allProducts.length === 0) ||
-    ((pageSyncing || fullSyncing) && allProducts.length === 0) ||
+    (pageSyncing && allProducts.length === 0) ||
     ((backgroundLoading || taskRunning) && currentItems.length === 0);
 
   // Keep the current page within range whenever the result set shrinks (a
@@ -1028,7 +950,7 @@ export default function TcProductsPage() {
           <div className="flex items-center gap-3">
             <h1 className="text-lg font-bold text-slate-900 tracking-tight">TC Products</h1>
             <span className="inline-flex items-center justify-center min-w-[92px] bg-emerald-50 text-emerald-700 text-xs font-semibold px-2.5 py-0.5 rounded-full border border-emerald-200/80 tabular-nums whitespace-nowrap">
-              {fullSyncing || pageSyncing || taskRunning ? (
+              {pageSyncing || taskRunning ? (
                 syncProgress ? (
                   `Syncing: ${syncProgress.loaded.toLocaleString()} items`
                 ) : (
@@ -1106,7 +1028,7 @@ export default function TcProductsPage() {
                 handlePageSync();
                 e.currentTarget.blur();
               }}
-              disabled={pageSyncing || fullSyncing || taskRunning}
+              disabled={pageSyncing || taskRunning}
               title="Sync current page supplier products"
               aria-label="Sync current page supplier products"
               className="p-2 text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-50 focus:outline-none"
@@ -1158,8 +1080,8 @@ export default function TcProductsPage() {
           )}
 
           {/* Filters Bar — Category · Brand · Search · Size · Year · Qty · RunFlat */}
-          <section className="shrink-0 bg-white border border-slate-200/90 rounded-xl p-4 shadow-2xs">
-            <div className="flex flex-nowrap items-end gap-2.5 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+          <section className="shrink-0 bg-white border border-slate-200/90 rounded-xl p-4 shadow-2xs relative z-30">
+            <div className="flex flex-wrap items-end gap-2.5">
 
               {/* Category */}
               <div ref={categoryRef} className="flex flex-col min-w-[140px] relative">
@@ -1476,7 +1398,7 @@ export default function TcProductsPage() {
           <section className="flex-1 min-h-0 bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col">
 
             {/* Table Header Summary / Entries Per Page Selector */}
-            <div className="px-5 py-2.5 flex items-center justify-end border-b border-slate-200/70 bg-slate-50/70">
+            <div className="px-5 py-2.5 flex items-center justify-end border-b border-slate-200/70 bg-slate-50/70 relative z-20">
               <div className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 bg-white px-3 py-1.5 rounded-lg border border-slate-200/90 shadow-2xs">
                 <span className="text-slate-400 font-medium">Show</span>
 
