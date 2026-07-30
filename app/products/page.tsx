@@ -11,6 +11,7 @@ import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilitie
 import {
   fetchStorefrontBatch,
   fetchStorefrontBatchWithRetry,
+  getCachedStorefrontPages,
   PRODUCTS_SYNC_CONCURRENCY,
   getRows,
   setRows,
@@ -142,6 +143,36 @@ export default function PosProductsPage() {
     };
 
     try {
+      /* ── Pre-fill from IndexedDB in ONE read, then stop if it is complete ──
+         Same rule supplier-products and tc-products follow: a cache that already
+         holds the catalogue is rendered as-is and never refreshed automatically
+         — the Sync buttons (`forceFresh`) are what fetch. Before this, every
+         visit re-ran the batch loader, so anything older than the 5-minute TTL
+         re-downloaded all 16 batches just because the user walked past the page. */
+      if (!forceFresh) {
+        const cached = await getCachedStorefrontPages(BATCH_SIZE);
+        if (!isCurrent()) return;
+        if (cached.length) {
+          let cachedTotalPages = 0;
+          let cachedTotalCount = 0;
+          for (const rec of cached) {
+            byBatch.set(rec.page, enrichProducts(rec.data.items || []));
+            if (rec.page === 1) {
+              cachedTotalPages = rec.data.page_info?.total_pages || 0;
+              cachedTotalCount = rec.data.total_count || 0;
+            }
+          }
+          flush();
+          if (cachedTotalCount) setTotalCount(cachedTotalCount);
+          setLoading(false);
+
+          if (cachedTotalPages > 0 && byBatch.size >= cachedTotalPages) {
+            harvestBrands(cached[0]?.data.items);
+            return;
+          }
+        }
+      }
+
       const first = await fetchStorefrontBatch({ ...baseParams, currentPage: 1 }, maxAgeMs);
       if (!isCurrent()) return;
 

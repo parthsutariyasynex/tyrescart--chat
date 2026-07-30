@@ -61,7 +61,7 @@ running when the user navigates away**. Pages observe it via
 - `start(id)` dedupes synchronously — a second call joins the in-flight run, so a sync can never be started twice (this also covers React StrictMode's double effect).
 - Large syncs use a fixed **worker pool of 8** with per-page retry (3 attempts, exponential backoff + jitter) and, for supplier, a circuit breaker. A failed page is recorded, never silently skipped.
 - The sidebar Sync button runs `startAll()`; each page's own header Sync forces `maxAgeMs: 0` for that page's data.
-- **Auto-sync fires only on an EMPTY cache** (both supplier and tc). Anything cached is rendered as-is and never revalidated on its own — refreshing is the Sync buttons' job. tc briefly revalidated on a 5-minute TTL instead, which re-walked all 79 pages every time the user returned to the page after a gap.
+- **Auto-sync fires only on an EMPTY/incomplete cache** (supplier, tc AND products). Anything cached is rendered as-is and never revalidated on its own — refreshing is the Sync buttons' job. tc and products briefly revalidated on a 5-minute TTL instead, which re-walked the whole catalogue every time the user returned to the page after a gap.
 - `resumeInterruptedSupplierSync()` and `resumeInterruptedTcSync()` (both called from `components/DbInit.tsx`) restart a sync that a hard reload killed, detected via the `supplierAll:syncState` / `tcProducts:syncState` meta markers — written `running` before paging starts and only upgraded to `complete`/`partial` at the end.
 - Both syncs trip a **circuit breaker** after 12 consecutive page failures rather than hammering a WAF/rate-limiter with the rest of the catalogue.
 

@@ -272,6 +272,34 @@ export async function getCachedQuery<T>(
 }
 
 /**
+ * Every cached storefront batch, in ONE IndexedDB read.
+ *
+ * `getCachedQueriesByPrefix` cannot be reused here: those entries are stored
+ * FLAT (`{ key, ...response, ts }`) rather than wrapped in `data`, a shape
+ * `getStorefrontProductsCached` and `fetchStorefrontBatch` share and must keep.
+ *
+ * Lets /products answer "do I already hold the whole catalogue?" with a single
+ * transaction, so a populated cache can be rendered without touching the
+ * network — the same rule supplier-products and tc-products follow.
+ */
+export async function getCachedStorefrontPages(
+  pageSize: number,
+): Promise<{ page: number; ts: number; data: ProductsResponse }[]> {
+  const all = await idbGetAll<CachedStorefrontQuery>(STORE_PRODUCT_QUERIES).catch(() => []);
+  const out: { page: number; ts: number; data: ProductsResponse }[] = [];
+  for (const rec of all) {
+    if (typeof rec?.key !== "string" || !rec.key.startsWith("storefront:")) continue;
+    const info = rec.page_info;
+    // Ignore entries written with a different page size — their page numbers
+    // wouldn't line up with the batches this loader asks for.
+    if (!info?.current_page || info.page_size !== pageSize) continue;
+    if (!Array.isArray(rec.items)) continue;
+    out.push({ page: info.current_page, ts: rec.ts, data: rec });
+  }
+  return out.sort((a, b) => a.page - b.page);
+}
+
+/**
  * One storefront batch, retried like the supplier and tc pages are.
  *
  * `/products` previously gave up on the whole background fill at the first
