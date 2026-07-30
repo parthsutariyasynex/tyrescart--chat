@@ -57,6 +57,7 @@ async function executeGraphQLQuery(query: string) {
   const targetUrl = isServer ? "https://www.tyrescart.com/graphql" : "/api/graphql";
 
   try {
+    console.time("API Fetch");
     const res = await fetch(targetUrl, {
       method: "POST",
       headers: {
@@ -65,8 +66,11 @@ async function executeGraphQLQuery(query: string) {
       },
       body: JSON.stringify({ query }),
     });
+    console.timeEnd("API Fetch");
 
+    console.time("JSON Parse");
     const data = await res.json().catch(() => null);
+    console.timeEnd("JSON Parse");
 
     if (!res.ok) {
       // Cloudflare/WAF blocks answer with their own JSON shape (`detail`,

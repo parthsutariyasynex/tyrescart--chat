@@ -61,7 +61,7 @@ const supplierProductsTask: SyncTaskDefinition = {
 
     const result = await syncAllSupplierProducts({ syncBatch, onProgress, onBatch: forward });
 
-    if (result.complete) return `Synced all ${nf(result.items.length)} supplier products.`;
+    if (result.complete) return `Synced all ${nf(result.items)} supplier products.`;
     if (result.aborted) {
       return `Sync stopped early: ${nf(result.written)} of ${nf(result.total)} products. Previous data kept.`;
     }

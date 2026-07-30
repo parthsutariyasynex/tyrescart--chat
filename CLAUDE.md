@@ -91,7 +91,9 @@ CDP, and instrument inside the page (wrap `window.fetch`, wrap
 `IDBObjectStore.prototype.{get,put,getAll}`, read `Runtime.getHeapUsage`).
 Reference figures on the live data (dev server, 1600×900):
 
-- supplier catalogue: 319,429 rows, ~53 MB IndexedDB, ~96 MB retained heap
+- supplier catalogue: 319,429 rows, ~57 MB IndexedDB
+- supplier warm page load: first rows **2.4 s**, all 319,429 rows 9.3 s, 0 API calls (was 9.9 s before ANY row appeared — a single `getAll` blocked 4.6–15 s, then one 3.9 s mapping task)
+- the supplier read is **paged** (`streamCachedSupplierProducts`, 20k/page): never call `getAll` on that store — it deserialises every record before resolving
 - tc catalogue: 7,809 rows over 79 pages; cold sync ~13.6 s at concurrency 8
 - warm revisit: 0 GraphQL requests, 3 IndexedDB ops
 - upstream GraphQL page-size cap (measured, not assumed): `supplierProducts` **1000**, `products` **≥2000**

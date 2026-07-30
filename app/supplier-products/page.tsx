@@ -24,7 +24,7 @@ import {
 } from '@/services/searchFilter';
 import { Skeleton } from '@/components/Skeletons';
 import {
-  getCachedSupplierProducts,
+  streamCachedSupplierProducts,
   getRows,
   setRows,
   ROWS_KEY,
@@ -289,6 +289,10 @@ const categoryBadges = CATEGORY_BADGES_TAILWIND;
 const brandBadges = BRAND_BADGES_TAILWIND;
 
 export default function SupplierProductsPage() {
+  console.time("React Render");
+  useEffect(() => {
+    console.timeEnd("React Render");
+  });
   const isOnline = useOnlineStatus();
 
   /** Seeded from the session rows cache, so returning to this page paints the
@@ -385,7 +389,7 @@ export default function SupplierProductsPage() {
       // Rows mapped earlier this session are already on screen (seeded above).
       // Re-reading IndexedDB would produce the same list, so skip it. This is
       // still cache-first — and still API-free — it just skips redundant work.
-      // Note the early return matches the `cached.length > 0` branch below:
+      // Note the early return matches the `readCount > 0` branch below:
       // rows in memory mean the store was non-empty, so no bootstrap either.
       const memo = getRows<Product>(ROWS_KEY.supplierProducts);
       if (memo?.length) {
@@ -394,16 +398,58 @@ export default function SupplierProductsPage() {
         return;
       }
 
-      const cached = await getCachedSupplierProducts();
+      /* ── PAGED, PROGRESSIVE READ ──
+         Was `getAll()` over the whole store: it blocked 4.6–7.2s before
+         resolving, then mapping all 319,429 rows ran as one 3.9s task — 87% of a
+         9.9s load, to fill a table showing 10 rows. Now the store is walked in
+         key-ordered pages: the FIRST page is mapped and painted immediately and
+         the rest streams in behind it, with the thread handed back between pages
+         so nothing freezes.
+
+         Rows accumulate in `acc`; each page appends and re-publishes, exactly the
+         accumulate-then-flush shape the sync batches already use. `seqs` keeps
+         each row's `sort_seq` (the mapper drops it) so the canonical catalogue
+         order can be restored once, at the end — see below. */
+      const acc: Product[] = [];
+      const seqs: number[] = [];
+      let pages = 0;
+
+      const readCount = await streamCachedSupplierProducts({
+        isCancelled: () => !alive,
+        onPage: (rows) => {
+          if (!alive) return;
+          for (const row of rows) {
+            const mapped = mapSupplierToProduct(row);
+            acc.push(mapped);
+            seqs.push(typeof row.sort_seq === 'number' ? row.sort_seq : Number.MAX_SAFE_INTEGER);
+            // Seed the batch de-dupe set as we go. Mounting DURING a running sync
+            // otherwise appends rows that are already on screen (measured: 67,500
+            // duplicates) because `seenIds` starts empty on a fresh mount.
+            seenIds.current.add(mapped.id);
+          }
+          pages++;
+          // New array each page so React sees a change; copying refs is cheap
+          // next to the deserialisation that just happened.
+          setAllProducts([...acc]);
+          setIsLoading(false);
+        },
+      });
       if (!alive) return;
-      const mapped = cached.map(mapSupplierToProduct);
-      setAllProducts(mapped);
-      setIsLoading(false);
-      // Seed the batch de-dupe set with what we just loaded. Mounting DURING a
-      // running sync otherwise appends rows that are already on screen: the
-      // cache read brings in the full store, while `seenIds` starts empty on a
-      // fresh mount, so every subsequent batch is a duplicate (measured: 67,500).
-      for (const p of mapped) seenIds.current.add(p.id);
+
+      /* Restore canonical order once, after the last page. Pages arrive in
+         primary-key order, while the catalogue's order lives in `sort_seq`; the
+         old code got this for free because it sorted the whole array before
+         mapping. Sorting an index array and rebuilding avoids re-mapping, and it
+         is one short task at the end instead of a gate on the first paint. Skipped
+         when a single page covered everything (already in order). */
+      if (pages > 1 && acc.length) {
+        const order = acc.map((_, i) => i).sort((a, b) => {
+          if (seqs[a] !== seqs[b]) return seqs[a] - seqs[b];
+          return String(acc[a].id).localeCompare(String(acc[b].id), undefined, { numeric: true });
+        });
+        setAllProducts(order.map((i) => acc[i]));
+      }
+
 
       // CACHE-FIRST IS UNCHANGED: with anything cached we render it and stop —
       // no GraphQL on load, navigation or refresh. The bootstrap below runs
@@ -414,7 +460,7 @@ export default function SupplierProductsPage() {
       // first load, storage eviction, or a manual cache wipe. The
       // `bootstrapCompleted` flag is recorded for diagnostics but deliberately
       // does NOT gate this, so an evicted cache always self-heals.
-      if (cached.length > 0) return;
+      if (readCount > 0) return;
 
       // Confirm the store really is empty rather than unreadable. The cache
       // read above swallows IndexedDB errors and returns [], so a transient
@@ -461,6 +507,33 @@ export default function SupplierProductsPage() {
     if (allProducts.length) setRows(ROWS_KEY.supplierProducts, allProducts);
   }, [allProducts]);
 
+  /**
+   * Re-read the catalogue after a sync, streamed and published ONCE.
+   *
+   * Same job the old `getCachedSupplierProducts()` call did here — batches arrive
+   * from 8 concurrent workers, so their append order is not the catalogue's — but
+   * without the multi-second `getAll` block. Pages accumulate off-screen and are
+   * swapped in a single state update, so a finished sync never triggers a burst of
+   * renders over a 319k-row array.
+   */
+  const reReadCatalogue = useCallback(async (): Promise<Product[]> => {
+    const acc: Product[] = [];
+    const seqs: number[] = [];
+    await streamCachedSupplierProducts({
+      onPage: (rows) => {
+        for (const row of rows) {
+          acc.push(mapSupplierToProduct(row));
+          seqs.push(typeof row.sort_seq === 'number' ? row.sort_seq : Number.MAX_SAFE_INTEGER);
+        }
+      },
+    });
+    const order = acc.map((_, i) => i).sort((a, b) => {
+      if (seqs[a] !== seqs[b]) return seqs[a] - seqs[b];
+      return String(acc[a].id).localeCompare(String(acc[b].id), undefined, { numeric: true });
+    });
+    return order.map((i) => acc[i]);
+  }, []);
+
   const batchBuffer = useRef<Product[]>([]);
   const seenIds = useRef<Set<number>>(new Set());
   const lastCommit = useRef(0);
@@ -497,8 +570,8 @@ export default function SupplierProductsPage() {
     // order — batches arrive from 8 concurrent workers, so append order does not
     // match the catalogue's. React 18+ ignores setState on an unmounted
     // component, so a late resolve after navigation is harmless.
-    void getCachedSupplierProducts().then((rows) => {
-      setAllProducts(rows.map(mapSupplierToProduct));
+    void reReadCatalogue().then((rows) => {
+      setAllProducts(rows);
       seenIds.current.clear();
       committedOnce.current = false;
     });
@@ -516,8 +589,8 @@ export default function SupplierProductsPage() {
      them merged into the catalogue in canonical `sort_seq` order — the same thing
      the old inline handler did with this function's return value. */
   useOnSyncComplete(SYNC_TASK.supplierPage, () => {
-    void getCachedSupplierProducts().then((rows) => {
-      setAllProducts(rows.map(mapSupplierToProduct));
+    void reReadCatalogue().then((rows) => {
+      setAllProducts(rows);
       addToast('Current page refreshed.');
     });
   });
@@ -592,82 +665,49 @@ export default function SupplierProductsPage() {
 
   // Filtered & Sorted Dataset
   const filteredProducts = useMemo(() => {
-    // Start from the array itself, NOT a spread copy. Every filter below
-    // already returns a fresh array, so the eager `[...allProducts]` was an
-    // extra full-size allocation (318k entries) on every keystroke-triggered
-    // recompute. The only step that would mutate is `.sort()`, which copies
-    // explicitly below when nothing else has copied yet.
+    console.time("Filtering");
     let result: Product[] = allProducts;
 
-    // Search — delegated to `services/searchFilter.ts`, the single source of
-    // truth for the search contract: tokenized on comma/whitespace, AND across
-    // tokens, OR across fields, partial and case-insensitive.
-    //
-    // This replaces an inline copy that matched numeric tokens with an
-    // UNANCHORED `sizeDigits.includes(num)` and also ran them through the text
-    // fields. That let a width query hit unrelated stock via SKU digits —
-    // measured on the live catalogue: "195" returned 326 rows of which 57 were
-    // false positives (e.g. size 33X/12.5 R22, SKU 2281953), and "55" returned
-    // 2,344 of which 1,454 were wrong. `matchesSearch` anchors a size token to
-    // a width prefix or a whole size component and never matches it against
-    // name/SKU, so short numeric searches stay precise. Full sizes are
-    // unaffected — every spelling of "205/55R16" still returns the same 61 rows.
-    // Search + the width-omitted aspect+rim fallback, both from
-    // services/searchFilter.ts — the two-step used to be inlined here and in
-    // the other product page.
     if (dSearchQuery.trim()) {
       result = searchWithAspectRimFallback(result, dSearchQuery.trim(), SEARCH_FIELDS, SEARCH_SIZE_FIELDS);
     }
 
-    // Supplier / Category — exact match on the selected dropdown value.
     if (supplierFilter !== 'ALL') result = result.filter(item => item.source === supplierFilter);
     if (categoryFilter !== 'ALL') result = result.filter(item => item.category === categoryFilter);
 
-    // Brand — comma-separated list or typed text, partial match on ANY.
     if (dBrandInput.trim()) {
       const brands = dBrandInput.split(',').map(b => b.trim().toLowerCase()).filter(Boolean);
       if (brands.length) result = result.filter(item => brands.some(b => item.brand.toLowerCase().includes(b)));
     }
 
-    // Size — comma-separated list, each normalized (plain_size) OR formatted-size match.
     if (dSizeInput.trim()) {
       const sizes = dSizeInput.split(',').map(s => s.trim()).filter(Boolean);
       if (sizes.length) result = result.filter(item => sizes.some(sz => matchesSizeInput(item, sz)));
     }
 
-    // Year — comma-separated exact list (matches route's $in).
     if (dYearInput.trim()) {
       const years = dYearInput.split(',').map(y => parseInt(y.trim(), 10)).filter(y => !isNaN(y));
       if (years.length) result = result.filter(item => years.includes(item.year));
     }
 
-    // Qty — minimum threshold (matches route's { $gte }).
     if (dQtyInput.trim() && !isNaN(Number(dQtyInput))) {
       const n = Number(dQtyInput);
       result = result.filter(item => item.qty >= n);
     }
 
-    // Price range — inclusive Min/Max over the COST column. Each bound is
-    // applied only when it parses as a number, so a half-filled range still
-    // filters on the side that was entered, and a blank pair is a no-op.
     const minPrice = parseFloat(dMinPriceInput);
     const maxPrice = parseFloat(dMaxPriceInput);
     if (!isNaN(minPrice)) result = result.filter(item => item.cost >= minPrice);
     if (!isNaN(maxPrice)) result = result.filter(item => item.cost <= maxPrice);
-    // Latest checkbox — client-side filter over the cached catalogue. Checked =
-    // current records only (is_latest = 1); unchecked = ALL synced products.
-    // Purely local; never triggers an API call.
+
     if (latestOnly) result = result.filter(item => matchesLatest(item, true));
 
     if (sortColumn) {
-      // `sort` mutates in place. If no filter ran, `result` is still the
-      // `allProducts` state array — copy first so we never reorder state.
       if (result === allProducts) result = [...result];
       const dir = sortAsc ? 1 : -1;
-      // Date is the default sort, so it runs constantly and over the largest
-      // arrays — take the precomputed integer path instead of the collator.
       if (sortColumn === 'date') {
         result.sort((a, b) => (a.dateKey - b.dateKey) * dir);
+        console.timeEnd("Filtering");
         return result;
       }
       result.sort((a, b) => {
@@ -686,6 +726,7 @@ export default function SupplierProductsPage() {
       });
     }
 
+    console.timeEnd("Filtering");
     return result;
   }, [allProducts, dSearchQuery, supplierFilter, categoryFilter, dBrandInput, dSizeInput, dYearInput, dQtyInput, dMinPriceInput, dMaxPriceInput, latestOnly, sortColumn, sortAsc]);
 

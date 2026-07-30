@@ -185,6 +185,36 @@ export async function idbPutAll<T>(store: string, items: T[]): Promise<void> {
   });
 }
 
+/**
+ * Read up to `count` records whose key is greater than `after`.
+ *
+ * The paged alternative to {@link idbGetAll}. `getAll()` on a large store forces
+ * V8 to structured-clone EVERY record before the promise resolves — measured on
+ * the supplier catalogue: 4.6–7.2s for 319,429 rows, during which nothing can
+ * render. Walking the store in key-ordered pages costs the same total work but
+ * delivers the first rows in milliseconds and lets the caller yield to the event
+ * loop between pages.
+ *
+ * `IDBKeyRange.lowerBound(after, true)` is exclusive, so passing the last key of
+ * the previous page walks the store without gaps or repeats. Mixed key types are
+ * fine: IndexedDB orders all numbers before all strings, and this always advances
+ * from the last key it actually saw.
+ */
+export async function idbGetPage<T>(
+  store: string,
+  after: IDBValidKey | null,
+  count: number,
+): Promise<T[]> {
+  const db = await openDB();
+  return new Promise<T[]>((resolve, reject) => {
+    const os = db.transaction(store, "readonly").objectStore(store);
+    const range = after === null ? null : IDBKeyRange.lowerBound(after, true);
+    const req = os.getAll(range, count);
+    req.onsuccess = () => resolve((req.result as T[]) ?? []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
 /** Number of records in a store. Cheap — does not deserialize the values. */
 export async function idbCount(store: string): Promise<number> {
   const db = await openDB();
