@@ -94,7 +94,9 @@ Reference figures on the live data (dev server, 1600×900):
 - supplier catalogue: 319,429 rows, ~53 MB IndexedDB, ~96 MB retained heap
 - tc catalogue: 7,809 rows over 79 pages; cold sync ~13.6 s at concurrency 8
 - warm revisit: 0 GraphQL requests, 3 IndexedDB ops
-- upstream GraphQL: ~0.9 s TTFB per 100-row page (the dominant cost of any sync)
+- upstream GraphQL page-size cap (measured, not assumed): `supplierProducts` **1000**, `products` **≥2000**
+- `supplierProducts`: 1,000 rows / ~0.5–0.9 s vs 100 rows / ~0.6 s → 1,900 rows/s vs 161. Full catalogue = **329 requests / 63 s** (was 3,195 / 351 s at pageSize 100)
+- `products` (tc + storefront): throughput plateaus ~200 rows/s, so page size is capped at `STOREFRONT_PAGE_SIZE = 500` — 1000 buys ~10 % and doubles time-to-first-response
 
 Note the `Skeleton` primitive renders class `.skeleton` (shimmer defined in
 `globals.css`), **not** `animate-pulse` — detecting skeletons by the wrong class

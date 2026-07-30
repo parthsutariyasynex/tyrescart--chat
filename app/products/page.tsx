@@ -11,6 +11,7 @@ import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilitie
 import {
   fetchStorefrontBatch,
   fetchStorefrontBatchWithRetry,
+  STOREFRONT_PAGE_SIZE,
   getCachedStorefrontPages,
   PRODUCTS_SYNC_CONCURRENCY,
   getRows,
@@ -86,7 +87,8 @@ export default function PosProductsPage() {
   void activeBrand;
 
   // How many products each GraphQL request pulls into the cache.
-  const BATCH_SIZE = 500;
+  // Shared with tc-products; see STOREFRONT_PAGE_SIZE for why it is not 1000.
+  const BATCH_SIZE = STOREFRONT_PAGE_SIZE;
 
   /** Split a seeded flat list back into its batch slots, so the first live batch
    *  replaces its own slice instead of the whole list. */

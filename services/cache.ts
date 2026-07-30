@@ -492,15 +492,45 @@ export async function getTyresChatCached(
    pool, and each page retries independently before being given up on.
 ───────────────────────────────────────────────────────────── */
 
+/**
+ * Rows Magento will serve in one request, measured against the live endpoint.
+ *
+ * It was 100 for `supplierProducts` until the cap was raised; asking for more
+ * than this is harmless (the backend clamps, and `detectPageSizeCap` adopts what
+ * actually came back), so this is the ceiling every catalogue walk aims at —
+ * except where a measurement says a smaller page is better, which is documented
+ * at each site.
+ *
+ *   supplierProducts   100 rows / 0.62s   ·  1000 rows / 0.52s   (161 -> 1,923 rows/s)
+ *   products           100 rows / 0.90s   ·   500 rows / 2.67s   ·  1000 rows / 4.83s
+ *                                            (111 -> 187 -> 207 rows/s)
+ */
+export const API_MAX_PAGE_SIZE = 1000;
+
+/**
+ * Storefront `products` page size. Deliberately NOT `API_MAX_PAGE_SIZE`:
+ * throughput plateaus around 200 rows/s on that field, so 500 -> 1000 buys ~10%
+ * while doubling the wait for the FIRST response (2.67s -> 4.83s) — and nothing
+ * renders until it lands. 500 halves the request count against 100 without that
+ * cost. `supplierProducts` has no such tradeoff, hence the split.
+ */
+export const STOREFRONT_PAGE_SIZE = 500;
+
 /** Page size to ASK for. The real cap is whatever the backend returns for page
- *  1 (see `detectPageSizeCap`) — historically 100, so requesting more is free
- *  and costs nothing if the cap stays put. */
-export const SUPPLIER_SYNC_BATCH_SIZE = 500;
+ *  1 (see `detectPageSizeCap`), so over-asking is free.
+ *
+ *  Measured against the live endpoint: `supplierProducts` capped at 100 for a
+ *  long time, then the cap was raised to 1000 — and 1,000 rows come back in
+ *  ~0.52s against ~0.62s for 100, i.e. 1,923 rows/s versus 161. Asking 1000
+ *  turns the full catalogue from ~3,195 requests into ~320. Asking beyond the
+ *  cap is harmless: the backend clamps and `detectPageSizeCap` adopts whatever
+ *  it actually returned. */
+export const SUPPLIER_SYNC_BATCH_SIZE = API_MAX_PAGE_SIZE;
 /** How many pages to fetch in parallel during a sync (keeps ~3.2k requests feasible). */
 const SUPPLIER_SYNC_CONCURRENCY = 8;
 /** Rows accumulated before a batch is streamed to the UI during a bootstrap
- *  sync. NOTE: the upstream caps a single request at 100 rows, so one batch is
- *  assembled from ~5 pages — it is a render/persist granularity, not a request size. */
+ *  sync. A render/persist granularity, NOT a request size — left at 500 so the
+ *  table still fills in visible steps now that one request returns 1,000 rows. */
 export const SUPPLIER_BOOTSTRAP_BATCH_SIZE = 500;
 /** Attempts per page before it is recorded as failed (1 initial + 2 retries). */
 const SUPPLIER_SYNC_MAX_ATTEMPTS = 3;
@@ -1161,8 +1191,18 @@ export async function getTcSyncState(): Promise<TcSyncState | null> {
   return (await idbGetMeta<TcSyncState>(META_TC_STATE).catch(() => null)) ?? null;
 }
 
-/** Rows per request. The upstream caps a page at 100, so asking for more is moot. */
-export const TC_PAGE_SIZE = 100;
+/**
+ * Rows per request for the tc catalogue.
+ *
+ * Was 100 because `products` was assumed capped there; measured, it serves what
+ * you ask for. 500 turns ~86 requests into ~18. See {@link STOREFRONT_PAGE_SIZE}
+ * for why this stops short of 1000.
+ *
+ * CHANGING THIS INVALIDATES THE CACHE ONCE: `getCachedTcPages` only accepts
+ * entries whose `page_size` matches, so pages stored at the old size are ignored
+ * and the next visit re-syncs the catalogue.
+ */
+export const TC_PAGE_SIZE = STOREFRONT_PAGE_SIZE;
 
 /**
  * Attribute option labels change only when a merchandiser edits an attribute
