@@ -384,6 +384,15 @@ export default function TcProductsPage() {
       // network work either — filling gaps is the Sync button's job.
       if (cachedPages.length > 0) return;
 
+      // Offline with nothing cached → do NOT start. The task would burn 3 retry
+      // attempts per page and trip its circuit breaker for no possible gain;
+      // supplier-products has always guarded this. The toast below tells the
+      // user to connect once.
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        addToast('Offline and no cached products yet. Connect once to load the catalogue.');
+        return;
+      }
+
       // Cold cache → the registered task does the walk, so it survives
       // navigation. `start()` dedupes synchronously, so a run already going
       // (another route, the sidebar, StrictMode's double effect) is joined,

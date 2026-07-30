@@ -172,6 +172,16 @@ export default function PosProductsPage() {
         }
       }
 
+      // Offline → make no attempt at all. Each batch would retry 3 times with
+      // backoff before giving up (18 batches = up to 54 doomed requests), and a
+      // sidebar "Sync all data" reaches this path too. Matches the guard
+      // supplier-products and tc-products use.
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        setError("Offline: connect once to load the catalogue.");
+        setLoading(false);
+        return;
+      }
+
       const first = await fetchStorefrontBatch({ ...baseParams, currentPage: 1 }, maxAgeMs);
       if (!isCurrent()) return;
 
