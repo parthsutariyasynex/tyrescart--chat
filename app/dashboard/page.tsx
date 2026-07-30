@@ -10,7 +10,7 @@ import {
   CircleStackIcon,
 } from "@heroicons/react/24/outline";
 import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
-import HeaderSyncButton from "@/components/HeaderSyncButton";
+import SyncButton from "@/components/SyncButton";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { countCachedSupplierProducts } from "@/services/cache";
 
@@ -36,7 +36,7 @@ export default function DashboardPage() {
           <div className="flex items-center gap-3">
             <FullscreenButton tone="gray" />
 
-            <HeaderSyncButton title="Sync Dashboard" />
+            <SyncButton title="Sync Dashboard" tone="orange" />
 
             <OnlineStatusBadge isOnline={isOnline} variant="fixed" />
           </div>

@@ -10,6 +10,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { buildRowString } from "@/services/productFormatter";
 import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
+import SyncButton from "@/components/SyncButton";
 import { CATEGORY_BADGES_TAILWIND, BRAND_BADGES_TAILWIND } from "@/constants/badges";
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
@@ -29,7 +30,6 @@ import {
   setRows,
   ROWS_KEY,
   countCachedSupplierProducts,
-  syncSupplierProductsPage,
   type CachedSupplierProduct,
 } from '@/services/cache';
 import {
@@ -350,10 +350,8 @@ export default function SupplierProductsPage() {
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
 
   const [isLoading, setIsLoading] = useState(true);
-  const [pageSyncing, setPageSyncing] = useState(false);
   /** Synchronous latch for the PAGE-scoped sync only. The full catalogue sync
    *  is owned by the global manager, which dedupes on its own. */
-  const syncInFlight = useRef(false);
   /** True only while the cold-start latest-products phase is still running. */
   const [bootstrapping, setBootstrapping] = useState(false);
 
@@ -368,7 +366,7 @@ export default function SupplierProductsPage() {
 
   // IndexedDB-first: on load/refresh/navigation we ONLY read the cached
   // catalogue — no API request, no background sync, no revalidation. Fresh data
-  // comes solely from the Sync buttons (handlePageSync / handleFullSync). If the cache is empty,
+  // comes solely from the shared <SyncButton /> and the sidebar. If the cache is empty,
   // the table shows its empty state until the user syncs.
   useEffect(() => {
     document.documentElement.classList.remove('dark');
@@ -498,15 +496,6 @@ export default function SupplierProductsPage() {
     });
   });
 
-  // Surface a failed background sync — the manager records the reason, but with
-  // no page mounted at the time there was nothing to show it.
-  useEffect(() => {
-    if (supplierSync.status === 'error' && supplierSync.error) {
-      setBootstrapping(false);
-      addToast('Could not load supplier products. Please use Sync to retry.');
-    }
-  }, [supplierSync.status, supplierSync.error]);
-
   const addToast = (msg: string) => {
     const id = Date.now();
     setToasts(prev => [...prev, { id, msg }]);
@@ -515,29 +504,21 @@ export default function SupplierProductsPage() {
     }, 2800);
   };
 
-  // Per-Page Sync — Header button refreshes ONLY current page data
-  const handlePageSync = async () => {
-    // Ref, not state: `setPageSyncing(true)` doesn't take effect until the next
-    // render, so two clicks in the same tick would both read `false` and both
-    // fire. `syncInFlight` flips synchronously, so the second click always loses.
-    if (syncInFlight.current) return;
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      addToast('Offline: cannot sync without an internet connection.');
-      return;
+  // Surface a failed background sync — the manager records the reason, but with
+  // no page mounted at the time there was nothing to show it.
+  useEffect(() => {
+    if (supplierSync.status === 'error' && supplierSync.error) {
+      // Reacting to an external store (the sync manager) reporting a failure is
+      // the sanctioned "subscribe for updates" case; the state update has to
+      // happen here because nothing else observes that transition. Pre-existing
+      // behaviour — it only became visible to the linter once `addToast` moved
+      // above this effect during the SyncButton unification.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setBootstrapping(false);
+      addToast('Could not load supplier products. Please use Sync to retry.');
     }
-    syncInFlight.current = true;
-    setPageSyncing(true);
-    try {
-      const items = await syncSupplierProductsPage({ pageSize, currentPage });
-      setAllProducts(items.map(mapSupplierToProduct));
-      addToast(`Synced page ${currentPage} supplier products.`);
-    } catch {
-      addToast('Sync failed. Please try again.');
-    } finally {
-      syncInFlight.current = false;
-      setPageSyncing(false);
-    }
-  };
+  }, [supplierSync.status, supplierSync.error]);
+
 
   /*
    * Full catalogue sync now lives entirely in the global manager (see
@@ -804,16 +785,21 @@ export default function SupplierProductsPage() {
   // way, and "No products found" would be telling the user something false.
   const showSkeleton =
     isLoading ||
-    ((pageSyncing || fullSyncing) && allProducts.length === 0) ||
+    (fullSyncing && allProducts.length === 0) ||
     (bootstrapping && currentItems.length === 0);
 
   // Keep the current page within range whenever the result set shrinks (a
   // filter change, page-size change, or Latest toggle), so the table never sits
   // on an empty, out-of-range page.
+  /* Clamping the page after the result set shrinks. Unchanged behaviour — it
+     only became visible to the linter during the SyncButton unification, and
+     deriving the page instead would change pagination, which is out of scope. */
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (currentPage > totalPages) setCurrentPage(totalPages);
     else if (currentPage < 1) setCurrentPage(1);
   }, [currentPage, totalPages]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleSort = (colKey: keyof Product) => {
     if (sortColumn === colKey) {
@@ -903,7 +889,7 @@ export default function SupplierProductsPage() {
           <div className="flex items-center gap-3">
             <h1 className="text-lg font-bold text-slate-900 tracking-tight">Products</h1>
             <span className="inline-flex items-center justify-center min-w-[92px] bg-emerald-50 text-emerald-700 text-xs font-semibold px-2.5 py-0.5 rounded-full border border-emerald-200/80 tabular-nums whitespace-nowrap">
-              {fullSyncing || pageSyncing ? (
+              {fullSyncing ? (
                 syncProgress ? (
                   `Syncing: ${syncProgress.loaded.toLocaleString()} items`
                 ) : (
@@ -959,20 +945,9 @@ export default function SupplierProductsPage() {
 
             <FullscreenButton tone="slate" />
 
-            {/* Header Sync Button — per page sync */}
-            <button
-              type="button"
-              onClick={(e) => {
-                handlePageSync();
-                e.currentTarget.blur();
-              }}
-              disabled={pageSyncing || fullSyncing}
-              title="Sync current page supplier products"
-              aria-label="Sync current page supplier products"
-              className="p-2 text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-50 focus:outline-none"
-            >
-              <DatabaseZap className={`w-5 h-5 ${pageSyncing ? 'animate-pulse text-emerald-600' : ''}`} />
-            </button>
+            {/* The app's shared Sync button — resolves this route to its
+                registered task and runs it through the manager. */}
+            <SyncButton title="Sync supplier products" />
 
             {/* Online Indicator */}
             <OnlineStatusBadge isOnline={isOnline} variant="fixed" />

@@ -13,6 +13,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { buildRowString, buildBulkCopyString } from "@/services/productFormatter";
 import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
+import SyncButton from "@/components/SyncButton";
 import { CATEGORY_BADGES_SEMANTIC, BRAND_BADGES_SEMANTIC } from "@/constants/badges";
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import {
@@ -286,10 +287,8 @@ export default function TcProductsPage() {
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
 
   const [isLoading, setIsLoading] = useState(true);
-  const [pageSyncing, setPageSyncing] = useState(false);
   /** Synchronous latch for the PAGE-scoped sync only. The full catalogue sync
    *  is owned by the global manager, which dedupes on its own. */
-  const syncInFlight = useRef(false);
   /**
    * True while `loadAll` is still walking the catalogue's pages.
    *
@@ -463,34 +462,7 @@ export default function TcProductsPage() {
   }, [loadAll]);
 
   // Header refresh button — re-runs the same API load with full sync banner.
-  const handlePageSync = async () => {
-    if (syncInFlight.current) return;
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      addToast('Offline: cannot sync without an internet connection.');
-      return;
-    }
-    // Already running (sidebar, another route, a previous click) → join it
-    // rather than queueing a second pass over the same pages.
-    if (syncManager.isRunning(SYNC_TASK.tcProducts)) {
-      addToast('Sync already in progress…');
-      return;
-    }
-    syncInFlight.current = true;
-    setPageSyncing(true);
-    try {
-      // The SAME pooled task the automatic sync uses: 8 workers, per-page retry
-      // with backoff, circuit breaker, `force: true` so every page is refetched.
-      // Progress and rows come back through `useSyncTask` / `useSyncBatches`.
-      await syncManager.start(SYNC_TASK.tcProducts);
-      const msg = syncManager.getTask(SYNC_TASK.tcProducts)?.message;
-      addToast(msg || 'Products refreshed.');
-    } catch {
-      addToast('Refresh failed. Please try again.');
-    } finally {
-      syncInFlight.current = false;
-      setPageSyncing(false);
-    }
-  };;
+;;
 
   /*
    * Full catalogue sync now lives entirely in the global manager (see
@@ -751,7 +723,6 @@ export default function TcProductsPage() {
   // only a finished load with a genuinely empty result reaches the empty state.
   const showSkeleton =
     (isLoading && allProducts.length === 0) ||
-    (pageSyncing && allProducts.length === 0) ||
     ((backgroundLoading || taskRunning) && currentItems.length === 0);
 
   // Keep the current page within range whenever the result set shrinks (a
@@ -950,7 +921,7 @@ export default function TcProductsPage() {
           <div className="flex items-center gap-3">
             <h1 className="text-lg font-bold text-slate-900 tracking-tight">TC Products</h1>
             <span className="inline-flex items-center justify-center min-w-[92px] bg-emerald-50 text-emerald-700 text-xs font-semibold px-2.5 py-0.5 rounded-full border border-emerald-200/80 tabular-nums whitespace-nowrap">
-              {pageSyncing || taskRunning ? (
+              {taskRunning ? (
                 syncProgress ? (
                   `Syncing: ${syncProgress.loaded.toLocaleString()} items`
                 ) : (
@@ -1021,20 +992,9 @@ export default function TcProductsPage() {
 
             <FullscreenButton tone="slate" />
 
-            {/* Header Sync Button — per page sync */}
-            <button
-              type="button"
-              onClick={(e) => {
-                handlePageSync();
-                e.currentTarget.blur();
-              }}
-              disabled={pageSyncing || taskRunning}
-              title="Sync current page supplier products"
-              aria-label="Sync current page supplier products"
-              className="p-2 text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-50 focus:outline-none"
-            >
-              <DatabaseZap className={`w-5 h-5 ${pageSyncing ? 'animate-pulse text-emerald-600' : ''}`} />
-            </button>
+            {/* The app's shared Sync button — resolves this route to its
+                registered task and runs it through the manager. */}
+            <SyncButton title="Sync TC products" />
 
             {/* Online Indicator */}
             <OnlineStatusBadge isOnline={isOnline} variant="fixed" />

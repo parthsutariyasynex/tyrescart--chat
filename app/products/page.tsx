@@ -30,7 +30,7 @@ import type {
 const brandOf = (name?: string) => (name || "").trim().split(/\s+/)[0] || "";
 import { ProductGridSkeleton, Skeleton } from "@/components/Skeletons";
 import Image from "next/image";
-import HeaderSyncButton from "@/components/HeaderSyncButton";
+import SyncButton from "@/components/SyncButton";
 import { registerModuleSync } from "@/services/syncService";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
@@ -343,7 +343,7 @@ export default function PosProductsPage() {
             <FullscreenButton tone="gray" />
 
             {/* Header Sync — current-page-only sync (shared useSync hook) */}
-            <HeaderSyncButton title="Sync products" />
+            <SyncButton title="Sync products" tone="orange" />
 
             <OnlineStatusBadge isOnline={isOnline} variant="fixed" />
           </div>

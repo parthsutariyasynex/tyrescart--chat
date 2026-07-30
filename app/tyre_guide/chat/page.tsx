@@ -14,7 +14,7 @@ import type { TyresChatItem } from "@/services/types";
 import { useToast } from "@/components/ToastProvider";
 import { ChatGridSkeleton } from "@/components/Skeletons";
 import Masonry from "react-masonry-css";
-import HeaderSyncButton from "@/components/HeaderSyncButton";
+import SyncButton from "@/components/SyncButton";
 import { registerModuleSync } from "@/services/syncService";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
@@ -215,7 +215,7 @@ export default function TyreGuideChatPage() {
             <FullscreenButton tone="gray" />
 
             {/* Header Sync — current-page-only sync (shared useSync hook) */}
-            <HeaderSyncButton title="Sync chat shortcuts" />
+            <SyncButton title="Sync chat shortcuts" tone="orange" />
 
             <OnlineStatusBadge isOnline={isOnline} variant="auto" />
 
