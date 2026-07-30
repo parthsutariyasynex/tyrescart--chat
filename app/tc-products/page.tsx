@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { DatabaseZap } from 'lucide-react';
 import {
   MagnifyingGlassIcon,
   ArrowPathIcon,
@@ -33,7 +32,7 @@ import {
 } from '@/services/cache';
 import { syncManager } from '@/services/syncManager';
 import { SYNC_TASK } from '@/services/syncTasks';
-import { useSyncTask, useSyncBatches, useOnSyncComplete } from '@/hooks/useSyncManager';
+import { useSyncTask, useSyncBatches, useOnSyncComplete, useOnSyncError } from '@/hooks/useSyncManager';
 import { Skeleton } from '@/components/Skeletons';
 import {
   fetchTcAttributeLabelsCached,
@@ -447,12 +446,9 @@ export default function TcProductsPage() {
 
   // Surface a failed background sync — the manager records the reason, but with
   // no page mounted at the time there was nothing to show it.
-  useEffect(() => {
-    if (tcSync.status === 'error' && tcSync.error) {
-      addToast('Could not load TC products. Please use Sync to retry.');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tcSync.status, tcSync.error]);
+  useOnSyncError(SYNC_TASK.tcProducts, () => {
+    addToast('Could not load TC products. Please use Sync to retry.');
+  });
 
   // Mirror the loaded rows into the session cache for the next visit.
   useEffect(() => {

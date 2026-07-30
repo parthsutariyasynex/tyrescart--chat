@@ -62,6 +62,15 @@ export interface SyncTaskDefinition {
   label: string;
   /** Resolve with an optional message to show on success. */
   run: (ctx: SyncTaskContext) => Promise<string | void>;
+  /**
+   * Keep this task out of {@link SyncManager.startAll}.
+   *
+   * For tasks scoped to what a page is currently showing (e.g. "refresh the
+   * visible page of supplier rows"): a full application sync already refreshes
+   * that data wholesale, so running it too would just be a redundant request
+   * against state the user isn't necessarily looking at.
+   */
+  excludeFromStartAll?: boolean;
 }
 
 type Listener = () => void;
@@ -220,8 +229,10 @@ class SyncManager {
 
   /** Start every registered task, deduping each. Resolves when all settle. */
   startAll(): Promise<void> {
-    return Promise.all(this.getRegisteredIds().map((id) => this.start(id).catch(() => { })))
-      .then(() => void 0);
+    const ids = this.getRegisteredIds().filter(
+      (id) => !this.definitions.get(id)?.excludeFromStartAll,
+    );
+    return Promise.all(ids.map((id) => this.start(id).catch(() => { }))).then(() => void 0);
   }
 
   /** Request cancellation. The task observes `ctx.signal` and stops at its next

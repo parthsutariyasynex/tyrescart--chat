@@ -84,6 +84,37 @@ export function useSyncBatches<T>(
  * a task is already finished doesn't immediately re-fire, and so two successive
  * runs both trigger.
  */
+/**
+ * Run `fn` once each time a task FAILS.
+ *
+ * The error twin of {@link useOnSyncComplete}, and it exists for the same reason:
+ * a page mounted after a background run died still needs to surface the reason,
+ * because the manager recorded it with no page listening. Pages previously did
+ * this with `useEffect(() => { if (status === "error") toast(...) })`, which puts
+ * a state update in an effect body — the exact pattern
+ * `react-hooks/set-state-in-effect` flags. Routing it through the run counter
+ * makes it fire once per failure instead of on every re-render that observes the
+ * error status.
+ */
+export function useOnSyncError(id: SyncTaskId, fn: (error: string | null) => void): void {
+  const { status, runCount, error } = useSyncTask(id);
+  const cb = useRef(fn);
+  useEffect(() => { cb.current = fn; });
+  const seen = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (seen.current === null) seen.current = syncManager.getTask(id)?.runCount ?? 0;
+  }, [id]);
+
+  useEffect(() => {
+    if (status !== "error" || seen.current === null) return;
+    if (runCount !== seen.current) {
+      seen.current = runCount;
+      cb.current(error);
+    }
+  }, [status, runCount, error]);
+}
+
 export function useOnSyncComplete(id: SyncTaskId, fn: () => void): void {
   const { status, runCount } = useSyncTask(id);
   const cb = useRef(fn);

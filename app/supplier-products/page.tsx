@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { DatabaseZap } from 'lucide-react';
 import {
   MagnifyingGlassIcon,
   ArrowPathIcon,
@@ -37,8 +36,9 @@ import {
   useSyncTask,
   useSyncBatches,
   useOnSyncComplete,
+  useOnSyncError,
 } from '@/hooks/useSyncManager';
-import { SYNC_TASK } from '@/services/syncTasks';
+import { SYNC_TASK, setSupplierPageRequest } from '@/services/syncTasks';
 
 /**
  * Field names `searchFilter` should read on this page's `Product` shape.
@@ -353,7 +353,9 @@ export default function SupplierProductsPage() {
   /** Synchronous latch for the PAGE-scoped sync only. The full catalogue sync
    *  is owned by the global manager, which dedupes on its own. */
   /** True only while the cold-start latest-products phase is still running. */
-  const [bootstrapping, setBootstrapping] = useState(false);
+  /** Set once when this page kicks off the cold-start sync; never cleared —
+   *  whether the run is still going is read from the manager below. */
+  const [bootstrapRequested, setBootstrapRequested] = useState(false);
 
   /* ── Global sync manager: OBSERVE, don't own ───────────────────────
      The catalogue sync runs inside `syncManager`, outside React, so it keeps
@@ -361,8 +363,15 @@ export default function SupplierProductsPage() {
      state — the page contributes no sync lifecycle of its own, which is what
      lets a sync started here survive navigation to another route. */
   const supplierSync = useSyncTask(SYNC_TASK.supplierProducts);
+  const supplierPageSync = useSyncTask(SYNC_TASK.supplierPage);
   const fullSyncing = supplierSync.status === 'running';
   const syncProgress = supplierSync.progress;
+
+  /* The page-scoped sync task takes no arguments (nothing outside React knows
+     which slice is on screen), so publish it whenever pagination changes. */
+  useEffect(() => {
+    setSupplierPageRequest({ pageSize, currentPage });
+  }, [pageSize, currentPage]);
 
   // IndexedDB-first: on load/refresh/navigation we ONLY read the cached
   // catalogue — no API request, no background sync, no revalidation. Fresh data
@@ -431,7 +440,7 @@ export default function SupplierProductsPage() {
       //
       // Progress, streamed rows and completion all come back through the
       // subscriptions declared below.
-      setBootstrapping(true);
+      setBootstrapRequested(true);
       resetIntern(); // fresh generation → let go of the previous vocabulary
       void syncManager.start(SYNC_TASK.supplierProducts);
     })();
@@ -490,7 +499,6 @@ export default function SupplierProductsPage() {
     // component, so a late resolve after navigation is harmless.
     void getCachedSupplierProducts().then((rows) => {
       setAllProducts(rows.map(mapSupplierToProduct));
-      setBootstrapping(false);
       seenIds.current.clear();
       committedOnce.current = false;
     });
@@ -504,20 +512,21 @@ export default function SupplierProductsPage() {
     }, 2800);
   };
 
+  /* A page refresh upserts those rows into IndexedDB; re-read so the table shows
+     them merged into the catalogue in canonical `sort_seq` order — the same thing
+     the old inline handler did with this function's return value. */
+  useOnSyncComplete(SYNC_TASK.supplierPage, () => {
+    void getCachedSupplierProducts().then((rows) => {
+      setAllProducts(rows.map(mapSupplierToProduct));
+      addToast('Current page refreshed.');
+    });
+  });
+
   // Surface a failed background sync — the manager records the reason, but with
   // no page mounted at the time there was nothing to show it.
-  useEffect(() => {
-    if (supplierSync.status === 'error' && supplierSync.error) {
-      // Reacting to an external store (the sync manager) reporting a failure is
-      // the sanctioned "subscribe for updates" case; the state update has to
-      // happen here because nothing else observes that transition. Pre-existing
-      // behaviour — it only became visible to the linter once `addToast` moved
-      // above this effect during the SyncButton unification.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setBootstrapping(false);
-      addToast('Could not load supplier products. Please use Sync to retry.');
-    }
-  }, [supplierSync.status, supplierSync.error]);
+  useOnSyncError(SYNC_TASK.supplierProducts, () => {
+    addToast('Could not load supplier products. Please use Sync to retry.');
+  });
 
 
   /*
@@ -785,21 +794,25 @@ export default function SupplierProductsPage() {
   // way, and "No products found" would be telling the user something false.
   const showSkeleton =
     isLoading ||
-    (fullSyncing && allProducts.length === 0) ||
-    (bootstrapping && currentItems.length === 0);
+    ((fullSyncing || supplierPageSync.status === 'running') && allProducts.length === 0) ||
+    // "still bootstrapping" = this page started the cold sync AND the manager
+    // says it is still running. Derived rather than mirrored in state, so an
+    // error or completion clears it without an effect writing state.
+    (bootstrapRequested && supplierSync.status === 'running' && currentItems.length === 0);
 
   // Keep the current page within range whenever the result set shrinks (a
   // filter change, page-size change, or Latest toggle), so the table never sits
   // on an empty, out-of-range page.
-  /* Clamping the page after the result set shrinks. Unchanged behaviour — it
-     only became visible to the linter during the SyncButton unification, and
-     deriving the page instead would change pagination, which is out of scope. */
-  /* eslint-disable react-hooks/set-state-in-effect */
+  /* Keep the current page within range whenever the result set shrinks (a filter
+     change, page-size change, or Latest toggle), so the table never sits on an
+     empty, out-of-range page. `react-hooks/set-state-in-effect` dislikes this,
+     but deriving the page instead would desync the "Page X of Y" readout from
+     the rows — a pagination change, out of scope here. */
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (currentPage > totalPages) setCurrentPage(totalPages);
     else if (currentPage < 1) setCurrentPage(1);
   }, [currentPage, totalPages]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleSort = (colKey: keyof Product) => {
     if (sortColumn === colKey) {
@@ -945,9 +958,10 @@ export default function SupplierProductsPage() {
 
             <FullscreenButton tone="slate" />
 
-            {/* The app's shared Sync button — resolves this route to its
-                registered task and runs it through the manager. */}
-            <SyncButton title="Sync supplier products" />
+            {/* Shared Sync button, pointed at the PAGE-scoped task: it refreshes
+                the rows on screen (~1 request), not the 319k catalogue. The full
+                pass is the sidebar's "Sync all data". */}
+            <SyncButton task={SYNC_TASK.supplierPage} title="Sync current page" />
 
             {/* Online Indicator */}
             <OnlineStatusBadge isOnline={isOnline} variant="fixed" />
