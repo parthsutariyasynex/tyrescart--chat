@@ -55,6 +55,7 @@ import {
   fetchTcProductsGraphQL,
   fetchTcAttributeLabelsGraphQL,
   fetchTcQuickViewGraphQL,
+  fetchTcQuickViewMatchesGraphQL,
   isRetryableError,
 } from "./graphql";
 import type { TcProductsQueryVars } from "./queries";
@@ -1261,10 +1262,10 @@ export async function isTyresChatRecentlySynced(maxAgeMs = 30000): Promise<boole
  * the next visit re-syncs against the new shape. Bump it again if the tc query
  * gains another field the UI depends on.
  */
-export const TC_CACHE_KEY_PREFIX = "tc:products:v2:";
+export const TC_CACHE_KEY_PREFIX = "tc:products:v3:";
 
-/** Entries written before the `offers` field existed. Purged once — see below. */
-const TC_LEGACY_KEY_PREFIXES = ["tc:products:{"];
+/** Entries written before the `tyres_category` field existed. Purged once — see below. */
+const TC_LEGACY_KEY_PREFIXES = ["tc:products:{", "tc:products:v2:"];
 
 /**
  * One-time removal of tc pages cached under a previous query shape.
@@ -1374,6 +1375,14 @@ export function fetchTcQuickViewCached(
   maxAgeMs?: number,
 ): Promise<TcQuickViewProduct | null> {
   return getCachedQuery(`tc:quickview:${sku}`, () => fetchTcQuickViewGraphQL(sku), { maxAgeMs });
+}
+
+/** Cached candidate list for the Quick View attribute fallback. */
+export function fetchTcQuickViewMatchesCached(
+  terms: string,
+  maxAgeMs?: number,
+): Promise<TcQuickViewProduct[]> {
+  return getCachedQuery(`tc:quickview:match:${terms}`, () => fetchTcQuickViewMatchesGraphQL(terms), { maxAgeMs });
 }
 
 /** When the tc catalogue last reached the API successfully (ms epoch, 0 if never). */

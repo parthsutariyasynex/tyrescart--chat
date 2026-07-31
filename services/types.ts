@@ -228,6 +228,8 @@ export interface TcApiProduct {
    * any other id is a real one. (`is_offers` does NOT exist on this schema.)
    */
   offers: number | null;
+  /** Tyre category attribute option ID (1498 -> Budget, 1499 -> Quality, 1500 -> Premium, etc.) */
+  tyres_category?: number | null;
   /** Free-text on this store, e.g. "107V". */
   load_index: string | null;
   image: { url: string | null; label: string | null } | null;

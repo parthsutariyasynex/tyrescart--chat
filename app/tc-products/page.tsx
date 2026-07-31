@@ -178,6 +178,7 @@ interface TcLabelMaps {
   year: Record<string, string>;
   country: Record<string, string>;
   offers: Record<string, string>;
+  tyresCategory: Record<string, string>;
 }
 
 const EMPTY_MAP: Record<string, string> = {};
@@ -190,6 +191,7 @@ function prepareTcLabels(labels: TcAttributeLabels): TcLabelMaps {
     year: labels.year ?? EMPTY_MAP,
     country: labels.country ?? EMPTY_MAP,
     offers: labels.offers ?? EMPTY_MAP,
+    tyresCategory: labels.tyres_category ?? EMPTY_MAP,
   };
 }
 
@@ -201,13 +203,14 @@ function mapTcProduct(p: TcApiProduct, maps: TcLabelMaps): Product {
   const size = lbl(maps.size, p.tyre_size);
   const li = (p.load_index ?? '').trim();
   const regular = p.price_range?.minimum_price?.regular_price?.value ?? 0;
+  const tyresCategoryLabel = lbl(maps.tyresCategory, p.tyres_category ?? null);
 
   return {
     id: Number(p.uid ? parseInt(atob(p.uid), 10) : 0) || 0,
     source: '',
     itemCode: p.sku ?? '',
     productType: '',
-    category: p.categories?.[0]?.name ?? '',
+    category: normalizeCategory(tyresCategoryLabel) || (p.categories?.[0]?.name ?? ''),
     brand: lbl(maps.brand, p.brand),
     pattern: p.name ?? '',
     size,

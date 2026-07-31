@@ -117,10 +117,23 @@ LOAD/SPEED is `load_index`. Select attributes arrive as
 `selected_options:[{label,value}]`, free text as a plain `value` — a reader
 handling one shape silently drops the other.
 
-**Only `tyrescart`-sourced supplier rows exist in the storefront catalogue**
-(measured: 12/12 match; Mivomoto/Al Sarkal/pitstop/etc. match 0). For the rest the
-panel falls back to the supplier row's own fields and shows `-` for what is
-genuinely unknown.
+Resolution is two-stage: **SKU first**, then an exact **brand + pattern + size**
+match, accepted ONLY when exactly one candidate matches all three. Two products
+sharing those but differing by load index are ambiguous and neither is used —
+showing another tyre's images or warranty is worse than a dash. Never fuzzy.
+
+The fallback uses `search`, not `filter`: `tyre_size` is absent from
+`ProductAttributeFilterInput`, and `pattern` labels are not unique ("PorTran KC53"
+resolves to both 3660 and 819). Magento ANDs search terms against the product
+name, which carries brand, size and pattern — so `"Kumho 215/65 R17"` narrows
+correctly while `"Kumho 185/65 R14"` returns 0 because that tyre is not stocked.
+Candidates are then re-verified attribute-by-attribute client-side.
+
+**Most non-`tyrescart` supplier rows resolve to nothing** (measured: tyrescart
+12/12 by SKU; Mivomoto/Al Sarkal/pitstop/SandDance/LKN 0/39 — they stock
+motorcycle and van sizes the storefront does not sell). Those rows keep the
+supplier feed's own brand/pattern/size/year/country/price and show `-` for
+Width, Profile, Rim, Load-Speed and Warranty, which exist in neither source.
 
 ### Cost history
 Clicking a **Cost value** in the supplier table opens `components/CostHistoryModal.tsx`

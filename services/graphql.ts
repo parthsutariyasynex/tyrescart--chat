@@ -11,6 +11,7 @@ import {
   tcProductsQuery,
   tcAttributeLabelsQuery,
   tcQuickViewQuery,
+  tcQuickViewMatchQuery,
   type TcProductsQueryVars,
 } from "./queries";
 import type {
@@ -212,4 +213,11 @@ export async function fetchTcAttributeLabelsGraphQL(): Promise<TcAttributeLabels
 export async function fetchTcQuickViewGraphQL(sku: string): Promise<TcQuickViewProduct | null> {
   const data = await executeGraphQLQuery(tcQuickViewQuery(sku));
   return (data?.products?.items?.[0] as TcQuickViewProduct | undefined) ?? null;
+}
+
+/** Candidate products for the Quick View attribute fallback. Never used raw — the
+ *  caller must confirm a single exact attribute match before showing one. */
+export async function fetchTcQuickViewMatchesGraphQL(terms: string): Promise<TcQuickViewProduct[]> {
+  const data = await executeGraphQLQuery(tcQuickViewMatchQuery(terms));
+  return (data?.products?.items as TcQuickViewProduct[] | undefined) ?? [];
 }

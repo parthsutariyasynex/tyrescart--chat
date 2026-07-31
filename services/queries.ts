@@ -231,17 +231,15 @@ export const TC_LABELLED_ATTRIBUTES = [
   "year",
   "country",
   "oem_marking",
-  // Promo attribute: ids like 3590/3591 resolve to "Buy 3 Get 1 Free",
-  // "Free Wheel Alignment", etc. Without this the Offer column would print
-  // the raw id.
   "offers",
+  "tyres_category",
 ] as const;
 
 /**
  * Storefront products for the TC Products table.
  *
  * `brand` / `tyre_size` / `runflat` / `oem_marking` / `year` / `country` /
- * `offers` come back as INTEGER option ids (e.g. `oem_marking: 1571`), never as text — they
+ * `offers` / `tyres_category` come back as INTEGER option ids (e.g. `oem_marking: 1571`), never as text — they
  * must be resolved with tcAttributeLabelsQuery or the table shows raw numbers.
  * `load_index` is free text ("107V").
  */
@@ -281,6 +279,7 @@ export function tcProductsQuery(vars: TcProductsQueryVars = {}): string {
         year
         country
         offers
+        tyres_category
         image { url label }
         price_range {
           minimum_price {
@@ -312,6 +311,54 @@ export function tcQuickViewQuery(sku: string): string {
   const esc = (v: string) => v.replace(/"/g, '\\"');
   return `query {
     products(filter: { sku: { eq: "${esc(sku)}" } }, pageSize: 1) {
+      items {
+        sku
+        name
+        stock_status
+        url_key
+        offers
+        image { url label }
+        media_gallery { url label }
+        price_range {
+          minimum_price {
+            regular_price { value currency }
+            final_price { value currency }
+          }
+        }
+        custom_attributesV2 {
+          items {
+            code
+            ... on AttributeValue { value }
+            ... on AttributeSelectedOptions { selected_options { label value } }
+          }
+        }
+      }
+    }
+  }`;
+}
+
+/**
+ * Candidates for the Quick View attribute fallback, when a SKU has no storefront
+ * product.
+ *
+ * Uses `search`, deliberately, not `filter`:
+ * - `tyre_size` is NOT in `ProductAttributeFilterInput` (verified — the server
+ *   suggests `tyre_type`), so size cannot be filtered on.
+ * - `pattern` option labels are not unique: "PorTran KC53" resolves to both 3660
+ *   and 819 in `customAttributeMetadata`, and filtering on the wrong id silently
+ *   returns nothing.
+ *
+ * Magento's search ANDs the terms against the product name, which carries brand,
+ * size and pattern ("Kumho 215/65 R17 108H PorTran KC53 2026"), so a combined
+ * term narrows correctly — and returns nothing when the combination genuinely is
+ * not stocked. The caller still verifies each candidate attribute-by-attribute
+ * and only accepts a SINGLE exact match; this query merely narrows the field.
+ */
+export function tcQuickViewMatchQuery(terms: string, pageSize = 20): string {
+  const esc = (v: string) => v.replace(/"/g, '\\"');
+  return `query {
+    products(search: "${esc(terms)}", pageSize: ${pageSize}) {
+      total_count
       items {
         sku
         name

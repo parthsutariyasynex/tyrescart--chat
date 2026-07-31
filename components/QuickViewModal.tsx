@@ -9,8 +9,14 @@ import {
   ShieldCheckIcon,
   WrenchScrewdriverIcon,
 } from "@heroicons/react/24/outline";
-import { fetchTcQuickViewCached } from "@/services/cache";
+import { fetchTcQuickViewCached, fetchTcQuickViewMatchesCached } from "@/services/cache";
 import type { TcAttributeItem, TcQuickViewProduct } from "@/services/types";
+
+/** Case/whitespace-insensitive compare. Everything else must be identical. */
+function sameValue(a: string, b: string): boolean {
+  const norm = (v: string) => v.trim().toLowerCase().replace(/\s+/g, " ");
+  return norm(a) !== "" && norm(a) === norm(b);
+}
 
 /** Shown when the API has no value. Never a made-up default. */
 const UNKNOWN = "-";
@@ -73,24 +79,58 @@ export default function QuickViewModal({
   const [detail, setDetail] = useState<TcQuickViewProduct | null | undefined>(undefined);
 
   /**
-   * Full detail for this SKU from the live `products` query, cache-first.
-   *
-   * Only rows sourced from `tyrescart` exist in the storefront catalogue —
-   * measured, 12/12 match, while other suppliers match 0. When there is no
-   * storefront product the panel falls back to the supplier row's own fields and
-   * shows "-" for what genuinely is not known, rather than inventing values.
+   * Full detail from the live `products` query, cache-first — SKU first, then an
+   * exact brand + pattern + size match. When neither resolves, the panel falls
+   * back to the supplier row's own fields and shows "-" for what is genuinely
+   * unknown, rather than inventing values.
    */
   useEffect(() => {
     let alive = true;
-    const sku = product.itemCode;
-    // Resolved in a microtask rather than synchronously: a bare `setDetail(null)`
-    // in the effect body is a cascading render.
-    const request = sku ? fetchTcQuickViewCached(sku) : Promise.resolve(null);
-    void request
+
+    /**
+     * 1. SKU. 2. If that misses, brand + pattern + size — accepted ONLY when
+     *    exactly one candidate matches all three exactly.
+     *
+     * Deliberately never fuzzy. `search` narrows the field, then every candidate
+     * is re-checked attribute-by-attribute; two products sharing a brand, pattern
+     * and size (they differ only by load index) are ambiguous, so neither is
+     * used. Showing another tyre's images, warranty or price would be worse than
+     * showing a dash.
+     */
+    async function resolve(): Promise<TcQuickViewProduct | null> {
+      const sku = (product.itemCode || "").trim();
+      if (sku) {
+        const bySku = await fetchTcQuickViewCached(sku).catch(() => null);
+        if (bySku) return bySku;
+      }
+
+      const brand = (product.brand || "").trim();
+      const pattern = (product.pattern || "").trim();
+      const size = (product.size || "").trim();
+      // All three are required: two of them cannot identify one product.
+      if (!brand || !pattern || !size) return null;
+
+      const candidates = await fetchTcQuickViewMatchesCached(
+        `${brand} ${size} ${pattern}`,
+      ).catch(() => [] as TcQuickViewProduct[]);
+
+      const exact = candidates.filter((c) => {
+        const items = c.custom_attributesV2?.items;
+        return (
+          sameValue(readAttr(items, "brand"), brand) &&
+          sameValue(readAttr(items, "pattern"), pattern) &&
+          sameValue(readAttr(items, "tyre_size"), size)
+        );
+      });
+
+      return exact.length === 1 ? exact[0] : null;
+    }
+
+    void resolve()
       .then((d) => { if (alive) setDetail(d); })
       .catch(() => { if (alive) setDetail(null); });
     return () => { alive = false; };
-  }, [product.itemCode]);
+  }, [product.itemCode, product.brand, product.pattern, product.size]);
 
   useEffect(() => {
     // Trigger smooth slow open slide-up after mount
@@ -445,16 +485,22 @@ export default function QuickViewModal({
                 </div>
               </div>
 
-              {/* View Full Details Link */}
-              {/* <div className="flex items-center justify-start pt-0.5">
-                <button
-                  onClick={handleClose}
-                  className="text-[#008b47] hover:text-[#00753c] text-xs font-bold flex items-center gap-1 hover:underline underline-offset-2 transition-colors"
-                >
-                  <span>View Full Details</span>
-                  <span>→</span>
-                </button>
-              </div> */}
+              {/* View Full Details — the storefront URL built from the API's own
+                  `url_key`. Rendered only when Magento resolved a product, since
+                  there is no page to link to otherwise. */}
+              {detail?.url_key && (
+                <div className="flex items-center justify-start pt-0.5">
+                  <a
+                    href={`https://www.tyrescart.com/en/${detail.url_key}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[#008b47] hover:text-[#00753c] text-xs font-bold flex items-center gap-1 hover:underline underline-offset-2 transition-colors"
+                  >
+                    <span>View Full Details</span>
+                    <span aria-hidden="true">→</span>
+                  </a>
+                </div>
+              )}
 
             </div>
 
