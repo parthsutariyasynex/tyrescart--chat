@@ -18,6 +18,7 @@ import {
   CalendarDaysIcon,
   GlobeAltIcon,
   DocumentTextIcon,
+  ChevronDownIcon,
 } from "@heroicons/react/24/outline";
 
 /** One icon per spec cell, as the storefront shows — not a repeated tick. */
@@ -129,6 +130,7 @@ export default function QuickViewModal({
   onAddToCart,
 }: QuickViewModalProps) {
   const [selectedQty, setSelectedQty] = useState<number>(4);
+  const [isQtyOpen, setIsQtyOpen] = useState<boolean>(false);
   const [selectedImgIndex, setSelectedImgIndex] = useState<number>(0);
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [isClosing, setIsClosing] = useState<boolean>(false);
@@ -518,17 +520,41 @@ export default function QuickViewModal({
                   {/* Actions: Qty Select + Add to Cart Button & Split Payment */}
                   <div className="flex flex-col items-end gap-1.5 flex-1 max-w-xs ml-auto">
                     <div className="flex items-center gap-2 w-full">
-                      <select
-                        value={selectedQty}
-                        onChange={(e) => setSelectedQty(Number(e.target.value))}
-                        className="h-9 px-2.5 bg-white border border-slate-200 rounded-lg text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-[#008b47] cursor-pointer shadow-2xs"
-                      >
-                        {[1, 2, 4, 6, 8].map((q) => (
-                          <option key={q} value={q}>
-                            {q}
-                          </option>
-                        ))}
-                      </select>
+                      {/* Custom Qty Dropdown (Zero OS Blue) */}
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setIsQtyOpen(!isQtyOpen)}
+                          className="h-9 px-3 bg-white border border-slate-200 hover:border-emerald-500/50 rounded-lg text-xs font-extrabold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-[#008b47] cursor-pointer shadow-2xs flex items-center gap-1.5 transition-all"
+                        >
+                          <span>Qty: {selectedQty}</span>
+                          <ChevronDownIcon className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isQtyOpen ? "rotate-180 text-emerald-600" : ""}`} />
+                        </button>
+
+                        {/* Custom Dropdown Popover */}
+                        {isQtyOpen && (
+                          <div className="absolute left-0 bottom-full mb-1.5 w-24 bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-50 animate-in fade-in zoom-in-95 duration-100">
+                            {[1, 2, 4, 6, 8].map((q) => (
+                              <button
+                                key={q}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedQty(q);
+                                  setIsQtyOpen(false);
+                                }}
+                                className={`w-full text-left px-3 py-1.5 text-xs font-bold flex items-center justify-between transition-colors ${
+                                  selectedQty === q
+                                    ? "bg-emerald-50 text-emerald-700 font-extrabold"
+                                    : "text-slate-700 hover:bg-slate-50"
+                                }`}
+                              >
+                                <span>{q}</span>
+                                {selectedQty === q && <span className="font-bold text-emerald-600 text-[10px]">✓</span>}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
 
                       <button
                         onClick={() => {

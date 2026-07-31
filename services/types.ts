@@ -350,8 +350,12 @@ export interface CrmBooking {
   quoted_price: number | string | null;
   enquiry_date: string | null;
   follow_up_date: string | null;
-  priority: string | null;
-  status: string | null;
+  /** NUMERIC CODE, e.g. 2 — not a label. The schema exposes no mapping
+   *  (`crm_booking` is not a valid customAttributeMetadata entity_type), so the
+   *  UI shows the code rather than inventing a name for it. */
+  priority: number | string | null;
+  /** NUMERIC CODE, e.g. 1 — see the note on `priority`. */
+  status: number | string | null;
   detail: string | null;
   notes: string | null;
   vehicle: {

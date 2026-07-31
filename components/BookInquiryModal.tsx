@@ -81,6 +81,10 @@ export default function BookInquiryModal({
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 5;
 
+  // Custom Dropdown Open States (replacing native HTML select elements to eliminate browser blue highlights)
+  const [isFormStatusOpen, setIsFormStatusOpen] = useState(false);
+  const [activeTableStatusId, setActiveTableStatusId] = useState<string | null>(null);
+
   // Animation states matching QuickViewModal / CostHistoryModal
   const [isAnimatedOpen, setIsAnimatedOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
@@ -632,36 +636,66 @@ export default function BookInquiryModal({
                   </div>
                 </div>
 
-                {/* Status Dropdown with Dynamic Status Colors */}
+                {/* Custom Color-Coded Status Dropdown (Zero Browser Blue) */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Status</label>
                   <div className="relative">
-                    <select
-                      value={status}
-                      onChange={(e) => setStatus(e.target.value as Inquiry["status"])}
-                      className={`w-full appearance-none pl-8 pr-8 py-2 text-xs rounded-lg border font-bold cursor-pointer focus:outline-none transition-all shadow-2xs ${
+                    <button
+                      type="button"
+                      onClick={() => setIsFormStatusOpen(!isFormStatusOpen)}
+                      className={`w-full flex items-center justify-between pl-8 pr-3 py-2 text-xs rounded-lg border font-extrabold transition-all shadow-2xs cursor-pointer ${
                         status === "Pending"
-                          ? "bg-amber-50 text-amber-800 border-amber-300 focus:ring-amber-500/20 focus:border-amber-500"
+                          ? "bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100/80"
                           : status === "Contacted"
-                          ? "bg-blue-50 text-blue-800 border-blue-300 focus:ring-blue-500/20 focus:border-blue-500"
-                          : "bg-emerald-50 text-emerald-800 border-emerald-300 focus:ring-emerald-500/20 focus:border-emerald-500"
+                          ? "bg-teal-50 text-teal-800 border-teal-300 hover:bg-teal-100/80"
+                          : "bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100/80"
                       }`}
                     >
-                      <option value="Pending" className="bg-white text-amber-800 font-bold">Pending</option>
-                      <option value="Contacted" className="bg-white text-blue-800 font-bold">Contacted</option>
-                      <option value="Closed" className="bg-white text-emerald-800 font-bold">Closed</option>
-                    </select>
-                    {/* Status Dot Indicator */}
+                      <span className="flex items-center gap-2">
+                        {status}
+                      </span>
+                      <ChevronDownIcon className={`w-4 h-4 transition-transform text-slate-500 ${isFormStatusOpen ? "rotate-180 text-slate-700" : ""}`} />
+                    </button>
+
+                    {/* Colored Dot Indicator */}
                     <span
                       className={`absolute left-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full pointer-events-none ${
                         status === "Pending"
                           ? "bg-amber-500"
                           : status === "Contacted"
-                          ? "bg-blue-500"
+                          ? "bg-teal-500"
                           : "bg-emerald-500"
                       }`}
                     />
-                    <ChevronDownIcon className="w-4 h-4 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
+
+                    {/* Popover Menu */}
+                    {isFormStatusOpen && (
+                      <div className="absolute left-0 top-full mt-1 w-full bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-40 animate-in fade-in zoom-in-95 duration-100">
+                        {[
+                          { val: "Pending", bg: "bg-amber-50 text-amber-800 hover:bg-amber-100/80", dot: "bg-amber-500" },
+                          { val: "Contacted", bg: "bg-teal-50 text-teal-800 hover:bg-teal-100/80", dot: "bg-teal-500" },
+                          { val: "Closed", bg: "bg-emerald-50 text-emerald-800 hover:bg-emerald-100/80", dot: "bg-emerald-500" },
+                        ].map((opt) => (
+                          <button
+                            key={opt.val}
+                            type="button"
+                            onClick={() => {
+                              setStatus(opt.val as Inquiry["status"]);
+                              setIsFormStatusOpen(false);
+                            }}
+                            className={`w-full text-left px-3 py-2 text-xs font-bold flex items-center justify-between transition-colors ${
+                              status === opt.val ? `${opt.bg} border-l-4 ${opt.val === 'Pending' ? 'border-l-amber-500' : opt.val === 'Contacted' ? 'border-l-teal-500' : 'border-l-emerald-500'}` : "text-slate-700 hover:bg-slate-50"
+                            }`}
+                          >
+                            <span className="flex items-center gap-2">
+                              <span className={`w-2 h-2 rounded-full ${opt.dot}`} />
+                              {opt.val}
+                            </span>
+                            {status === opt.val && <span className="font-extrabold text-emerald-600">✓</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -797,8 +831,19 @@ export default function BookInquiryModal({
                               >
                                 <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                                   {b.enquiry_date && <span className="font-semibold text-slate-700">{b.enquiry_date}</span>}
-                                  {b.status && <span className="px-1.5 rounded bg-slate-100 text-slate-600 font-bold text-[9px] uppercase">{b.status}</span>}
-                                  {b.priority && <span className="px-1.5 rounded bg-amber-50 text-amber-700 font-bold text-[9px] uppercase">{b.priority}</span>}
+                                  {/* Rendered as "Status 1" / "Priority 2": the API returns
+                                      numeric codes and publishes no label mapping, so naming
+                                      them would be invention. */}
+                                  {b.status !== null && b.status !== undefined && (
+                                    <span className="px-1.5 rounded bg-slate-100 text-slate-600 font-bold text-[9px] uppercase">
+                                      Status {String(b.status)}
+                                    </span>
+                                  )}
+                                  {b.priority !== null && b.priority !== undefined && (
+                                    <span className="px-1.5 rounded bg-amber-50 text-amber-700 font-bold text-[9px] uppercase">
+                                      Priority {String(b.priority)}
+                                    </span>
+                                  )}
                                   {b.tire_size_1 && <span className="font-mono text-slate-600">{b.tire_size_1}</span>}
                                   {b.quantity != null && <span className="text-slate-500">qty {String(b.quantity)}</span>}
                                   {b.brand_preference && <span className="text-slate-500">{b.brand_preference}</span>}
@@ -894,7 +939,7 @@ export default function BookInquiryModal({
               </div>
 
               {/* Inquiry Table */}
-              <div className="overflow-x-auto rounded-lg border border-slate-200">
+              <div className="overflow-x-auto min-h-[260px] rounded-lg border border-slate-200">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-100/80 border-b border-slate-200 text-[11px] font-bold text-slate-600 uppercase tracking-wider">
@@ -970,38 +1015,69 @@ export default function BookInquiryModal({
                             )}
                           </td>
 
-                          {/* Status Badge & Dropdown */}
+                          {/* Status Badge & Custom Dropdown */}
                           <td className="px-3 py-2.5 text-center whitespace-nowrap">
                             <div className="relative inline-flex items-center">
-                              <select
-                                value={item.status}
-                                onChange={(e) =>
-                                  handleStatusChange(item.id, e.target.value as Inquiry["status"])
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setActiveTableStatusId(
+                                    activeTableStatusId === item.id ? null : item.id
+                                  )
                                 }
-                                className={`appearance-none text-[11px] font-extrabold pl-5 pr-5 py-0.5 rounded-full border cursor-pointer focus:outline-none transition-all shadow-2xs ${
+                                className={`appearance-none text-[11px] font-extrabold pl-5 pr-5 py-0.5 rounded-full border cursor-pointer transition-all shadow-2xs flex items-center gap-1 ${
                                   item.status === "Pending"
                                     ? "bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100/80"
                                     : item.status === "Contacted"
-                                    ? "bg-blue-50 text-blue-800 border-blue-300 hover:bg-blue-100/80"
+                                    ? "bg-teal-50 text-teal-800 border-teal-300 hover:bg-teal-100/80"
                                     : "bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100/80"
                                 }`}
                               >
-                                <option value="Pending" className="bg-white text-amber-800 font-bold">Pending</option>
-                                <option value="Contacted" className="bg-white text-blue-800 font-bold">Contacted</option>
-                                <option value="Closed" className="bg-white text-emerald-800 font-bold">Closed</option>
-                              </select>
+                                {item.status}
+                              </button>
+
                               {/* Dot indicator */}
                               <span
                                 className={`absolute left-2 w-1.5 h-1.5 rounded-full pointer-events-none ${
                                   item.status === "Pending"
                                     ? "bg-amber-500"
                                     : item.status === "Contacted"
-                                    ? "bg-blue-500"
+                                    ? "bg-teal-500"
                                     : "bg-emerald-500"
                                 }`}
                               />
+
                               {/* Chevron icon */}
                               <ChevronDownIcon className="w-3 h-3 absolute right-1.5 pointer-events-none text-slate-400" />
+
+                              {/* Custom Popover (Positioned UPWARDS bottom-full mb-1.5 to prevent table bottom clipping) */}
+                              {activeTableStatusId === item.id && (
+                                <div className="absolute right-0 bottom-full mb-1.5 w-32 bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-50 animate-in fade-in zoom-in-95 duration-100 text-left">
+                                  {[
+                                    { val: "Pending", bg: "bg-amber-50 text-amber-800 hover:bg-amber-100/80", dot: "bg-amber-500" },
+                                    { val: "Contacted", bg: "bg-teal-50 text-teal-800 hover:bg-teal-100/80", dot: "bg-teal-500" },
+                                    { val: "Closed", bg: "bg-emerald-50 text-emerald-800 hover:bg-emerald-100/80", dot: "bg-emerald-500" },
+                                  ].map((opt) => (
+                                    <button
+                                      key={opt.val}
+                                      type="button"
+                                      onClick={() => {
+                                        handleStatusChange(item.id, opt.val as Inquiry["status"]);
+                                        setActiveTableStatusId(null);
+                                      }}
+                                      className={`w-full text-left px-2.5 py-1.5 text-[11px] font-bold flex items-center justify-between transition-colors ${
+                                        item.status === opt.val ? `${opt.bg} border-l-2 ${opt.val === 'Pending' ? 'border-l-amber-500' : opt.val === 'Contacted' ? 'border-l-teal-500' : 'border-l-emerald-500'}` : "text-slate-700 hover:bg-slate-50"
+                                      }`}
+                                    >
+                                      <span className="flex items-center gap-1.5">
+                                        <span className={`w-1.5 h-1.5 rounded-full ${opt.dot}`} />
+                                        {opt.val}
+                                      </span>
+                                      {item.status === opt.val && <span className="font-extrabold text-emerald-600 text-[10px]">✓</span>}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           </td>
 
