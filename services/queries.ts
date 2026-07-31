@@ -231,13 +231,17 @@ export const TC_LABELLED_ATTRIBUTES = [
   "year",
   "country",
   "oem_marking",
+  // Promo attribute: ids like 3590/3591 resolve to "Buy 3 Get 1 Free",
+  // "Free Wheel Alignment", etc. Without this the Offer column would print
+  // the raw id.
+  "offers",
 ] as const;
 
 /**
  * Storefront products for the TC Products table.
  *
- * `brand` / `tyre_size` / `runflat` / `oem_marking` / `year` / `country` come
- * back as INTEGER option ids (e.g. `oem_marking: 1571`), never as text — they
+ * `brand` / `tyre_size` / `runflat` / `oem_marking` / `year` / `country` /
+ * `offers` come back as INTEGER option ids (e.g. `oem_marking: 1571`), never as text — they
  * must be resolved with tcAttributeLabelsQuery or the table shows raw numbers.
  * `load_index` is free text ("107V").
  */

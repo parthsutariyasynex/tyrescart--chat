@@ -117,7 +117,7 @@ reads IndexedDB only; it never fetches.
 
 - **No auth.** No `middleware.ts`; nothing gates any route.
 - **No checkout.** `hooks/useCart` + `services/cartStore.ts` persist a cart, but only tc-products' Add-to-Cart writes to it; there is no cart UI, order API or receipt. Offline orders/outbox is the deferred Phase 4.
-- **`Offer` column has no upstream data** — `tier_price`, `special_price` and `final_price` come back empty and no product has `final < regular`, so the column renders `—` for every row. NOTE the separate `offers` attribute IS populated (option ids → 8 promo labels, 342 of 8,526 products) and drives the tc-products **OFFERS?** filter; wiring it into this column is an open option.
+- **`Offer` column now reads the `offers` attribute** (option ids → 8 promo labels such as "Free Wheel Alignment", "Buy 3 Get 1 Free"; 342 of 8,526 products). It previously showed `—` on every row because it was computed from a regular-vs-final price spread, and no product on this store has `final < regular`.
 - **`is_offers` does not exist** on the Magento schema — `Cannot query field "is_offers" on type "ProductInterface"`. The real field is `offers`.
 - **`Qty` is `stock_status` only** (0/1). No numeric on-hand count exists in the API.
 - **`/dashboard` is a placeholder** and is the default landing route.

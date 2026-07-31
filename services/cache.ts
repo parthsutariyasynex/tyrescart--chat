@@ -1351,7 +1351,10 @@ export function fetchTcProductsCached(
 export function fetchTcAttributeLabelsCached(
   maxAgeMs = TC_LABELS_TTL_MS,
 ): Promise<TcAttributeLabels> {
-  return getCachedQuery("tc:attributeLabels", fetchTcAttributeLabelsGraphQL, {
+  // `:v2` because this key does not vary with the query text: adding `offers` to
+  // TC_LABELLED_ATTRIBUTES would otherwise keep serving cached maps that lack it,
+  // and the Offer column would show raw option ids for a day (the 24h TTL).
+  return getCachedQuery("tc:attributeLabels:v2", fetchTcAttributeLabelsGraphQL, {
     maxAgeMs,
     metaKey: "tcProducts:labelsLastSync",
   });

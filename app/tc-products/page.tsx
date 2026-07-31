@@ -167,6 +167,7 @@ interface TcLabelMaps {
   runflat: Record<string, string>;
   year: Record<string, string>;
   country: Record<string, string>;
+  offers: Record<string, string>;
 }
 
 const EMPTY_MAP: Record<string, string> = {};
@@ -178,6 +179,7 @@ function prepareTcLabels(labels: TcAttributeLabels): TcLabelMaps {
     runflat: labels.runflat ?? EMPTY_MAP,
     year: labels.year ?? EMPTY_MAP,
     country: labels.country ?? EMPTY_MAP,
+    offers: labels.offers ?? EMPTY_MAP,
   };
 }
 
@@ -189,10 +191,6 @@ function mapTcProduct(p: TcApiProduct, maps: TcLabelMaps): Product {
   const size = lbl(maps.size, p.tyre_size);
   const li = (p.load_index ?? '').trim();
   const regular = p.price_range?.minimum_price?.regular_price?.value ?? 0;
-  const final = p.price_range?.minimum_price?.final_price?.value ?? regular;
-  // Offer comes from the API's own regular-vs-final spread — a real discount,
-  // not a guess. Blank when there is none.
-  const pct = regular > 0 && final < regular ? Math.round(((regular - final) / regular) * 100) : 0;
 
   return {
     id: Number(p.uid ? parseInt(atob(p.uid), 10) : 0) || 0,
@@ -227,7 +225,11 @@ function mapTcProduct(p: TcApiProduct, maps: TcLabelMaps): Product {
     // new price — there is nothing cached or stored to go stale.
     setOf4Price: regular * SET_OF_4_UNITS,
     oem: NO_API_FIELD,
-    offer: pct > 0 ? `${pct}%` : NO_API_FIELD,
+    // The promo attribute's own label, e.g. "Free Wheel Alignment". This was a
+    // regular-vs-final price percentage, which rendered as an em-dash on every
+    // row: measured across all 8,526 products, none has final < regular, so the
+    // spread was always zero. `offers` is the field that actually carries this.
+    offer: lbl(maps.offers, p.offers) || NO_API_FIELD,
   };
 }
 
@@ -1438,7 +1440,7 @@ export default function TcProductsPage() {
                     {!hiddenColumns.has('qty') && <th onClick={() => handleSort('qty')} className="py-3 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap w-[65px]">Qty <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('price') && <th onClick={() => handleSort('price')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[120px]">Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('setOf4Price') && <th onClick={() => handleSort('setOf4Price')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[140px]">Set of 4 Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('offer') && <th className="py-3 px-2 text-center whitespace-nowrap w-[85px]">Offer</th>}
+                    {!hiddenColumns.has('offer') && <th className="py-3 px-2 text-center whitespace-nowrap w-[150px]">Offer</th>}
                     <th className="py-3 px-3 text-center whitespace-nowrap w-[100px]">Action</th>
                   </tr>
                 </thead>
@@ -1573,7 +1575,21 @@ export default function TcProductsPage() {
                           )}
 
                           {!hiddenColumns.has('offer') && (
-                            <td className={`${cellPaddingClass} text-center text-xs text-slate-400 font-medium`}>{item.offer}</td>
+                            <td className={`${cellPaddingClass} text-center`}>
+                              {item.offer === NO_API_FIELD ? (
+                                <span className="text-xs text-slate-400 font-medium">{NO_API_FIELD}</span>
+                              ) : (
+                                // Badge, and `title` carries the full text: the promo
+                                // labels run to ~20 characters ("Free Wheel Alignment")
+                                // and would otherwise be clipped with no way to read them.
+                                <span
+                                  title={item.offer}
+                                  className="inline-block max-w-full truncate px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200"
+                                >
+                                  {item.offer}
+                                </span>
+                              )}
+                            </td>
                           )}
 
                           <td className={`${cellPaddingClass} text-center`}>
