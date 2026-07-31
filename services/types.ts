@@ -330,3 +330,48 @@ export interface CrmBookingResult {
     email: string | null;
   } | null;
 }
+
+export interface CrmVehicle {
+  entity_id: number | string | null;
+  make: string | null;
+  model: string | null;
+  year: string | null;
+  plant_number: string | null;
+  tire_size_1: string | null;
+  tire_size_2: string | null;
+}
+
+export interface CrmBooking {
+  entity_id: number | string | null;
+  contact_method: string | null;
+  tire_size_1: string | null;
+  quantity: number | string | null;
+  brand_preference: string | null;
+  quoted_price: number | string | null;
+  enquiry_date: string | null;
+  follow_up_date: string | null;
+  priority: string | null;
+  status: string | null;
+  detail: string | null;
+  notes: string | null;
+  vehicle: {
+    make: string | null;
+    model: string | null;
+    year: string | null;
+    plant_number: string | null;
+  } | null;
+}
+
+/** A CRM customer with their vehicles and booking history. */
+export interface CrmCustomer {
+  entity_id: number | string | null;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  nationality: string | null;
+  emirates: string | null;
+  area: string | null;
+  status: string | null;
+  vehicles: CrmVehicle[];
+  bookings: CrmBooking[];
+}

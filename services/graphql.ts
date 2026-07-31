@@ -14,9 +14,11 @@ import {
   tcQuickViewMatchQuery,
   supplierPriceHistoryQuery,
   createCrmBookingMutation,
+  crmCustomerByPhoneQuery,
   type TcProductsQueryVars,
 } from "./queries";
 import type {
+  CrmCustomer,
   CrmBookingInput,
   CrmBookingResult,
   SupplierPriceHistoryPoint,
@@ -246,4 +248,25 @@ export async function createCrmBookingGraphQL(input: CrmBookingInput): Promise<C
   const res = data?.createCrmBooking as CrmBookingResult | undefined;
   if (!res) throw new Error("Booking failed: the server returned no result.");
   return res;
+}
+
+/**
+ * CRM customer for a phone number, or null when there is none.
+ *
+ * "No customer found" comes back as a GraphQL error, not an empty result, so a
+ * bare call would throw for the perfectly ordinary case of a new customer. That
+ * one message is translated into `null`; every other failure still throws, so a
+ * network or WAF problem is never mistaken for "not on file".
+ */
+export async function fetchCrmCustomerByPhoneGraphQL(phone: string): Promise<CrmCustomer | null> {
+  const trimmed = (phone ?? "").trim();
+  if (!trimmed) return null; // the API answers "Phone number is required."
+  try {
+    const data = await executeGraphQLQuery(crmCustomerByPhoneQuery(trimmed));
+    return (data?.crmCustomerByPhone as CrmCustomer | undefined) ?? null;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/no customer found/i.test(msg)) return null;
+    throw err;
+  }
 }

@@ -211,7 +211,7 @@ export default function QuickViewModal({
     setIsClosing(true);
     setTimeout(() => {
       onClose();
-    }, 400);
+    }, 700); // 700ms ultra-smooth slow closing duration
   };
 
   const attrs = detail?.custom_attributesV2?.items;
@@ -299,7 +299,7 @@ export default function QuickViewModal({
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs transition-opacity duration-400 ease-in-out ${
+      className={`fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs transition-opacity duration-500 ease-out ${
         isOpen && !isClosing ? "opacity-100" : "opacity-0 pointer-events-none"
       }`}
     >
@@ -308,7 +308,7 @@ export default function QuickViewModal({
 
       {/* Slide-Up Bottom Container */}
       <div
-        className={`relative w-full max-w-full bg-white rounded-t-2xl shadow-2xl border-t border-slate-200 overflow-hidden z-10 transition-all duration-400 ease-in-out max-h-[92vh] flex flex-col p-5 sm:p-6 ${
+        className={`relative w-full max-w-full bg-white rounded-t-2xl shadow-2xl border-t border-slate-200 overflow-hidden z-10 transition-all duration-500 ease-out max-h-[92vh] flex flex-col p-5 sm:p-6 ${
           isOpen && !isClosing
             ? "translate-y-0 opacity-100"
             : "translate-y-full opacity-0"

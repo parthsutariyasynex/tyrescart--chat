@@ -26,7 +26,8 @@ import {
   updateInquiry,
   deleteInquiry,
 } from "@/services/inquiryStorage";
-import { createCrmBookingGraphQL } from "@/services/graphql";
+import { createCrmBookingGraphQL, fetchCrmCustomerByPhoneGraphQL } from "@/services/graphql";
+import type { CrmCustomer } from "@/services/types";
 
 interface BookInquiryModalProps {
   isOpen: boolean;
@@ -67,6 +68,10 @@ export default function BookInquiryModal({
    *  mutation has no delete counterpart, so a double-click would file two
    *  enquiries that can only be removed from the Magento admin. */
   const [submitting, setSubmitting] = useState(false);
+  /** CRM record for the searched phone. null = looked up and not on file. */
+  const [crmCustomer, setCrmCustomer] = useState<CrmCustomer | null>(null);
+  const [crmLookupFor, setCrmLookupFor] = useState<string | null>(null);
+  const [crmLoading, setCrmLoading] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Search & Filter state
@@ -99,7 +104,7 @@ export default function BookInquiryModal({
     setIsClosing(true);
     setTimeout(() => {
       onClose();
-    }, 400);
+    }, 500);
   };
 
   // Load inquiries when the modal opens. localStorage is an external store, so
@@ -256,7 +261,7 @@ export default function BookInquiryModal({
     resetForm();
   };
 
-  // Search customer: filters the right-side inquiry list table
+  // Search customer: filters the local list AND looks the number up in the CRM
   const handleSearchCustomer = (overrideQuery?: string) => {
     const q = (overrideQuery !== undefined ? overrideQuery : customerSearchQuery).trim();
     const queryName = name.trim();
@@ -288,8 +293,58 @@ export default function BookInquiryModal({
       setErrors({});
       setToastMessage(`Found ${matches.length} matching record(s) in list! Click Edit (✏️) to fill form.`);
     } else {
-      setToastMessage(`No customer found matching "${targetQuery}".`);
+      setToastMessage(`No local record for "${targetQuery}" — checking the CRM…`);
     }
+
+    /* CRM lookup. Only for something that looks like a phone number: that is the
+       only key `crmCustomerByPhone` accepts, and it matches the string exactly —
+       no normalising, so "0501234567" and "501234567" are different people.
+       Searching by name would always miss, so it is not attempted. */
+    const digits = targetQuery.replace(/[^\d]/g, "");
+    if (digits.length < 7) {
+      setCrmCustomer(null);
+      setCrmLookupFor(null);
+      return;
+    }
+
+    setCrmLoading(true);
+    setCrmLookupFor(targetQuery);
+    void fetchCrmCustomerByPhoneGraphQL(targetQuery)
+      .then((c) => {
+        setCrmCustomer(c);
+        if (c) {
+          setToastMessage(
+            `CRM: ${c.name ?? "customer"} — ${c.vehicles?.length ?? 0} vehicle(s), ${c.bookings?.length ?? 0} booking(s).`,
+          );
+        } else {
+          setToastMessage(`Not on file in the CRM: "${targetQuery}".`);
+        }
+      })
+      .catch((err) => {
+        setCrmCustomer(null);
+        setToastMessage(
+          err instanceof Error ? `CRM lookup failed: ${err.message}` : "CRM lookup failed.",
+        );
+      })
+      .finally(() => setCrmLoading(false));
+  };
+
+  /** Copy the CRM customer (and optionally one of their vehicles) into the form. */
+  const useCrmCustomer = (vehicleIndex = -1) => {
+    if (!crmCustomer) return;
+    setName(crmCustomer.name ?? "");
+    setPhone(crmCustomer.phone ?? "");
+    setEmail(crmCustomer.email ?? "");
+    const v = vehicleIndex >= 0 ? crmCustomer.vehicles?.[vehicleIndex] : undefined;
+    if (v) {
+      setMake(v.make ?? "");
+      setModel(v.model ?? "");
+      setYear(v.year ?? "");
+      setVehiclePlateNumber(v.plant_number ?? "");
+      if (v.tire_size_1) setTireSize1(v.tire_size_1);
+      if (v.tire_size_2) setTireSize2(v.tire_size_2);
+    }
+    setToastMessage(`Loaded ${crmCustomer.name ?? "customer"} from the CRM.`);
   };
 
   // Handle Delete
@@ -339,7 +394,7 @@ export default function BookInquiryModal({
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs transition-opacity duration-400 ease-in-out ${
+      className={`fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs transition-opacity duration-500 ease-out ${
         isAnimatedOpen && !isClosing ? "opacity-100" : "opacity-0 pointer-events-none"
       }`}
       onClick={handleClose}
@@ -348,7 +403,7 @@ export default function BookInquiryModal({
     >
       {/* Slide-Up Bottom Container (Full Width like CostHistoryModal & QuickViewModal) */}
       <div
-        className={`relative bg-white w-full max-w-full border-t border-slate-200 shadow-2xl flex flex-col overflow-hidden transition-all duration-400 ease-in-out max-h-[90vh] rounded-none ${
+        className={`relative bg-white w-full max-w-full border-t border-slate-200 shadow-2xl flex flex-col overflow-hidden transition-all duration-500 ease-out max-h-[90vh] rounded-none ${
           isAnimatedOpen && !isClosing
             ? "translate-y-0 opacity-100"
             : "translate-y-full opacity-0"
@@ -653,6 +708,122 @@ export default function BookInquiryModal({
                       Search
                     </button>
                   </div>
+
+                  {/* ── CRM record for the searched number ──
+                      Everything below is rendered from crmCustomerByPhone; a field
+                      the CRM does not return is simply not shown. */}
+                  {crmLoading && (
+                    <p className="mt-2 text-[11px] font-semibold text-slate-500 flex items-center gap-1.5">
+                      <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
+                      Looking up {crmLookupFor} in the CRM…
+                    </p>
+                  )}
+
+                  {!crmLoading && crmLookupFor && !crmCustomer && (
+                    <p className="mt-2 text-[11px] font-semibold text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                      No CRM customer on file for <span className="font-mono">{crmLookupFor}</span>.
+                      Submitting will create one.
+                    </p>
+                  )}
+
+                  {!crmLoading && crmCustomer && (
+                    <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-xs font-extrabold text-slate-900">
+                            {crmCustomer.name || "(no name)"}
+                            {crmCustomer.status && (
+                              <span className="ml-2 px-1.5 py-0.5 rounded bg-white border border-emerald-200 text-[9px] font-bold uppercase tracking-wide text-emerald-700">
+                                {crmCustomer.status}
+                              </span>
+                            )}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-slate-600 flex flex-wrap gap-x-3 gap-y-0.5">
+                            {crmCustomer.phone && <span className="font-mono">{crmCustomer.phone}</span>}
+                            {crmCustomer.email && <span>{crmCustomer.email}</span>}
+                            {[crmCustomer.area, crmCustomer.emirates, crmCustomer.nationality]
+                              .filter(Boolean).map((v) => <span key={String(v)}>{v}</span>)}
+                            <span className="text-slate-400">CRM #{String(crmCustomer.entity_id)}</span>
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => useCrmCustomer()}
+                          className="shrink-0 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded-md transition-colors cursor-pointer"
+                        >
+                          Use details
+                        </button>
+                      </div>
+
+                      {crmCustomer.vehicles?.length > 0 && (
+                        <div className="mt-2.5">
+                          <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                            Vehicles ({crmCustomer.vehicles.length})
+                          </p>
+                          <div className="space-y-1">
+                            {crmCustomer.vehicles.map((v, i) => (
+                              <button
+                                key={String(v.entity_id ?? i)}
+                                type="button"
+                                onClick={() => useCrmCustomer(i)}
+                                title="Fill the form from this vehicle"
+                                className="w-full text-left bg-white border border-slate-200 hover:border-emerald-400 rounded-md px-2.5 py-1.5 text-[11px] transition-colors cursor-pointer"
+                              >
+                                <span className="font-bold text-slate-800">
+                                  {[v.make, v.model, v.year].filter(Boolean).join(" ") || "(vehicle)"}
+                                </span>
+                                {v.plant_number && <span className="ml-2 font-mono text-slate-500">{v.plant_number}</span>}
+                                {(v.tire_size_1 || v.tire_size_2) && (
+                                  <span className="ml-2 text-slate-500">
+                                    {[v.tire_size_1, v.tire_size_2].filter(Boolean).join(" / ")}
+                                  </span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {crmCustomer.bookings?.length > 0 && (
+                        <div className="mt-2.5">
+                          <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                            Booking history ({crmCustomer.bookings.length})
+                          </p>
+                          <div className="space-y-1 max-h-40 overflow-y-auto">
+                            {crmCustomer.bookings.map((b, i) => (
+                              <div
+                                key={String(b.entity_id ?? i)}
+                                className="bg-white border border-slate-200 rounded-md px-2.5 py-1.5 text-[11px]"
+                              >
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                  {b.enquiry_date && <span className="font-semibold text-slate-700">{b.enquiry_date}</span>}
+                                  {b.status && <span className="px-1.5 rounded bg-slate-100 text-slate-600 font-bold text-[9px] uppercase">{b.status}</span>}
+                                  {b.priority && <span className="px-1.5 rounded bg-amber-50 text-amber-700 font-bold text-[9px] uppercase">{b.priority}</span>}
+                                  {b.tire_size_1 && <span className="font-mono text-slate-600">{b.tire_size_1}</span>}
+                                  {b.quantity != null && <span className="text-slate-500">qty {String(b.quantity)}</span>}
+                                  {b.brand_preference && <span className="text-slate-500">{b.brand_preference}</span>}
+                                  {b.quoted_price != null && <span className="font-mono text-slate-700">{String(b.quoted_price)}</span>}
+                                  {b.contact_method && <span className="text-slate-400">{b.contact_method}</span>}
+                                </div>
+                                {(b.vehicle?.make || b.vehicle?.plant_number) && (
+                                  <p className="mt-0.5 text-slate-500">
+                                    {[b.vehicle?.make, b.vehicle?.model, b.vehicle?.year].filter(Boolean).join(" ")}
+                                    {b.vehicle?.plant_number ? ` · ${b.vehicle.plant_number}` : ""}
+                                  </p>
+                                )}
+                                {(b.detail || b.notes) && (
+                                  <p className="mt-0.5 text-slate-500 line-clamp-2">{b.detail || b.notes}</p>
+                                )}
+                                {b.follow_up_date && (
+                                  <p className="mt-0.5 text-[10px] text-slate-400">Follow up: {b.follow_up_date}</p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Action Buttons */}

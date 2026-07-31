@@ -457,6 +457,63 @@ export function createCrmBookingMutation(input: CrmBookingInput): string {
   }`;
 }
 
+/**
+ * Look up a CRM customer by phone, with their vehicles and booking history.
+ *
+ * The phone is matched as an EXACT STRING — the endpoint does no normalising.
+ * Measured on the live data: "0501234567" and "501234567" return two DIFFERENT
+ * customers, and "+971501234567" / "050 123 4567" / "050-123-4567" all miss. The
+ * caller must send the number in the form it is stored.
+ *
+ * A miss is reported as a GraphQL ERROR (`graphql-no-such-entity`) alongside
+ * `data.crmCustomerByPhone: null`, not as a plain null — see
+ * `fetchCrmCustomerByPhoneGraphQL`, which turns that into an empty result.
+ */
+export function crmCustomerByPhoneQuery(phone: string): string {
+  const esc = (v: string) => String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return `query {
+    crmCustomerByPhone(phone: "${esc(phone)}") {
+      entity_id
+      name
+      email
+      phone
+      nationality
+      emirates
+      area
+      status
+      vehicles {
+        entity_id
+        make
+        model
+        year
+        plant_number
+        tire_size_1
+        tire_size_2
+      }
+      bookings {
+        entity_id
+        contact_method
+        tire_size_1
+        quantity
+        brand_preference
+        quoted_price
+        enquiry_date
+        follow_up_date
+        priority
+        status
+        detail
+        notes
+        vehicle {
+          make
+          model
+          year
+          plant_number
+        }
+      }
+    }
+  }`;
+}
+
 /** Option id → label maps for {@link TC_LABELLED_ATTRIBUTES}. Fetched once. */
 export function tcAttributeLabelsQuery(): string {
   const attrs = TC_LABELLED_ATTRIBUTES

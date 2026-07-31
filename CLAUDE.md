@@ -154,9 +154,19 @@ Magento admin. It is therefore never issued automatically, never cached and neve
 retried, and the submit button is disabled while in flight.
 
 Blank fields are OMITTED from the mutation rather than sent as empty strings, so
-they cannot blank out data already on a customer's record. Note `crmCustomerByPhone`
-does NOT normalise phone numbers — `0501234567` and `501234567` return different
-customers — and a miss comes back as a `graphql-no-such-entity` ERROR, not a null.
+they cannot blank out data already on a customer's record.
+
+**Customer search** calls `crmCustomerByPhone` and renders the customer, their
+vehicles and their booking history; "Use details" copies a customer (or one of
+their vehicles) into the form. Three things about that endpoint:
+- it does **not normalise** phone numbers — `0501234567` and `501234567` return
+  DIFFERENT customers, and `+971…` / spaced / dashed forms match nobody
+- a miss is a `graphql-no-such-entity` **ERROR**, not a null, so
+  `fetchCrmCustomerByPhoneGraphQL` translates that one message into `null` and
+  lets every other failure throw
+- **phone is the only key** — there is no name search and no list query, so the
+  lookup is skipped for anything with fewer than 7 digits rather than fired and
+  wasted
 
 ### Cost history
 Clicking a **Cost value** in the supplier table opens `components/CostHistoryModal.tsx`
