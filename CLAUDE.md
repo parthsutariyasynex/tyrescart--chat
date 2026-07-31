@@ -142,6 +142,22 @@ motorcycle and van sizes the storefront does not sell). Those rows keep the
 supplier feed's own brand/pattern/size/year/country/price and show `-` for
 Width, Profile, Rim, Load-Speed and Warranty, which exist in neither source.
 
+### Book Inquiry
+The **Book Inquiry** button on /tc-products opens `components/BookInquiryModal.tsx`.
+Submitting a NEW enquiry calls the **`createCrmBooking`** mutation and only mirrors
+the row into `services/inquiryStorage.ts` (localStorage) once the CRM confirms it,
+stamped with the returned `crmBookingId` / `crmCustomerId` / `crmStatus`.
+
+**This mutation has no undo** — the schema has no `deleteCrmBooking`,
+`cancelCrmBooking` or `updateCrmBooking`, so a mistake can only be cleared in the
+Magento admin. It is therefore never issued automatically, never cached and never
+retried, and the submit button is disabled while in flight.
+
+Blank fields are OMITTED from the mutation rather than sent as empty strings, so
+they cannot blank out data already on a customer's record. Note `crmCustomerByPhone`
+does NOT normalise phone numbers — `0501234567` and `501234567` return different
+customers — and a miss comes back as a `graphql-no-such-entity` ERROR, not a null.
+
 ### Cost history
 Clicking a **Cost value** in the supplier table opens `components/CostHistoryModal.tsx`
 (Recharts line chart, Date Wise / Month Wise tabs).

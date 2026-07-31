@@ -13,9 +13,12 @@ import {
   tcQuickViewQuery,
   tcQuickViewMatchQuery,
   supplierPriceHistoryQuery,
+  createCrmBookingMutation,
   type TcProductsQueryVars,
 } from "./queries";
 import type {
+  CrmBookingInput,
+  CrmBookingResult,
   SupplierPriceHistoryPoint,
   TcQuickViewProduct,
   TcAttributeLabels,
@@ -231,4 +234,16 @@ export async function fetchSupplierPriceHistoryGraphQL(
 ): Promise<SupplierPriceHistoryPoint[]> {
   const data = await executeGraphQLQuery(supplierPriceHistoryQuery(id, source));
   return (data?.supplierProductPriceHistory as SupplierPriceHistoryPoint[] | undefined) ?? [];
+}
+
+/**
+ * Submit a booking enquiry. Deliberately NOT cached and never retried
+ * automatically — a duplicate call creates a duplicate booking, and there is no
+ * delete mutation to clean one up.
+ */
+export async function createCrmBookingGraphQL(input: CrmBookingInput): Promise<CrmBookingResult> {
+  const data = await executeGraphQLQuery(createCrmBookingMutation(input));
+  const res = data?.createCrmBooking as CrmBookingResult | undefined;
+  if (!res) throw new Error("Booking failed: the server returned no result.");
+  return res;
 }

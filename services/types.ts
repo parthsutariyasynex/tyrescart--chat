@@ -290,3 +290,43 @@ export interface SupplierPriceHistoryPoint {
   date: string;
   price: number;
 }
+
+/** Form payload for `createCrmBooking`. Every value comes from user input. */
+export interface CrmBookingInput {
+  name: string;
+  phone: string;
+  email?: string;
+  tire_size_1?: string;
+  tire_size_2?: string;
+  plant_number?: string;
+  make?: string;
+  model?: string;
+  year?: string;
+  note?: string;
+}
+
+export interface CrmBookingResult {
+  success: boolean;
+  message: string | null;
+  booking: {
+    entity_id: number | string | null;
+    tire_size_1: string | null;
+    tire_size_2: string | null;
+    detail: string | null;
+    enquiry_date: string | null;
+    status: string | null;
+    priority: string | null;
+    vehicle: {
+      make: string | null;
+      model: string | null;
+      year: string | null;
+      plant_number: string | null;
+    } | null;
+  } | null;
+  customer: {
+    entity_id: number | string | null;
+    name: string | null;
+    phone: string | null;
+    email: string | null;
+  } | null;
+}

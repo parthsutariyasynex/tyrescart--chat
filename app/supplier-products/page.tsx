@@ -6,7 +6,7 @@ import {
   ArrowPathIcon,
   ChevronDownIcon,
   XMarkIcon,
-  EyeIcon
+  EyeIcon,
 } from '@heroicons/react/24/outline';
 import { buildRowString } from "@/services/productFormatter";
 import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
@@ -1785,6 +1785,8 @@ export default function SupplierProductsPage() {
           }}
         />
       )}
+
+
 
 
       {/* Slide-Over Product Detail Drawer */}

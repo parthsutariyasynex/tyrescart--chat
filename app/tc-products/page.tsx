@@ -9,7 +9,9 @@ import {
   XMarkIcon,
   BookmarkIcon,
   ShoppingCartIcon,
+  CalendarDaysIcon,
 } from '@heroicons/react/24/outline';
+import BookInquiryModal from "@/components/BookInquiryModal";
 import { buildRowString, buildBulkCopyString } from "@/services/productFormatter";
 import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
 import SyncButton from "@/components/SyncButton";
@@ -289,6 +291,8 @@ export default function TcProductsPage() {
   /** Persisted, offline-first cart — survives refresh, navigation and offline. */
   const cart = useCart();
   const [activeDrawerItem, setActiveDrawerItem] = useState<Product | null>(null);
+  const [inquiryModalItem, setInquiryModalItem] = useState<Product | null>(null);
+  const [isInquiryModalOpen, setIsInquiryModalOpen] = useState(false);
   const [isColumnModalOpen, setIsColumnModalOpen] = useState(false);
   const [isDensityMenuOpen, setIsDensityMenuOpen] = useState(false);
   const [isPageSizeOpen, setIsPageSizeOpen] = useState(false);
@@ -1406,7 +1410,19 @@ export default function TcProductsPage() {
           <section className="flex-1 min-h-0 bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col">
 
             {/* Table Header Summary / Entries Per Page Selector */}
-            <div className="px-5 py-2.5 flex items-center justify-end border-b border-slate-200/70 bg-slate-50/70 relative z-20">
+            <div className="px-5 py-2.5 flex items-center justify-between border-b border-slate-200/70 bg-slate-50/70 relative z-20">
+              <button
+                onClick={() => {
+                  setInquiryModalItem(null);
+                  setIsInquiryModalOpen(true);
+                }}
+                className="h-8 px-3.5 flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-xs transition-all active:scale-95 cursor-pointer"
+                title="Book Inquiry"
+              >
+                <CalendarDaysIcon className="w-4 h-4" />
+                <span>Book Inquiry</span>
+              </button>
+
               <div className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 bg-white px-3 py-1.5 rounded-lg border border-slate-200/90 shadow-2xs">
                 <span className="text-slate-400 font-medium">Show</span>
 
@@ -1625,30 +1641,30 @@ export default function TcProductsPage() {
                               <button
                                 onClick={(e) => { e.stopPropagation(); toggleList(item); }}
                                 title={listIds.has(item.id) ? 'Remove from List' : 'Add to List'}
-                                className={`w-8 h-8 flex items-center justify-center rounded-lg border transition-all active:scale-95 ${listIds.has(item.id)
-                                  ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700'
+                                className={`w-7 h-7 aspect-square shrink-0 flex items-center justify-center rounded-lg border transition-all active:scale-95 ${listIds.has(item.id)
+                                  ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700 shadow-2xs'
                                   : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50'
                                   }`}
                               >
-                                <BookmarkIcon className="w-4 h-4" />
+                                <BookmarkIcon className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 onClick={(e) => { e.stopPropagation(); addToCart(item); }}
                                 title="Add to Cart"
-                                className={`w-8 h-8 flex items-center justify-center rounded-lg border transition-all active:scale-95 ${cart.has(item.id)
-                                  ? 'bg-emerald-600 text-white border-emerald-600'
-                                  : 'bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50'
+                                className={`w-7 h-7 aspect-square shrink-0 flex items-center justify-center rounded-lg border transition-all active:scale-95 ${cart.has(item.id)
+                                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                                  : 'bg-white text-emerald-600 border-emerald-200 hover:bg-emerald-50'
                                   }`}
                               >
-                                <ShoppingCartIcon className="w-4 h-4" />
+                                <ShoppingCartIcon className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 onClick={(e) => { e.stopPropagation(); shareOnWhatsApp(item); }}
                                 title="Share on WhatsApp"
                                 aria-label="Share on WhatsApp"
-                                className="w-8 h-8 flex items-center justify-center rounded-lg border transition-all active:scale-95 bg-white text-[#25D366] border-[#25D366]/30 hover:bg-[#25D366]/10"
+                                className="w-7 h-7 aspect-square shrink-0 flex items-center justify-center rounded-lg border transition-all active:scale-95 bg-white text-[#25D366] border-[#25D366]/40 hover:bg-[#25D366]/10"
                               >
-                                <WhatsAppIcon className="w-4 h-4" />
+                                <WhatsAppIcon className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           </td>
@@ -1889,6 +1905,21 @@ export default function TcProductsPage() {
           </div>
         )
       }
+
+      {/* Book Inquiry Modal Component */}
+      <BookInquiryModal
+        isOpen={isInquiryModalOpen}
+        onClose={() => setIsInquiryModalOpen(false)}
+        initialProduct={
+          inquiryModalItem
+            ? {
+                brand: inquiryModalItem.brand,
+                size: inquiryModalItem.sizeFull || inquiryModalItem.size,
+                pattern: inquiryModalItem.pattern,
+              }
+            : null
+        }
+      />
 
       {/* Toast Notification Container */}
       <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 pointer-events-none">

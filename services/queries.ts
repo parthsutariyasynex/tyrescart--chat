@@ -1,3 +1,4 @@
+import type { CrmBookingInput } from "./types";
 /**
  * GraphQL Queries for the TyresCart Magento endpoint.
  *
@@ -401,6 +402,57 @@ export function supplierPriceHistoryQuery(id: number | string, source: string): 
     supplierProductPriceHistory(id: ${Number(id)}, source: "${esc(source)}") {
       date
       price
+    }
+  }`;
+}
+
+/**
+ * Create a CRM booking enquiry.
+ *
+ * Every value is interpolated from the form — nothing here is fixed. Optional
+ * fields are OMITTED rather than sent empty, so a blank input never overwrites
+ * something already on the customer record.
+ *
+ * NOTE this is a WRITE with no counterpart: the schema has no
+ * deleteCrmBooking / cancelCrmBooking / updateCrmBooking, so a mistake can only
+ * be undone in the Magento admin. It must never be issued automatically — only
+ * from an explicit user submit.
+ */
+export function createCrmBookingMutation(input: CrmBookingInput): string {
+  const esc = (v: string) => String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const field = (k: string, v: string | undefined) =>
+    v !== undefined && String(v).trim() !== "" ? `${k}: "${esc(String(v).trim())}"` : "";
+
+  const fields = [
+    field("name", input.name),
+    field("phone", input.phone),
+    field("email", input.email),
+    field("tire_size_1", input.tire_size_1),
+    field("tire_size_2", input.tire_size_2),
+    field("plant_number", input.plant_number),
+    field("make", input.make),
+    field("model", input.model),
+    field("year", input.year),
+    field("note", input.note),
+  ].filter(Boolean).join("\n      ");
+
+  return `mutation {
+    createCrmBooking(input: {
+      ${fields}
+    }) {
+      success
+      message
+      booking {
+        entity_id
+        tire_size_1
+        tire_size_2
+        detail
+        enquiry_date
+        status
+        priority
+        vehicle { make model year plant_number }
+      }
+      customer { entity_id name phone email }
     }
   }`;
 }
