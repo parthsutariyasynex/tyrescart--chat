@@ -43,6 +43,38 @@ function sameValue(a: string, b: string): boolean {
   return norm(a) !== "" && norm(a) === norm(b);
 }
 
+/**
+ * Decompose the SUPPLIER FEED's own size string into its parts.
+ *
+ * This is not guesswork and not a substitute for Magento — it only runs when
+ * Magento has no product for the row, and every value it returns is already
+ * present in the feed, just concatenated: "185/65 R14 79T" carries width 185,
+ * profile 65, rim 14 and load index 79T.
+ *
+ * Deliberately strict. A component absent from the string comes back empty
+ * rather than inferred: "185 R14" is a full-profile van size with NO aspect
+ * ratio and no load index, so profile and load stay blank. Exotic motorcycle
+ * notations ("2.75-10", "MH90-21") match nothing at all and yield nothing.
+ */
+function splitSupplierSize(raw: string): {
+  width: string; profile: string; rim: string; load: string;
+} {
+  const empty = { width: "", profile: "", rim: "", load: "" };
+  const v = (raw || "").trim();
+  if (!v) return empty;
+  //  width  [/profile]  [speed letters]  [-|R]  rim  [C]  [load+speed]
+  const m = v.match(
+    /^(\d{2,3})\s*(?:\/\s*(\d{2,3}))?\s*[A-Z]{0,2}\s*[-R]?\s*(\d{2}(?:\.\d)?)\s*C?\s*(\d{2,3}(?:\/\d{2,3})?[A-Z]{1,2})?/i,
+  );
+  if (!m) return empty;
+  return {
+    width: m[1] ?? "",
+    profile: m[2] ?? "",
+    rim: m[3] ?? "",
+    load: (m[4] ?? "").toUpperCase(),
+  };
+}
+
 /** Shown when the API has no value. Never a made-up default. */
 const UNKNOWN = "-";
 
@@ -184,12 +216,20 @@ export default function QuickViewModal({
   };
 
   // PROFILE is `height` and LOAD/SPEED is `load_index` — the codes do not match
-  // the on-screen labels, which is why both looked absent. Neither can be derived
-  // from the supplier row, so they show "-" when the API has no product.
-  const specWidth = readAttr(attrs, "width");
-  const specProfile = readAttr(attrs, "height");
-  const specRim = readAttr(attrs, "rim");
-  const specLoad = readAttr(attrs, "load_index");
+  // the on-screen labels, which is why both looked absent.
+  //
+  // Magento first. When it has no product for this row, the same four values are
+  // recovered from the supplier feed's own size string rather than left blank —
+  // they are the feed's data, only concatenated. Anything the string does not
+  // actually contain stays empty and renders "-".
+  const fromSize = useMemo(
+    () => splitSupplierSize(product.sizeFull || product.size || ""),
+    [product.sizeFull, product.size],
+  );
+  const specWidth = readAttr(attrs, "width") || fromSize.width;
+  const specProfile = readAttr(attrs, "height") || fromSize.profile;
+  const specRim = readAttr(attrs, "rim") || fromSize.rim;
+  const specLoad = readAttr(attrs, "load_index") || fromSize.load;
 
   const apiSize = readAttr(attrs, "tyre_size");
   const fullSizeText = apiSize

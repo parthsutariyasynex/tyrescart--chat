@@ -129,6 +129,13 @@ name, which carries brand, size and pattern — so `"Kumho 215/65 R17"` narrows
 correctly while `"Kumho 185/65 R14"` returns 0 because that tyre is not stocked.
 Candidates are then re-verified attribute-by-attribute client-side.
 
+When Magento resolves nothing, WIDTH/PROFILE/RIM/LOAD-SPEED are recovered by
+decomposing the **supplier feed's own size string** (`splitSupplierSize`) — those
+values are already in the feed, just concatenated ("180/55 ZR17 73W" → 180 / 55 /
+17 / 73W). Strict, never inferred: "185 R14" is a full-profile van size with no
+aspect ratio, so PROFILE stays `-`, and exotic motorcycle notations ("2.75-10",
+"MH90-21") parse to nothing. Magento always wins when it has a value.
+
 **Most non-`tyrescart` supplier rows resolve to nothing** (measured: tyrescart
 12/12 by SKU; Mivomoto/Al Sarkal/pitstop/SandDance/LKN 0/39 — they stock
 motorcycle and van sizes the storefront does not sell). Those rows keep the
