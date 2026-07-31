@@ -329,8 +329,8 @@ export default function QuickViewModal({
           </button>
         </div>
 
-        {/* Scrollable Content Body */}
-        <div className="flex-1 overflow-y-auto px-2 sm:px-4 pb-2">
+        {/* Scrollable Content Body (pb-24 prevents scrollbar layout shift when Qty dropdown opens) */}
+        <div className="flex-1 overflow-y-auto px-2 sm:px-4 pb-24">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start max-w-7xl mx-auto">
             
             {/* Left Side: Compact Product Image Card & Thumbnails */}
@@ -531,9 +531,9 @@ export default function QuickViewModal({
                           <ChevronDownIcon className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isQtyOpen ? "rotate-180 text-emerald-600" : ""}`} />
                         </button>
 
-                        {/* Custom Dropdown Popover */}
+                        {/* Custom Dropdown Popover (Opens Downward) */}
                         {isQtyOpen && (
-                          <div className="absolute left-0 bottom-full mb-1.5 w-24 bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-50 animate-in fade-in zoom-in-95 duration-100">
+                          <div className="absolute left-0 top-full mt-1.5 w-24 bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-50 animate-in fade-in zoom-in-95 duration-100">
                             {[1, 2, 4, 6, 8].map((q) => (
                               <button
                                 key={q}

@@ -333,8 +333,9 @@ export default function BookInquiryModal({
       .finally(() => setCrmLoading(false));
   };
 
-  /** Copy the CRM customer (and optionally one of their vehicles) into the form. */
-  const useCrmCustomer = (vehicleIndex = -1) => {
+  /** Copy the CRM customer (and optionally one of their vehicles) into the form.
+   *  NOT a hook — named `apply…` so the `use` prefix does not make it look like one. */
+  const applyCrmCustomer = (vehicleIndex = -1) => {
     if (!crmCustomer) return;
     setName(crmCustomer.name ?? "");
     setPhone(crmCustomer.phone ?? "");
@@ -369,8 +370,54 @@ export default function BookInquiryModal({
   };
 
   // Filtered dataset
+  /**
+   * The searched customer's CRM bookings, shaped as list rows.
+   *
+   * The table is otherwise a localStorage mirror — it only ever showed enquiries
+   * submitted from THIS browser, so one filed by another member of staff, from
+   * another device, or directly through the API was invisible here. There is no
+   * list query on the schema (`crmBookings`, `crmCustomerList` and friends do not
+   * exist), so a full CRM-backed table is not possible; what IS possible is
+   * showing the bookings that come back with a looked-up customer.
+   *
+   * These rows are read-only: edit and delete act on the local store, and there
+   * is no update or delete mutation to push such a change back.
+   */
+  const crmRows: (Inquiry & { fromCrm: true })[] = useMemo(() => {
+    if (!crmCustomer?.bookings?.length) return [];
+    return crmCustomer.bookings.map((b, i) => ({
+      id: `CRM-${String(b.entity_id ?? i)}`,
+      fromCrm: true as const,
+      name: crmCustomer.name ?? "",
+      phone: crmCustomer.phone ?? "",
+      email: crmCustomer.email ?? "",
+      tireSize1: b.tire_size_1 ?? "",
+      tireSize2: "",
+      vehiclePlateNumber: b.vehicle?.plant_number ?? "",
+      make: b.vehicle?.make ?? "",
+      model: b.vehicle?.model ?? "",
+      year: b.vehicle?.year ?? "",
+      note: b.detail ?? b.notes ?? "",
+      // The CRM's status is a numeric code with no published mapping, so it is
+      // not forced into the local Pending/Contacted/Closed vocabulary.
+      status: "Pending" as Inquiry["status"],
+      createdAt: b.enquiry_date ?? "",
+      crmBookingId: b.entity_id ?? undefined,
+      crmCustomerId: crmCustomer.entity_id ?? undefined,
+      crmStatus: b.status == null ? null : String(b.status),
+      crmPriority: b.priority == null ? null : String(b.priority),
+      crmEnquiryDate: b.enquiry_date ?? null,
+    }));
+  }, [crmCustomer]);
+
   const filteredInquiries = useMemo(() => {
-    return inquiries.filter((item) => {
+    // CRM rows first, then local ones — with anything already mirrored locally
+    // dropped so a booking filed from this browser is not listed twice.
+    const crmIds = new Set(crmRows.map((r) => String(r.crmBookingId ?? "")));
+    const localOnly = inquiries.filter(
+      (i) => !i.crmBookingId || !crmIds.has(String(i.crmBookingId)),
+    );
+    return [...crmRows, ...localOnly].filter((item) => {
       const q = searchQuery.toLowerCase().trim();
       const matchesSearch =
         !q ||
@@ -385,7 +432,7 @@ export default function BookInquiryModal({
 
       return matchesSearch && matchesStatus;
     });
-  }, [inquiries, searchQuery, statusFilter]);
+  }, [inquiries, crmRows, searchQuery, statusFilter]);
 
   // Pagination logic
   const totalPages = Math.ceil(filteredInquiries.length / pageSize) || 1;
@@ -453,11 +500,11 @@ export default function BookInquiryModal({
           </button>
         </div>
 
-        {/* Body Split View */}
-        <div className="flex-1 overflow-y-auto p-5 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 bg-slate-50/50">
+        {/* Body Split View (pb-28 guarantees zero layout shift when dropdown popovers open) */}
+        <div className="flex-1 overflow-y-auto p-5 sm:p-6 pb-28 grid grid-cols-1 lg:grid-cols-12 gap-6 bg-slate-50/50">
           
           {/* Left Column: Form Section */}
-          <div className="lg:col-span-5 bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between">
+          <div className="lg:col-span-5 bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between min-h-[580px]">
             <div>
               <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
@@ -782,7 +829,7 @@ export default function BookInquiryModal({
                         </div>
                         <button
                           type="button"
-                          onClick={() => useCrmCustomer()}
+                          onClick={() => applyCrmCustomer()}
                           className="shrink-0 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded-md transition-colors cursor-pointer"
                         >
                           Use details
@@ -799,7 +846,7 @@ export default function BookInquiryModal({
                               <button
                                 key={String(v.entity_id ?? i)}
                                 type="button"
-                                onClick={() => useCrmCustomer(i)}
+                                onClick={() => applyCrmCustomer(i)}
                                 title="Fill the form from this vehicle"
                                 className="w-full text-left bg-white border border-slate-200 hover:border-emerald-400 rounded-md px-2.5 py-1.5 text-[11px] transition-colors cursor-pointer"
                               >
@@ -899,7 +946,7 @@ export default function BookInquiryModal({
           </div>
 
           {/* Right Column: Inquiry List Section */}
-          <div className="lg:col-span-7 bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between">
+          <div className="lg:col-span-7 bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between min-h-[580px]">
             <div>
               {/* Search & Filter Header */}
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
@@ -938,8 +985,8 @@ export default function BookInquiryModal({
                 </div>
               </div>
 
-              {/* Inquiry Table */}
-              <div className="overflow-x-auto min-h-[260px] rounded-lg border border-slate-200">
+              {/* Inquiry Table (min-h-[320px] pb-12 ensures downward popover fits comfortably) */}
+              <div className="overflow-x-auto min-h-[320px] pb-12 rounded-lg border border-slate-200">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-100/80 border-b border-slate-200 text-[11px] font-bold text-slate-600 uppercase tracking-wider">
@@ -973,14 +1020,28 @@ export default function BookInquiryModal({
                         >
                           {/* ID & Date */}
                           <td className="px-3 py-2.5 whitespace-nowrap">
-                            <span className="font-mono font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/60 text-[11px]">
+                            {/* CRM-sourced rows are tinted and badged: they are
+                                read-only, since the schema has no update or
+                                delete mutation to push a change back. */}
+                            <span className={`font-mono font-bold px-1.5 py-0.5 rounded border text-[11px] ${
+                              "fromCrm" in item
+                                ? "text-sky-700 bg-sky-50 border-sky-200/60"
+                                : "text-emerald-700 bg-emerald-50 border-emerald-200/60"
+                            }`}>
                               {item.id}
                             </span>
+                            {"fromCrm" in item && (
+                              <span className="ml-1 px-1 py-0.5 rounded bg-sky-100 text-sky-700 text-[8px] font-extrabold uppercase tracking-wide">
+                                CRM
+                              </span>
+                            )}
                             <div className="text-[10px] text-slate-400 mt-0.5">
-                              {new Date(item.createdAt).toLocaleDateString("en-US", {
-                                month: "short",
-                                day: "numeric",
-                              })}
+                              {item.createdAt && !Number.isNaN(Date.parse(item.createdAt))
+                                ? new Date(item.createdAt).toLocaleDateString("en-US", {
+                                    month: "short",
+                                    day: "numeric",
+                                  })
+                                : "—"}
                             </div>
                           </td>
 
@@ -1050,9 +1111,9 @@ export default function BookInquiryModal({
                               {/* Chevron icon */}
                               <ChevronDownIcon className="w-3 h-3 absolute right-1.5 pointer-events-none text-slate-400" />
 
-                              {/* Custom Popover (Positioned UPWARDS bottom-full mb-1.5 to prevent table bottom clipping) */}
+                              {/* Custom Popover (Opens Downward) */}
                               {activeTableStatusId === item.id && (
-                                <div className="absolute right-0 bottom-full mb-1.5 w-32 bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-50 animate-in fade-in zoom-in-95 duration-100 text-left">
+                                <div className="absolute right-0 top-full mt-1.5 w-32 bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-50 animate-in fade-in zoom-in-95 duration-100 text-left">
                                   {[
                                     { val: "Pending", bg: "bg-amber-50 text-amber-800 hover:bg-amber-100/80", dot: "bg-amber-500" },
                                     { val: "Contacted", bg: "bg-teal-50 text-teal-800 hover:bg-teal-100/80", dot: "bg-teal-500" },

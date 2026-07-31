@@ -168,6 +168,13 @@ their vehicles) into the form. Three things about that endpoint:
   lookup is skipped for anything with fewer than 7 digits rather than fired and
   wasted
 
+The enquiry table is a **localStorage mirror**, not a CRM view: it can only ever
+list what this browser submitted, because the schema has no list query
+(`crmBookings`, `crmCustomerList`, `crmCustomerSearch` do not exist). Searching a
+phone merges that customer's CRM bookings into the table as read-only rows,
+badged **CRM** and tinted sky — read-only because there is no update or delete
+mutation to push a change back.
+
 ### Cost history
 Clicking a **Cost value** in the supplier table opens `components/CostHistoryModal.tsx`
 (Recharts line chart, Date Wise / Month Wise tabs).
