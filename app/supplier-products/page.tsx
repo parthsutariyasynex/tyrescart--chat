@@ -24,6 +24,7 @@ import {
 } from '@/services/searchFilter';
 import { Skeleton } from '@/components/Skeletons';
 import CostHistoryModal from '@/components/CostHistoryModal';
+import QuickViewModal from '@/components/QuickViewModal';
 import {
   streamCachedSupplierProducts,
   purgeHistoricalSupplierRows,
@@ -345,6 +346,8 @@ export default function SupplierProductsPage() {
   const [activeDrawerItem, setActiveDrawerItem] = useState<Product | null>(null);
   /** Product whose Cost History modal is open, or null. */
   const [costHistoryItem, setCostHistoryItem] = useState<Product | null>(null);
+  /** Product whose Quick View modal is open, or null. */
+  const [quickViewItem, setQuickViewItem] = useState<Product | null>(null);
   const [isColumnModalOpen, setIsColumnModalOpen] = useState(false);
   const [isDensityMenuOpen, setIsDensityMenuOpen] = useState(false);
   const [isPageSizeOpen, setIsPageSizeOpen] = useState(false);
@@ -1088,7 +1091,7 @@ export default function SupplierProductsPage() {
                 </button>
 
                 {isSupplierOpen && (
-                  <div className="absolute left-0 top-full mt-1.5 w-48 bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 max-h-60 overflow-y-auto animate-in fade-in zoom-in-95 duration-100">
+                  <div className="absolute left-0 top-full mt-1.5 min-w-full bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 max-h-60 overflow-y-auto animate-in fade-in zoom-in-95 duration-100">
                     <button
                       onClick={() => { setSupplierFilter('ALL'); setCurrentPage(1); setIsSupplierOpen(false); }}
                       className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${supplierFilter === 'ALL' ? 'text-emerald-700 bg-emerald-50/80 font-bold' : 'text-slate-700 hover:bg-slate-50'
@@ -1132,7 +1135,7 @@ export default function SupplierProductsPage() {
                 </button>
 
                 {isCategoryOpen && (
-                  <div className="absolute left-0 top-full mt-1.5 w-44 bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
+                  <div className="absolute left-0 top-full mt-1.5 min-w-full bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
                     <button
                       onClick={() => { setCategoryFilter('ALL'); setCurrentPage(1); setIsCategoryOpen(false); }}
                       className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${categoryFilter === 'ALL' ? 'text-emerald-700 bg-emerald-50/80 font-bold' : 'text-slate-700 hover:bg-slate-50'
@@ -1244,7 +1247,7 @@ export default function SupplierProductsPage() {
                 )}
 
                 {isBrandOpen && (
-                  <div className="absolute left-0 top-full mt-1.5 w-56 max-h-60 overflow-y-auto bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
+                  <div className="absolute left-0 top-full mt-1.5 min-w-full max-h-60 overflow-y-auto bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
                     <button
                       onClick={() => { setBrandInput(''); setCurrentPage(1); setIsBrandOpen(false); }}
                       className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${!brandInput.trim() ? 'text-emerald-700 bg-emerald-50/80 font-bold' : 'text-slate-700 hover:bg-slate-50'
@@ -1293,7 +1296,7 @@ export default function SupplierProductsPage() {
               </div>
 
               {/* Search */}
-              <div className="flex flex-col flex-1 min-w-[160px]">
+              <div className="flex flex-col flex-1 min-w-[200px] max-w-[300px]">
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Search</label>
                 <div className="relative">
                   <MagnifyingGlassIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -1309,7 +1312,7 @@ export default function SupplierProductsPage() {
               </div>
 
               {/* Size */}
-              <div className="flex flex-col w-[150px]">
+              <div className="flex flex-col w-[105px]">
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Size</label>
                 <input
                   type="text"
@@ -1321,7 +1324,7 @@ export default function SupplierProductsPage() {
               </div>
 
               {/* Year */}
-              <div className="flex flex-col w-[120px]">
+              <div className="flex flex-col w-[75px]">
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Year</label>
                 <input
                   type="text"
@@ -1333,7 +1336,7 @@ export default function SupplierProductsPage() {
               </div>
 
               {/* Qty */}
-              <div className="flex flex-col w-[110px]">
+              <div className="flex flex-col w-[70px]">
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Qty</label>
                 <input
                   type="text"
@@ -1345,7 +1348,7 @@ export default function SupplierProductsPage() {
               </div>
 
               {/* Price Range — Min / Max over the COST column */}
-              <div className="flex flex-col w-[300px]">
+              <div className="flex flex-col w-[180px]">
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Price Range</label>
                 <div className="flex items-center gap-1.5">
                   <input
@@ -1675,6 +1678,7 @@ export default function SupplierProductsPage() {
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
+                                  setQuickViewItem(item);
                                 }}
                                 className="p-1 text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors"
                                 title="View Details"
@@ -1767,6 +1771,19 @@ export default function SupplierProductsPage() {
             cost: costHistoryItem.cost,
           }}
           onClose={() => setCostHistoryItem(null)}
+        />
+      )}
+
+      {/* Quick View Slide-Up Modal */}
+      {quickViewItem && (
+        <QuickViewModal
+          key={quickViewItem.id}
+          product={quickViewItem}
+          onClose={() => setQuickViewItem(null)}
+          onAddToCart={(prod, qty) => {
+            addToast(`Added ${qty} x "${prod.pattern || prod.brand}" to cart!`);
+            setQuickViewItem(null);
+          }}
         />
       )}
 

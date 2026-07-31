@@ -117,7 +117,8 @@ reads IndexedDB only; it never fetches.
 
 - **No auth.** No `middleware.ts`; nothing gates any route.
 - **No checkout.** `hooks/useCart` + `services/cartStore.ts` persist a cart, but only tc-products' Add-to-Cart writes to it; there is no cart UI, order API or receipt. Offline orders/outbox is the deferred Phase 4.
-- **`Offer` column has no upstream data** — `offers`, `tier_price`, `special_price` and `final_price` come back empty, so it renders `—` for every row.
+- **`Offer` column has no upstream data** — `tier_price`, `special_price` and `final_price` come back empty and no product has `final < regular`, so the column renders `—` for every row. NOTE the separate `offers` attribute IS populated (option ids → 8 promo labels, 342 of 8,526 products) and drives the tc-products **OFFERS?** filter; wiring it into this column is an open option.
+- **`is_offers` does not exist** on the Magento schema — `Cannot query field "is_offers" on type "ProductInterface"`. The real field is `offers`.
 - **`Qty` is `stock_status` only** (0/1). No numeric on-hand count exists in the API.
 - **`/dashboard` is a placeholder** and is the default landing route.
 - **The two big page components are ~1,850 and ~2,000 lines with ~1,180 identical lines between them** (table shell, filter bar, column modal, pagination). Extracting shared components is a known, deliberately deferred task — until then, a fix applied to one page usually needs applying to the other.

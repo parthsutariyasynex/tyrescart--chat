@@ -219,6 +219,15 @@ export interface TcApiProduct {
   oem_marking: number | null;
   year: number | null;
   country: number | null;
+  /**
+   * Promotional offer, as an attribute OPTION ID — not a boolean.
+   *
+   * Measured on the live catalogue: 8,025 products null, 159 zero (no option
+   * set), 245 → 3591 "Free Wheel Alignment", 97 → 3590 "Buy 3 Get 1 Free". The
+   * attribute defines 8 options in total. `null` and `0` both mean "no offer";
+   * any other id is a real one. (`is_offers` does NOT exist on this schema.)
+   */
+  offers: number | null;
   /** Free-text on this store, e.g. "107V". */
   load_index: string | null;
   image: { url: string | null; label: string | null } | null;

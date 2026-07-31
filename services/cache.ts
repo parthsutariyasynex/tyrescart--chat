@@ -1247,7 +1247,47 @@ export async function isTyresChatRecentlySynced(maxAgeMs = 30000): Promise<boole
 ───────────────────────────────────────────────────────────── */
 
 /** Namespace for every tc-products entry in the shared `productQueries` store. */
-export const TC_CACHE_KEY_PREFIX = "tc:products:";
+/**
+ * Namespace for cached tc pages. The `v2` segment is a QUERY-SHAPE version, not
+ * decoration.
+ *
+ * The key is built from the query VARS (page size, page number, sort), so adding
+ * a field to the query text leaves the key identical — a cache written before
+ * `offers` was requested would keep being served, and every product would read
+ * as "no offer" until something happened to evict it. Bumping this segment
+ * retires those entries: `getCachedTcPages` only matches the current prefix, so
+ * the next visit re-syncs against the new shape. Bump it again if the tc query
+ * gains another field the UI depends on.
+ */
+export const TC_CACHE_KEY_PREFIX = "tc:products:v2:";
+
+/** Entries written before the `offers` field existed. Purged once — see below. */
+const TC_LEGACY_KEY_PREFIXES = ["tc:products:{"];
+
+/**
+ * One-time removal of tc pages cached under a previous query shape.
+ *
+ * Bumping {@link TC_CACHE_KEY_PREFIX} makes stale entries invisible, but they
+ * would sit in IndexedDB forever (~7 MB for a full catalogue). Cheap to do: the
+ * page's bulk read already opens this store.
+ */
+export async function purgeLegacyTcCache(): Promise<number> {
+  const done = await idbGetMeta<boolean>("tcProducts:legacyPurged").catch(() => null);
+  if (done) return 0;
+
+  const keys = await idbGetAll<{ key?: string }>(STORE_PRODUCT_QUERIES).catch(() => []);
+  let removed = 0;
+  for (const rec of keys) {
+    const k = rec?.key;
+    if (typeof k !== "string") continue;
+    if (!TC_LEGACY_KEY_PREFIXES.some((p) => k.startsWith(p))) continue;
+    await idbDelete(STORE_PRODUCT_QUERIES, k).catch(() => { });
+    removed++;
+  }
+  await idbSetMeta("tcProducts:legacyPurged", true).catch(() => { });
+  if (removed) console.log(`[cache] purged ${removed} tc pages cached before the \`offers\` field`);
+  return removed;
+}
 
 /** "running" is written BEFORE paging starts, so a sync killed by a hard reload
  *  is still detectable — the marker never gets upgraded to complete/partial.

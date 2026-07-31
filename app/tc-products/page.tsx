@@ -26,6 +26,7 @@ import {
 import { useCart } from '@/hooks/useCart';
 import {
   getCachedTcPages,
+  purgeLegacyTcCache,
   getRows,
   setRows,
   ROWS_KEY,
@@ -76,6 +77,9 @@ export interface Product {
   /** Display size incl. load index + speed rating, e.g. "215/55 R18 99H". */
   sizeFull: string;
   runflat: boolean;
+  /** True when the API's `offers` attribute holds a real option id. Drives the
+   *  OFFERS? filter; the RunFlat column still uses `runflat`. */
+  hasOffer: boolean;
   year: number;
   country: string;
   flag: string;
@@ -201,6 +205,10 @@ function mapTcProduct(p: TcApiProduct, maps: TcLabelMaps): Product {
     size,
     sizeFull: size && li ? `${size} ${li}` : size,
     runflat: lbl(maps.runflat, p.runflat) !== '',
+    // `offers` is an option ID, not a boolean: null and 0 both mean "no offer",
+    // any other id is one of the 8 configured promotions. Nothing is defaulted —
+    // a product the API says nothing about is simply not an offer.
+    hasOffer: p.offers !== null && p.offers !== undefined && Number(p.offers) > 0,
     year: Number(lbl(maps.year, p.year)) || 0,
     country: lbl(maps.country, p.country),
     flag: '',
@@ -246,9 +254,9 @@ export default function TcProductsPage() {
   /** Price Range bounds — kept as raw strings so a field can be empty. */
   const [minPriceInput, setMinPriceInput] = useState('');
   const [maxPriceInput, setMaxPriceInput] = useState('');
-  /** RunFlat-only toggle — true = show only products where runflat === true.
-   *  Defaults to true so the page opens pre-filtered to runflat products. */
-  const [runflatOnly, setRunflatOnly] = useState(true);
+  /** Offers-only toggle — true = show only products the API marks with an offer.
+   *  Defaults to true, matching the checkbox's previous default state. */
+  const [offersOnly, setOffersOnly] = useState(true);
 
   const [pageSize, setPageSize] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
@@ -364,6 +372,11 @@ export default function TcProductsPage() {
       if (!isCurrent()) return;
       labelsRef.current = attrLabels;
       const maps = prepareTcLabels(attrLabels);
+
+      // One-time: drop pages cached before the query asked for `offers`. Without
+      // this they would still match on page size and be served without the field.
+      await purgeLegacyTcCache().catch(() => 0);
+      if (!isCurrent()) return;
 
       // Pre-fill from IndexedDB in ONE read (not 86 sequential ones), so a
       // revisit or refresh paints the whole table immediately.
@@ -591,9 +604,9 @@ export default function TcProductsPage() {
     if (!isNaN(minPrice)) result = result.filter(item => item.price >= minPrice);
     if (!isNaN(maxPrice)) result = result.filter(item => item.price <= maxPrice);
 
-    // RunFlat checkbox — when checked, only products with runflat === true are shown.
-    // Purely client-side; never triggers an API call.
-    if (runflatOnly) result = result.filter(item => item.runflat === true);
+    // OFFERS? checkbox — when checked, only products the API flags with an offer
+    // are shown. Purely client-side; never triggers an API call.
+    if (offersOnly) result = result.filter(item => item.hasOffer === true);
 
     if (sortColumn) {
       // `sort` mutates in place. If no filter ran, `result` is still the
@@ -623,7 +636,7 @@ export default function TcProductsPage() {
     }
 
     return result;
-  }, [allProducts, searchQuery, categoryFilter, brandInput, sizeInput, yearInput, qtyInput, minPriceInput, maxPriceInput, runflatOnly, sortColumn, sortAsc]);
+  }, [allProducts, searchQuery, categoryFilter, brandInput, sizeInput, yearInput, qtyInput, minPriceInput, maxPriceInput, offersOnly, sortColumn, sortAsc]);
 
   // All three dropdown lists in ONE pass. Three separate useMemos each walked
   // the full 318k-row array and allocated its own intermediate — at this size
@@ -756,7 +769,7 @@ export default function TcProductsPage() {
     setQtyInput('');
     setMinPriceInput('');
     setMaxPriceInput('');
-    setRunflatOnly(true); // reset to default (checked)
+    setOffersOnly(true); // reset to default (checked)
     setCurrentPage(1);
     addToast('Filters reset to default.');
   };
@@ -854,9 +867,9 @@ export default function TcProductsPage() {
       Boolean(qtyInput.trim()) ||
       Boolean(minPriceInput.trim()) ||
       Boolean(maxPriceInput.trim()) ||
-      runflatOnly
+      offersOnly
     );
-  }, [searchQuery, categoryFilter, brandInput, sizeInput, yearInput, qtyInput, minPriceInput, maxPriceInput, runflatOnly]);
+  }, [searchQuery, categoryFilter, brandInput, sizeInput, yearInput, qtyInput, minPriceInput, maxPriceInput, offersOnly]);
 
   /**
    * Bulk copy — every product in the current search/filter result set, exactly
@@ -1067,7 +1080,7 @@ export default function TcProductsPage() {
                 </button>
 
                 {isCategoryOpen && (
-                  <div className="absolute left-0 top-full mt-1.5 w-44 bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
+                  <div className="absolute left-0 top-full mt-1.5 min-w-full bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
                     <button
                       onClick={() => { setCategoryFilter('ALL'); setCurrentPage(1); setIsCategoryOpen(false); }}
                       className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${categoryFilter === 'ALL' ? 'text-emerald-700 bg-emerald-50/80 font-bold' : 'text-slate-700 hover:bg-slate-50'
@@ -1176,7 +1189,7 @@ export default function TcProductsPage() {
                 )}
 
                 {isBrandOpen && (
-                  <div className="absolute left-0 top-full mt-1.5 w-56 max-h-60 overflow-y-auto bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
+                  <div className="absolute left-0 top-full mt-1.5 min-w-full max-h-60 overflow-y-auto bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
                     <button
                       onClick={() => { setBrandInput(''); setCurrentPage(1); setIsBrandOpen(false); }}
                       className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${!brandInput.trim() ? 'text-emerald-700 bg-emerald-50/80 font-bold' : 'text-slate-700 hover:bg-slate-50'
@@ -1225,7 +1238,7 @@ export default function TcProductsPage() {
               </div>
 
               {/* Search */}
-              <div className="flex flex-col flex-1 min-w-[150px]">
+              <div className="flex flex-col flex-1 min-w-[200px] max-w-[300px]">
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Search</label>
                 <div className="relative">
                   <MagnifyingGlassIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -1241,7 +1254,7 @@ export default function TcProductsPage() {
               </div>
 
               {/* Size */}
-              <div className="flex flex-col w-[170px]">
+              <div className="flex flex-col w-[105px]">
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Size</label>
                 <input
                   type="text"
@@ -1253,7 +1266,7 @@ export default function TcProductsPage() {
               </div>
 
               {/* Year */}
-              <div className="flex flex-col w-[140px]">
+              <div className="flex flex-col w-[75px]">
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Year</label>
                 <input
                   type="text"
@@ -1265,7 +1278,7 @@ export default function TcProductsPage() {
               </div>
 
               {/* Qty */}
-              <div className="flex flex-col w-[130px]">
+              <div className="flex flex-col w-[70px]">
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Qty</label>
                 <input
                   type="text"
@@ -1277,7 +1290,7 @@ export default function TcProductsPage() {
               </div>
 
               {/* Price Range — Min / Max over the PRICE column */}
-              <div className="flex flex-col w-[300px]">
+              <div className="flex flex-col w-[180px]">
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Price Range</label>
                 <div className="flex items-center gap-1.5">
                   <input
@@ -1302,15 +1315,17 @@ export default function TcProductsPage() {
                 </div>
               </div>
 
-              {/* RunFlat? — filters to runflat === true products only */}
+              {/* Offers? — filters to products the API marks with an offer. Same
+                  control, position and styling as before; only the data source
+                  (and therefore the label) changed. */}
               <label className="flex items-center gap-2 h-10 text-slate-600 text-sm font-medium cursor-pointer select-none">
                 <input
                   type="checkbox"
-                  checked={runflatOnly}
-                  onChange={(e) => { setRunflatOnly(e.target.checked); setCurrentPage(1); }}
+                  checked={offersOnly}
+                  onChange={(e) => { setOffersOnly(e.target.checked); setCurrentPage(1); }}
                   className="w-4 h-4 rounded border-slate-300 text-emerald-600 accent-emerald-600 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:ring-offset-0 focus:outline-none cursor-pointer"
                 />
-                RUNFLAT?
+                OFFERS?
               </label>
 
               {/* Search button */}

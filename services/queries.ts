@@ -276,6 +276,7 @@ export function tcProductsQuery(vars: TcProductsQueryVars = {}): string {
         oem_marking
         year
         country
+        offers
         image { url label }
         price_range {
           minimum_price {
