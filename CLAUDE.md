@@ -154,11 +154,13 @@ arrive as `DD-MMM-YYYY` ("08-May-2025"), which `new Date()` does not parse
 reliably — use `parseHistoryDate`. One request per chart opened, cached per
 `(id, source)`.
 
-IndexedDB `costHistory` is now the **offline fallback only**, consulted when the
-API returns nothing. It is still written by manual syncs (`markManualSync` /
-`consumeManualSync`, because `SyncTaskDefinition.run` takes no arguments and
-cannot otherwise tell how it was triggered), which keeps the chart working with
-no connection.
+**The API is the only source — there is no IndexedDB fallback.** Mixing
+locally-observed sync points into the same line as the API's real series would
+misrepresent it, so what the endpoint returns is what is plotted, and an empty
+response shows "No Cost History Available." The `costHistory` store is still
+written by manual syncs (`markManualSync` / `consumeManualSync`, because
+`SyncTaskDefinition.run` takes no arguments and cannot otherwise tell how it was
+triggered) but the chart no longer reads it — verified 0 reads while charting.
 
 ## Known gaps
 

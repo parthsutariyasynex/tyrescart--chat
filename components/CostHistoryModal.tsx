@@ -17,7 +17,6 @@ import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { XMarkIcon } from "@heroicons/react/24/outline";
 import {
-  getCostHistory,
   fromApiHistory,
   toDateSeries,
   toMonthSeries,
@@ -92,14 +91,14 @@ export default function CostHistoryModal({
     let alive = true;
 
     /**
-     * `supplierProductPriceHistory` is the authoritative series — real observed
-     * prices, not just the points this browser happened to record during a manual
-     * sync. `source` follows the row's own discriminator, so a competitor row
-     * charts the competitor's price and a supplier row charts our cost.
+     * `supplierProductPriceHistory` is the ONLY source for this chart.
      *
-     * IndexedDB stays the fallback: it is what the chart used before the endpoint
-     * existed, and it keeps the chart working offline. Only consulted when the
-     * API returns nothing, so real history always wins.
+     * `source` follows the row's own discriminator, so a competitor row charts
+     * the competitor's price and a supplier row charts our cost. There is no
+     * IndexedDB fallback: the sync-recorded points were a workaround from before
+     * this endpoint existed, and mixing them in would put locally-observed values
+     * on the same line as the API's real series. What the API returns is what is
+     * plotted — nothing else.
      */
     async function load(): Promise<CostHistoryRecord[]> {
       const source = (product.productType || "supplier").toLowerCase().includes("competitor")
@@ -107,9 +106,7 @@ export default function CostHistoryModal({
         : "supplier";
 
       const api = await fetchSupplierPriceHistoryCached(product.id, source).catch(() => []);
-      if (api.length) return fromApiHistory(api, product.id, product.itemCode ?? "");
-
-      return getCostHistory(product.id).catch(() => []);
+      return fromApiHistory(api, product.id, product.itemCode ?? "");
     }
 
     void load()
@@ -240,15 +237,6 @@ export default function CostHistoryModal({
               <p className="mt-1 text-xs text-slate-400 max-w-sm">
                 Cost history is recorded during a manual Sync. Press Sync to capture this
                 product&apos;s first data point.
-              </p>
-            </div>
-          ) : series.length === 1 ? (
-            <div className="h-[320px] flex flex-col items-center justify-center text-center">
-              <p className="text-3xl font-extrabold font-mono text-slate-900">{money(series[0].cost)}</p>
-              <p className="mt-1 text-xs font-semibold text-slate-500">Recorded {series[0].label}</p>
-              <p className="mt-2 text-xs text-slate-400 max-w-sm">
-                Only one price point so far — the trend line appears once the cost changes on a
-                future sync.
               </p>
             </div>
           ) : (
