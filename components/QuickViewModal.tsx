@@ -8,7 +8,32 @@ import {
   TruckIcon,
   ShieldCheckIcon,
   WrenchScrewdriverIcon,
+  ArrowsRightLeftIcon,
+  ArrowsUpDownIcon,
+  ViewfinderCircleIcon,
+  BoltIcon,
+  TagIcon,
+  Squares2X2Icon,
+  ArrowsPointingOutIcon,
+  CalendarDaysIcon,
+  GlobeAltIcon,
+  DocumentTextIcon,
 } from "@heroicons/react/24/outline";
+
+/** One icon per spec cell, as the storefront shows — not a repeated tick. */
+const SPEC_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
+  WIDTH: ArrowsRightLeftIcon,
+  PROFILE: ArrowsUpDownIcon,
+  "RIM SIZE": ViewfinderCircleIcon,
+  "LOAD/SPEED": BoltIcon,
+  BRAND: TagIcon,
+  PATTERN: Squares2X2Icon,
+  SIZE: ArrowsPointingOutIcon,
+  YEAR: CalendarDaysIcon,
+  WARRANTY: ShieldCheckIcon,
+  COUNTRY: GlobeAltIcon,
+  SKU: DocumentTextIcon,
+};
 import { fetchTcQuickViewCached, fetchTcQuickViewMatchesCached } from "@/services/cache";
 import type { TcAttributeItem, TcQuickViewProduct } from "@/services/types";
 
@@ -183,6 +208,8 @@ export default function QuickViewModal({
 
   // Offer banner and stock badge render only when the API actually says so.
   const offerLabel = readAttr(attrs, "offers");
+  // "1" on products enrolled in the BNPL programme; absent otherwise.
+  const splitPayment = readAttr(attrs, "tabby_payment") === "1";
   const inStock = detail?.stock_status === "IN_STOCK";
 
   const gallery = useMemo(() => {
@@ -344,9 +371,14 @@ export default function QuickViewModal({
                       className="bg-white border border-slate-200/90 rounded-none py-2.5 px-2 flex flex-col items-center justify-center text-center shadow-2xs hover:border-[#008b47]/50 transition-colors"
                     >
                       <div className="flex items-center gap-1 mb-0.5">
-                        <span className="w-3.5 h-3.5 rounded-full bg-emerald-100 text-[#008b47] text-[9px] font-bold flex items-center justify-center">
-                          ✓
-                        </span>
+                        {(() => {
+                          const Icon = SPEC_ICON[item.label];
+                          return Icon ? (
+                            <span className="w-4 h-4 rounded-full bg-emerald-100 text-[#008b47] flex items-center justify-center shrink-0">
+                              <Icon className="w-2.5 h-2.5 stroke-[2.5]" />
+                            </span>
+                          ) : null;
+                        })()}
                         <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
                           {item.label}
                         </span>
@@ -366,9 +398,14 @@ export default function QuickViewModal({
                       className="bg-white border border-slate-200/90 rounded-none py-2.5 px-2 flex flex-col items-center justify-center text-center shadow-2xs hover:border-[#008b47]/50 transition-colors"
                     >
                       <div className="flex items-center gap-1 mb-0.5">
-                        <span className="w-3.5 h-3.5 rounded-full bg-emerald-100 text-[#008b47] text-[9px] font-bold flex items-center justify-center">
-                          ✓
-                        </span>
+                        {(() => {
+                          const Icon = SPEC_ICON[item.label];
+                          return Icon ? (
+                            <span className="w-4 h-4 rounded-full bg-emerald-100 text-[#008b47] flex items-center justify-center shrink-0">
+                              <Icon className="w-2.5 h-2.5 stroke-[2.5]" />
+                            </span>
+                          ) : null;
+                        })()}
                         <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
                           {item.label}
                         </span>
@@ -389,9 +426,14 @@ export default function QuickViewModal({
                       className="bg-white border border-slate-200/90 rounded-none py-2.5 px-2 flex flex-col items-center justify-center text-center shadow-2xs hover:border-[#008b47]/50 transition-colors"
                     >
                       <div className="flex items-center gap-1 mb-0.5">
-                        <span className="w-3.5 h-3.5 rounded-full bg-emerald-100 text-[#008b47] text-[9px] font-bold flex items-center justify-center">
-                          ✓
-                        </span>
+                        {(() => {
+                          const Icon = SPEC_ICON[item.label];
+                          return Icon ? (
+                            <span className="w-4 h-4 rounded-full bg-emerald-100 text-[#008b47] flex items-center justify-center shrink-0">
+                              <Icon className="w-2.5 h-2.5 stroke-[2.5]" />
+                            </span>
+                          ) : null;
+                        })()}
                         <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
                           {item.label}
                         </span>
@@ -418,9 +460,13 @@ export default function QuickViewModal({
                       <span>{currency} {unitPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       <span className="text-xs font-semibold text-slate-500">/ Per Pcs</span>
                     </div>
+                    {/* Set of 2 is fixed; the second entry follows the qty selector,
+                        exactly as the storefront does (qty 1 -> "Set of 1"). */}
                     <div className="text-xs font-semibold text-slate-600 mt-0.5 flex gap-4">
-                      <span>Set of 2: <strong className="text-slate-900">{currency} {setOf2Price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
-                      <span>Set of 4: <strong className="text-slate-900">{currency} {setOf4Price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
+                      <span>Set of 2 : <strong className="text-slate-900">{currency} {setOf2Price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
+                      {selectedQty !== 2 && (
+                        <span>Set of {selectedQty} : <strong className="text-slate-900">{currency} {totalPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
+                      )}
                     </div>
                   </div>
 
@@ -449,6 +495,20 @@ export default function QuickViewModal({
                     </button>
                   </div>
                 </div>
+
+                {/* Split-payment row — shown only when the product's own
+                    `tabby_payment` attribute is set. */}
+                {splitPayment && (
+                  <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-600">
+                    <span>Split in 4 Payment with</span>
+                    <span className="px-1.5 py-0.5 rounded bg-[#3BFFC3] text-slate-900 text-[10px] font-extrabold tracking-tight">
+                      tabby
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded bg-[#7B61FF] text-white text-[10px] font-extrabold tracking-tight">
+                      tamara
+                    </span>
+                  </div>
+                )}
 
               </div>
 

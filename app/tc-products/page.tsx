@@ -210,7 +210,7 @@ function mapTcProduct(p: TcApiProduct, maps: TcLabelMaps): Product {
     source: '',
     itemCode: p.sku ?? '',
     productType: '',
-    category: normalizeCategory(tyresCategoryLabel) || (p.categories?.[0]?.name ?? ''),
+    category: normalizeCategory(tyresCategoryLabel),
     brand: lbl(maps.brand, p.brand),
     pattern: p.name ?? '',
     size,
