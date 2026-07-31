@@ -344,37 +344,44 @@ export default function BookInquiryModal({
       setTireSize2(matchedItem.tireSize2 || "");
       setStatus(matchedItem.status);
       setNote(matchedItem.note || "");
-      setToastMessage(`Found ${matches.length} matching inquiry! Customer details loaded into form.`);
-      return;
     }
 
-    // If no local record found, try CRM phone lookup
     const digits = targetQuery.replace(/[^\d]/g, "");
     if (digits.length >= 7) {
       void fetchCrmCustomerByPhoneGraphQL(targetQuery)
         .then((c) => {
           setCrmCustomer(c);
           if (c) {
-            setName(c.name ?? "");
-            setPhone(c.phone ?? "");
-            setEmail(c.email ?? "");
-            if (c.vehicles && c.vehicles.length > 0) {
-              const v = c.vehicles[0];
-              setMake(v.make ?? "");
-              setModel(v.model ?? "");
-              setYear(v.year ?? "");
-              setVehiclePlateNumber(v.plant_number ?? "");
-              if (v.tire_size_1) setTireSize1(v.tire_size_1);
-              if (v.tire_size_2) setTireSize2(v.tire_size_2);
+            if (matches.length === 0) {
+              setName(c.name ?? "");
+              setPhone(c.phone ?? "");
+              setEmail(c.email ?? "");
+              if (c.vehicles && c.vehicles.length > 0) {
+                const v = c.vehicles[0];
+                setMake(v.make ?? "");
+                setModel(v.model ?? "");
+                setYear(v.year ?? "");
+                setVehiclePlateNumber(v.plant_number ?? "");
+                if (v.tire_size_1) setTireSize1(v.tire_size_1);
+                if (v.tire_size_2) setTireSize2(v.tire_size_2);
+              }
             }
-            setToastMessage(`Loaded CRM record for "${c.name ?? targetQuery}".`);
+            setToastMessage(`Found CRM customer record & inquiries for "${c.name ?? targetQuery}".`);
+          } else if (matches.length > 0) {
+            setToastMessage(`Found ${matches.length} matching inquiry! Customer details loaded into form.`);
           } else {
             setToastMessage(`No record found for "${targetQuery}".`);
           }
         })
         .catch(() => {
-          setToastMessage(`No record found for "${targetQuery}".`);
+          if (matches.length > 0) {
+            setToastMessage(`Found ${matches.length} matching inquiry! Customer details loaded into form.`);
+          } else {
+            setToastMessage(`No record found for "${targetQuery}".`);
+          }
         });
+    } else if (matches.length > 0) {
+      setToastMessage(`Found ${matches.length} matching inquiry! Customer details loaded into form.`);
     } else {
       setToastMessage(`No inquiry found matching "${targetQuery}".`);
     }
@@ -615,40 +622,6 @@ export default function BookInquiryModal({
                       <p className="text-[11px] text-red-500 mt-1 font-medium flex items-center gap-1">
                         <ExclamationCircleIcon className="w-3 h-3" /> {errors.phone}
                       </p>
-                    )}
-
-                    {/* Persistent CRM status for this number. The toast the lookup
-                        raises disappears after 3s; this stays while the number is
-                        in the field, which is what the operator needs at submit
-                        time. See the lookup effect for the verified behaviour. */}
-                    {!phoneCheck?.loading && phoneCheck?.customer && (
-                      <div className="mt-1 rounded-md bg-amber-50 border border-amber-200 px-2 py-1.5">
-                        <p className="text-[11px] font-bold text-amber-800 flex items-center gap-1">
-                          <ExclamationCircleIcon className="w-3.5 h-3.5 shrink-0" />
-                          Customer already added
-                        </p>
-                        <p className="text-[10px] text-amber-700 mt-0.5 leading-snug">
-                          <strong>{phoneCheck.customer.name || "(no name)"}</strong>
-                          {" - CRM #"}{String(phoneCheck.customer.entity_id)}
-                          {", "}{phoneCheck.customer.bookings?.length ?? 0} previous booking(s).
-                          {" No duplicate customer will be created. Submitting adds another booking and "}
-                          <strong>overwrites</strong>
-                          {" their saved name and email with what is typed here."}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const c = phoneCheck.customer;
-                            if (!c) return;
-                            setName(c.name ?? "");
-                            setEmail(c.email ?? "");
-                            setToastMessage(`Loaded ${c.name ?? "customer"} from the CRM.`);
-                          }}
-                          className="mt-1 text-[10px] font-bold text-amber-800 underline underline-offset-2 hover:text-amber-900 cursor-pointer"
-                        >
-                          Use their saved details instead
-                        </button>
-                      </div>
                     )}
 
                     {!phoneCheck?.loading && phoneCheck && !phoneCheck.customer && (

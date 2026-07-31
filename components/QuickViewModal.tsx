@@ -335,21 +335,33 @@ export default function QuickViewModal({
             
             {/* Left Side: Compact Product Image Card & Thumbnails */}
             <div className="lg:col-span-4 flex flex-col items-center w-full max-w-sm mx-auto">
-              <div className="w-full bg-white border border-slate-200 rounded-xl p-4 relative shadow-xs overflow-hidden flex flex-col items-center justify-between min-h-[340px] max-w-[340px]">
+              {/* FIXED height, not min-height: with a floor the card grew 10px
+                  once the image and thumbnails arrived, nudging the panel. */}
+              <div className="w-full bg-white border border-slate-200 rounded-xl p-4 relative shadow-xs overflow-hidden flex flex-col items-center justify-between h-[350px] max-w-[340px]">
                 
-                {/* Top Green Banner */}
-                <div className="w-full bg-[#008b47] text-white text-xs font-black uppercase tracking-wider py-2 px-3 text-center rounded-t-xl absolute top-0 inset-x-0">
-                  {offerLabel || "FREE WHEEL ALIGNMENT"}
+                {/* Offer banner — the API's own label. The strip keeps its height
+                    whether or not there is an offer, so the card does not resize
+                    between products. It previously rendered a hardcoded
+                    "FREE WHEEL ALIGNMENT" on every product, offer or not. */}
+                <div className="absolute top-0 inset-x-0 h-9 flex items-center justify-center">
+                  {offerLabel && (
+                    <div className="w-full h-full bg-[#008b47] text-white text-xs font-black uppercase tracking-wider px-3 text-center rounded-t-xl flex items-center justify-center">
+                      {offerLabel}
+                    </div>
+                  )}
                 </div>
 
-                {/* Stock Ribbon Badge */}
-                <div className="absolute top-9 right-0 bg-slate-900 text-white text-[10px] font-black py-1 px-3 uppercase tracking-wider z-10 shadow-md flex items-center rounded-l-none">
-                  <span>In Stock</span>
-                  <span className="absolute bottom-[-4px] right-0 w-0 h-0 border-t-[4px] border-t-slate-900 border-r-[4px] border-r-transparent"></span>
-                </div>
+                {/* Stock ribbon — only when the API says IN_STOCK. */}
+                {inStock && (
+                  <div className="absolute top-10 right-0 bg-slate-900 text-white text-[10px] font-black py-1 px-3 uppercase tracking-wider z-10 shadow-md flex items-center rounded-l-none">
+                    <span>In Stock</span>
+                    <span className="absolute bottom-[-4px] right-0 w-0 h-0 border-t-[4px] border-t-slate-900 border-r-[4px] border-r-transparent"></span>
+                  </div>
+                )}
 
-                {/* Tyre Image */}
-                <div className="w-full h-56 mt-6 flex items-center justify-center p-2">
+                {/* Fixed height: an image, a skeleton and the empty state all
+                    occupy the same box, so loading never moves the layout. */}
+                <div className="w-full h-56 mt-9 flex items-center justify-center p-2">
                   {loading ? (
                     <div className="skeleton w-48 h-48 rounded-lg" aria-hidden="true" />
                   ) : tyreImgSrc ? (

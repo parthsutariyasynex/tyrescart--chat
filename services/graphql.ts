@@ -100,13 +100,19 @@ async function executeGraphQLQuery(query: string) {
     // Status 200 → `retryable` is false, so the sync fails it fast instead of
     // burning three attempts on a query that will never succeed.
     if (data?.errors && data.errors.length > 0) {
-      console.warn("GraphQL API error response:", data.errors);
-      throw new GraphQLRequestError(data.errors[0]?.message || "GraphQL error", res.status);
+      const firstMsg = data.errors[0]?.message || "GraphQL error";
+      if (!/no customer found/i.test(firstMsg)) {
+        console.warn("GraphQL API error response:", data.errors);
+      }
+      throw new GraphQLRequestError(firstMsg, res.status);
     }
 
     return data?.data;
   } catch (err) {
-    console.error("GraphQL execution failed:", err);
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/no customer found/i.test(msg)) {
+      console.error("GraphQL execution failed:", err);
+    }
     throw err;
   }
 }
