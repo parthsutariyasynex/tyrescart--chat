@@ -18,10 +18,12 @@ import { SerwistProvider } from "@serwist/next/react";
 const DISABLED = process.env.NODE_ENV === "development";
 
 export default function ServiceWorker() {
+
   return (
     <SerwistProvider
       swUrl="/sw.js"
       disable={DISABLED}
+
       // A forced reload the moment connectivity returns would abort an in-flight
       // catalogue sync (318k rows) and could wipe a half-entered sale. The app
       // already recovers on its own via syncManager's resume path.

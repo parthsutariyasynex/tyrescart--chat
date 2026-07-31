@@ -5,7 +5,8 @@ import {
   MagnifyingGlassIcon,
   ArrowPathIcon,
   ChevronDownIcon,
-  XMarkIcon
+  XMarkIcon,
+  EyeIcon
 } from '@heroicons/react/24/outline';
 import { buildRowString } from "@/services/productFormatter";
 import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
@@ -18,13 +19,13 @@ import {
   parseRimOnly,
   matchesAspectRim,
   matchesSearch,
-  matchesLatest,
   paginate,
   searchWithAspectRimFallback,
 } from '@/services/searchFilter';
 import { Skeleton } from '@/components/Skeletons';
 import {
   streamCachedSupplierProducts,
+  purgeHistoricalSupplierRows,
   getRows,
   setRows,
   ROWS_KEY,
@@ -329,7 +330,6 @@ export default function SupplierProductsPage() {
   const dMinPriceInput = useDebouncedValue(minPriceInput);
   const dMaxPriceInput = useDebouncedValue(maxPriceInput);
 
-  const [latestOnly, setLatestOnly] = useState(true);
 
   const [pageSize, setPageSize] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
@@ -410,6 +410,11 @@ export default function SupplierProductsPage() {
          accumulate-then-flush shape the sync batches already use. `seqs` keeps
          each row's `sort_seq` (the mapper drops it) so the canonical catalogue
          order can be restored once, at the end — see below. */
+      // One-time: drop historical rows left by a cache written before this page
+      // became latest-only. No-op (one meta read) on every load after the first.
+      await purgeHistoricalSupplierRows().catch(() => 0);
+      if (!alive) return;
+
       const acc: Product[] = [];
       const seqs: number[] = [];
       let pages = 0;
@@ -700,7 +705,9 @@ export default function SupplierProductsPage() {
     if (!isNaN(minPrice)) result = result.filter(item => item.cost >= minPrice);
     if (!isNaN(maxPrice)) result = result.filter(item => item.cost <= maxPrice);
 
-    if (latestOnly) result = result.filter(item => matchesLatest(item, true));
+    // No LATEST? filter: the sync fetches `is_latest: 1` exclusively, so every
+    // row in the cache is current stock. Filtering again would be a no-op pass
+    // over the whole array on each recompute.
 
     if (sortColumn) {
       if (result === allProducts) result = [...result];
@@ -728,7 +735,7 @@ export default function SupplierProductsPage() {
 
     console.timeEnd("Filtering");
     return result;
-  }, [allProducts, dSearchQuery, supplierFilter, categoryFilter, dBrandInput, dSizeInput, dYearInput, dQtyInput, dMinPriceInput, dMaxPriceInput, latestOnly, sortColumn, sortAsc]);
+  }, [allProducts, dSearchQuery, supplierFilter, categoryFilter, dBrandInput, dSizeInput, dYearInput, dQtyInput, dMinPriceInput, dMaxPriceInput, sortColumn, sortAsc]);
 
   // All three dropdown lists in ONE pass. Three separate useMemos each walked
   // the full 318k-row array and allocated its own intermediate — at this size
@@ -874,7 +881,6 @@ export default function SupplierProductsPage() {
     setQtyInput('');
     setMinPriceInput('');
     setMaxPriceInput('');
-    setLatestOnly(true);
     setCurrentPage(1);
     addToast('Filters reset to default.');
   };
@@ -1353,17 +1359,6 @@ export default function SupplierProductsPage() {
                 </div>
               </div>
 
-              {/* Latest? */}
-              <label className="flex items-center gap-2 h-10 text-slate-600 text-sm font-medium cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={latestOnly}
-                  onChange={(e) => { setLatestOnly(e.target.checked); setCurrentPage(1); }}
-                  className="w-4 h-4 rounded border-slate-300 text-emerald-600 accent-emerald-600 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:ring-offset-0 focus:outline-none cursor-pointer"
-                />
-                LATEST?
-              </label>
-
               {/* Search button */}
               <button
                 onClick={() => setCurrentPage(1)}
@@ -1656,18 +1651,29 @@ export default function SupplierProductsPage() {
                           )}
 
                           <td className={`${cellPaddingClass} text-center`}>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                copyRowData(item);
-                              }}
-                              className="p-1 text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors"
-                              title="Copy row data"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
-                              </svg>
-                            </button>
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                }}
+                                className="p-1 text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors"
+                                title="View Details"
+                              >
+                                <EyeIcon className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  copyRowData(item);
+                                }}
+                                className="p-1 text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors"
+                                title="Copy row data"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                                </svg>
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );

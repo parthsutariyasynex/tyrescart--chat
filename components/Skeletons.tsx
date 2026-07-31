@@ -227,94 +227,63 @@ export function SupplierProductsPageSkeleton() {
   );
 }
 
+/**
+ * Route-level loading skeleton for the Dashboard page.
+ * Mirrors the exact layout of DashboardPage (Header, Quick Stats Grid, Quick Actions Grid, Analytics Chart Box).
+ */
 export function DashboardPageSkeleton() {
   return (
-    <div className="flex h-full w-full overflow-hidden bg-[#f8fafc] text-slate-800 font-sans relative">
+    <div className="flex h-full w-full overflow-hidden bg-[#f4f6f9] text-gray-800 font-sans relative">
       <main className="flex-1 flex flex-col min-w-0 bg-[#f8fafc] overflow-hidden">
         {/* Top Header Bar */}
-        <header className="h-16 flex-none bg-white border-b border-slate-200 px-6 flex items-center justify-between gap-4 shadow-2xs">
-          <div className="space-y-1">
-            <Skeleton className="h-5 w-40 rounded-md" />
-            <Skeleton className="h-3 w-56 rounded-sm" />
+        <header className="h-16 flex-none bg-white border-b border-gray-200 px-6 flex items-center justify-between gap-4 shadow-xs">
+          <div>
+            <Skeleton className="h-6 w-32 rounded-lg" />
           </div>
           <div className="flex items-center gap-3">
-            <Skeleton className="h-9 w-28 rounded-xl" />
-            <Skeleton className="h-9 w-28 rounded-xl" />
             <Skeleton className="h-8 w-8 rounded-lg" />
-            <Skeleton className="h-7 w-24 rounded-full" />
+            <Skeleton className="h-8 w-28 rounded-lg" />
+            <Skeleton className="h-7 w-[95px] rounded-full" />
           </div>
         </header>
 
         {/* Dashboard Body Skeleton */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-8">
-          {/* Section 1: KPI Cards */}
-          <div className="space-y-3">
-            <Skeleton className="h-4 w-32 rounded-md" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs flex items-center justify-between">
-                  <div className="space-y-2 flex-1">
-                    <Skeleton className="h-3 w-24 rounded" />
-                    <Skeleton className="h-6 w-20 rounded" />
-                    <Skeleton className="h-3 w-28 rounded" />
-                  </div>
-                  <Skeleton className="w-11 h-11 rounded-xl shrink-0 ml-3" />
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Section 2: Business Analytics */}
-          <div className="space-y-3">
-            <Skeleton className="h-4 w-36 rounded-md" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-2">
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* Quick Stats Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs flex items-center justify-between">
+                <div className="space-y-2 flex-1">
                   <Skeleton className="h-3 w-24 rounded" />
-                  <Skeleton className="h-6 w-28 rounded" />
-                  <Skeleton className="h-3 w-32 rounded" />
+                  <Skeleton className="h-6 w-20 rounded" />
+                  <Skeleton className="h-3 w-28 rounded" />
                 </div>
-              ))}
-            </div>
+                <Skeleton className="w-12 h-12 rounded-xl shrink-0 ml-3" />
+              </div>
+            ))}
           </div>
 
-          {/* Section 3: Sync Control Center */}
-          <div className="space-y-3">
-            <Skeleton className="h-4 w-40 rounded-md" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-3">
-                  <div className="flex justify-between items-center">
-                    <Skeleton className="h-4 w-28 rounded" />
-                    <Skeleton className="h-5 w-16 rounded-full" />
+          {/* Quick Action Navigation Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <div key={i} className="bg-white p-6 rounded-2xl border border-gray-100 shadow-xs flex items-center justify-between">
+                <div className="flex items-center gap-4 flex-1">
+                  <Skeleton className="w-12 h-12 rounded-xl shrink-0" />
+                  <div className="space-y-2 flex-1 max-w-sm">
+                    <Skeleton className="h-5 w-36 rounded" />
+                    <Skeleton className="h-3.5 w-full rounded" />
                   </div>
-                  <Skeleton className="h-3 w-36 rounded" />
-                  <Skeleton className="h-3 w-32 rounded" />
-                  <Skeleton className="h-8 w-full rounded-xl" />
                 </div>
-              ))}
-            </div>
+                <Skeleton className="h-8 w-28 rounded-lg shrink-0 ml-4" />
+              </div>
+            ))}
           </div>
 
-          {/* Section 4: Offline & Inventory Analytics */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-4">
-              <Skeleton className="h-5 w-36 rounded" />
-              <div className="grid grid-cols-2 gap-4">
-                <Skeleton className="h-16 w-full rounded-xl" />
-                <Skeleton className="h-16 w-full rounded-xl" />
-                <Skeleton className="h-16 w-full rounded-xl" />
-                <Skeleton className="h-16 w-full rounded-xl" />
-              </div>
-            </div>
-            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-4">
-              <Skeleton className="h-5 w-36 rounded" />
-              <div className="space-y-3">
-                <Skeleton className="h-10 w-full rounded-lg" />
-                <Skeleton className="h-10 w-full rounded-lg" />
-                <Skeleton className="h-10 w-full rounded-lg" />
-              </div>
-            </div>
+          {/* Placeholder Section for Graphs & Charts */}
+          <div className="bg-white p-8 rounded-2xl border border-gray-100 shadow-xs flex flex-col items-center justify-center text-center min-h-[320px]">
+            <Skeleton className="w-16 h-16 rounded-2xl mb-4" />
+            <Skeleton className="h-5 w-48 rounded mb-2" />
+            <Skeleton className="h-3.5 w-80 rounded" />
           </div>
         </div>
       </main>

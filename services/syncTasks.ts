@@ -15,8 +15,6 @@ import { syncModule } from "./syncService";
 import {
   syncSupplierProductsPage,
   syncAllSupplierProducts,
-  syncLatestSupplierProducts,
-  countCachedSupplierProducts,
   getSupplierSyncState,
   syncAllTcProducts,
   type CachedSupplierProduct,
@@ -37,29 +35,26 @@ export type KnownSyncTaskId = (typeof SYNC_TASK)[keyof typeof SYNC_TASK];
 const nf = (n: number) => n.toLocaleString();
 
 /* ─────────────────────────────────────────────────────────────
-   Supplier products — the big one (~318k rows, ~3,187 requests)
+   Supplier products — latest stock only (~8.3k rows, ~9 requests)
 ───────────────────────────────────────────────────────────── */
 const supplierProductsTask: SyncTaskDefinition = {
   id: SYNC_TASK.supplierProducts,
   label: "Supplier products",
   async run({ onProgress, onBatch, signal }) {
-    // One stamp for both phases so the second phase's stale-row cleanup treats
-    // the first phase's rows as part of the same generation.
+    // Stamps this generation. Rows carrying an older stamp are cursor-deleted
+    // when the pass completes, which is also what purges the historical rows a
+    // pre-latest-only cache still holds.
     const syncBatch = Date.now();
 
     const forward = (batch: CachedSupplierProduct[]) => onBatch(batch);
 
-    // A cold cache gets the current products first: they are what the default
-    // LATEST? view shows, so the table fills in seconds rather than after the
-    // whole catalogue. A warm cache skips straight to the full pass — those
-    // rows are already on screen.
-    const cachedCount = await countCachedSupplierProducts().catch(() => 0);
-    if (cachedCount === 0) {
-      await syncLatestSupplierProducts({ syncBatch, onProgress, onBatch: forward });
-      if (signal.aborted) return "Sync cancelled.";
-    }
-
+    // ONE pass. There used to be a latest-first phase ahead of the full
+    // catalogue, because the LATEST? view sat behind ~50k historical rows and
+    // would otherwise show an empty table for a minute. Now that the sync itself
+    // only ever fetches `is_latest: 1`, that phase would fetch exactly the same
+    // rows twice — so it is gone, not skipped.
     const result = await syncAllSupplierProducts({ syncBatch, onProgress, onBatch: forward });
+    if (signal.aborted) return "Sync cancelled.";
 
     if (result.complete) return `Synced all ${nf(result.items)} supplier products.`;
     if (result.aborted) {

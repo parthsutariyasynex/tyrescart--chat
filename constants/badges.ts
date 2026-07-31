@@ -50,6 +50,7 @@ export const CATEGORY_BADGES_SEMANTIC: BadgeClassMap = {
 /** Raw Tailwind variant — /supplier-products. */
 export const BRAND_BADGES_TAILWIND: BadgeClassMap = {
   Bridgestone: 'bg-emerald-50 text-emerald-800 border-emerald-200/70',
+
   Habilead: 'bg-teal-50 text-teal-800 border-teal-200/70',
   Kumho: 'bg-indigo-50 text-indigo-800 border-indigo-200/70',
   Michelin: 'bg-sky-50 text-sky-800 border-sky-200/70',

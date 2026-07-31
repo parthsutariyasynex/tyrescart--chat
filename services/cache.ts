@@ -589,6 +589,37 @@ const hasUsableId = (e: CachedSupplierProduct) =>
  * Rows written before `sort_seq` existed (a pre-v4 cache that has not been
  * re-synced) sort last, by id, so their order is at least stable.
  */
+/** Set once the historical rows left by the pre-latest-only cache are gone. */
+const META_LATEST_ONLY_PURGED = "supplierAll:latestOnlyPurged";
+
+/**
+ * One-time purge of historical rows from a cache written before this module
+ * became latest-only.
+ *
+ * The sync now fetches `is_latest: 1` exclusively, but a user who already synced
+ * still holds ~311k historical rows in IndexedDB, and the generation cleanup only
+ * runs at the END of a full sync — which auto-sync deliberately never starts when
+ * the cache is non-empty. Without this they would keep seeing (and filtering, and
+ * sorting) stale stock until they happened to press Sync.
+ *
+ * Cursor-based, so memory stays flat regardless of store size, and gated by a
+ * meta flag so it costs one `idbGetMeta` on every load after the first. Returns
+ * how many rows were removed.
+ */
+export async function purgeHistoricalSupplierRows(): Promise<number> {
+  const done = await idbGetMeta<boolean>(META_LATEST_ONLY_PURGED).catch(() => null);
+  if (done) return 0;
+
+  const removed = await idbDeleteWhere<CachedSupplierProduct>(
+    STORE_SUPPLIER_PRODUCTS,
+    (row) => Number(row.is_latest) === 1,
+  ).catch(() => 0);
+
+  await idbSetMeta(META_LATEST_ONLY_PURGED, true).catch(() => { });
+  if (removed) console.log(`[cache] purged ${removed} historical supplier rows (latest-only)`);
+  return removed;
+}
+
 /** Records per page when streaming the catalogue out of IndexedDB. Large enough
  *  that per-page overhead is negligible, small enough that deserialising one page
  *  is a short task rather than a multi-second freeze. */
@@ -954,8 +985,14 @@ export async function syncLatestSupplierProducts({
 }
 
 /**
- * Sync the ENTIRE supplier catalogue (all ~318k rows, latest + historical) into
- * IndexedDB. No `is_latest` filter — the client filters "Latest" vs "All" later.
+ * Sync the supplier catalogue into IndexedDB — LATEST ROWS ONLY.
+ *
+ * `is_latest: 1` is applied at the API, permanently. The page used to fetch all
+ * ~319k rows (latest + historical) and let a LATEST? checkbox filter them in the
+ * browser; that checkbox is gone and current stock is the only thing this module
+ * deals with, so historical rows are never requested, stored or shown.
+ *
+ * Measured effect: 319,429 rows over 329 requests becomes 8,251 rows over ~9.
  *
  * Design notes:
  * - The store is NOT cleared up front. Each row is stamped with this run's
@@ -990,6 +1027,8 @@ export async function syncAllSupplierProducts({
     const res = await (async () => {
       // Page by a STABLE `id` sort so offset pagination is deterministic
       const sort = { sortField: "id", sortDirection: "ASC" as const };
+      // Applied to EVERY page: historical rows are never fetched.
+      const latest = { is_latest: 1 };
       const syncBatch = syncBatchOverride ?? Date.now();
 
       let written = 0; // rows successfully put
@@ -1026,7 +1065,7 @@ export async function syncAllSupplierProducts({
 
       console.log(`[supplier-sync] STARTED (requested pageSize=${pageSize}, concurrency=${SUPPLIER_SYNC_CONCURRENCY})`);
 
-      const first = await fetchSupplierPageWithRetry(1, pageSize, sort);
+      const first = await fetchSupplierPageWithRetry(1, pageSize, sort, latest);
       if (!first) {
         throw new Error("Supplier sync failed: could not fetch the first page. Cached data left unchanged.");
       }
@@ -1054,7 +1093,7 @@ export async function syncAllSupplierProducts({
           const pageNo = nextPage++;
           if (pageNo > totalPages) return;
 
-          const res = await fetchSupplierPageWithRetry(pageNo, size, sort);
+          const res = await fetchSupplierPageWithRetry(pageNo, size, sort, latest);
           if (!res) {
             failedPages.push(pageNo);
             failureStreak++;
@@ -1131,7 +1170,9 @@ export async function syncSupplierProductsPage({
   currentPage?: number;
 } = {}): Promise<CachedSupplierProduct[]> {
   const sort = { sortField: "id", sortDirection: "ASC" as const };
-  const res = await fetchSupplierPageWithRetry(currentPage, pageSize, sort);
+  // Same permanent `is_latest: 1` the full pass uses, so refreshing the visible
+  // page can never write a historical row back into the store.
+  const res = await fetchSupplierPageWithRetry(currentPage, pageSize, sort, { is_latest: 1 });
   if (!res) throw new Error(`Supplier page ${currentPage} sync failed. Cached data left unchanged.`);
 
   const rows = res.items ?? [];
