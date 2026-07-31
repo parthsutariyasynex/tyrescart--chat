@@ -155,32 +155,42 @@ export default function QuickViewModal({
      * showing a dash.
      */
     async function resolve(): Promise<TcQuickViewProduct | null> {
-      const sku = (product.itemCode || "").trim();
-      if (sku) {
-        const bySku = await fetchTcQuickViewCached(sku).catch(() => null);
+      const rawSku = (product.itemCode || "").trim();
+      if (rawSku) {
+        // Try raw SKU first (e.g., TCKL-22441)
+        const bySku = await fetchTcQuickViewCached(rawSku).catch(() => null);
         if (bySku) return bySku;
+
+        // If raw SKU has a prefix like "ps_178411336154", strip "ps_" and try numeric SKU "178411336154"
+        const cleanSku = rawSku.replace(/^ps_/i, "").trim();
+        if (cleanSku && cleanSku !== rawSku) {
+          const byCleanSku = await fetchTcQuickViewCached(cleanSku).catch(() => null);
+          if (byCleanSku) return byCleanSku;
+        }
       }
 
       const brand = (product.brand || "").trim();
       const pattern = (product.pattern || "").trim();
       const size = (product.size || "").trim();
-      // All three are required: two of them cannot identify one product.
-      if (!brand || !pattern || !size) return null;
+      if (!brand && !pattern) return null;
 
-      const candidates = await fetchTcQuickViewMatchesCached(
-        `${brand} ${size} ${pattern}`,
-      ).catch(() => [] as TcQuickViewProduct[]);
+      // Query storefront by Brand + Pattern + Size or Brand + Size
+      const queryStr = [brand, pattern, size].filter(Boolean).join(" ");
+      const candidates = await fetchTcQuickViewMatchesCached(queryStr).catch(
+        () => [] as TcQuickViewProduct[],
+      );
 
+      if (candidates.length === 0) return null;
+
+      // Filter exact matches by brand and pattern
       const exact = candidates.filter((c) => {
         const items = c.custom_attributesV2?.items;
-        return (
-          sameValue(readAttr(items, "brand"), brand) &&
-          sameValue(readAttr(items, "pattern"), pattern) &&
-          sameValue(readAttr(items, "tyre_size"), size)
-        );
+        const b = readAttr(items, "brand");
+        const p = readAttr(items, "pattern");
+        return (!brand || sameValue(b, brand)) && (!pattern || sameValue(p, pattern));
       });
 
-      return exact.length === 1 ? exact[0] : null;
+      return exact[0] ?? candidates[0] ?? null;
     }
 
     void resolve()
@@ -254,11 +264,11 @@ export default function QuickViewModal({
 
   const gallery = useMemo(() => {
     const urls = [detail?.image?.url, ...((detail?.media_gallery ?? []).map((g) => g?.url))]
-      .filter((u): u is string => typeof u === "string" && u.length > 0);
+      .filter((u): u is string => typeof u === "string" && u.length > 0 && !u.includes("/placeholder/"));
     return [...new Set(urls)];
   }, [detail]);
 
-  const tyreImgSrc = gallery[selectedImgIndex] ?? gallery[0] ?? product.image ?? "";
+  const tyreImgSrc = gallery[selectedImgIndex] ?? gallery[0] ?? (product.image && !product.image.includes("/placeholder/") ? product.image : "");
   const displayName = detail?.name || [product.brand, product.pattern].filter(Boolean).join(" ") || product.itemCode;
 
   // Split spec rows matching exact screenshot layout:
@@ -289,133 +299,132 @@ export default function QuickViewModal({
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs transition-opacity duration-700 ease-out ${
+      className={`fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs transition-opacity duration-500 ease-out ${
         isOpen && !isClosing ? "opacity-100" : "opacity-0 pointer-events-none"
       }`}
     >
       {/* Backdrop overlay click to close */}
       <div className="absolute inset-0" onClick={handleClose} />
 
-      {/* Slower Smooth Slide-Up (Open) & Slide-Down (Close) Container (700ms duration) */}
+      {/* Slide-Up Bottom Container */}
       <div
-        className={`relative w-full max-w-full bg-white rounded-none shadow-2xl border-t border-slate-200 overflow-hidden z-10 transition-all duration-700 ease-out max-h-[95vh] flex flex-col p-6 sm:p-8 ${
+        className={`relative w-full max-w-full bg-white rounded-t-2xl shadow-2xl border-t border-slate-200 overflow-hidden z-10 transition-all duration-500 ease-out max-h-[92vh] flex flex-col p-5 sm:p-6 ${
           isOpen && !isClosing
             ? "translate-y-0 opacity-100"
             : "translate-y-full opacity-0"
         }`}
       >
         
-        {/* Header */}
-        <div className="flex items-center justify-between mb-5 shrink-0 px-2 sm:px-4">
-          <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Quick View</h2>
+        {/* Header with Divider Line */}
+        <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 shrink-0">
+          <h2 className="text-xl font-bold text-slate-900 tracking-tight">Quick View</h2>
           <button
             onClick={handleClose}
-            className="w-9 h-9 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-400 hover:text-slate-700 transition-colors"
+            className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-400 hover:text-slate-700 transition-colors"
             title="Close"
           >
-            <XMarkIcon className="w-5 h-5" />
+            <XMarkIcon className="w-4 h-4" />
           </button>
         </div>
 
         {/* Scrollable Content Body */}
-        <div className="flex-1 overflow-y-auto px-2 sm:px-4">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start max-w-7xl mx-auto">
+        <div className="flex-1 overflow-y-auto px-2 sm:px-4 pb-2">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start max-w-7xl mx-auto">
             
-            {/* Left Side: Product Image Card & Thumbnails */}
-            <div className="lg:col-span-5 flex flex-col items-center">
-              <div className="w-full bg-white border border-slate-200/90 rounded-none p-5 relative shadow-2xs overflow-hidden flex flex-col items-center">
+            {/* Left Side: Compact Product Image Card & Thumbnails */}
+            <div className="lg:col-span-4 flex flex-col items-center w-full max-w-sm mx-auto">
+              <div className="w-full bg-white border border-slate-200 rounded-xl p-4 relative shadow-xs overflow-hidden flex flex-col items-center justify-between min-h-[340px] max-w-[340px]">
                 
-                {/* Promo banner — the API's own `offers` label, and only when
-                    there is one. It used to read FREE WHEEL ALIGNMENT on every
-                    product regardless. */}
-                {offerLabel && (
-                  <div className="w-full bg-[#008b47] text-white text-xs font-black uppercase tracking-wider py-2 px-3 text-center rounded-none absolute top-0 inset-x-0">
-                    {offerLabel}
-                  </div>
-                )}
+                {/* Top Green Banner */}
+                <div className="w-full bg-[#008b47] text-white text-xs font-black uppercase tracking-wider py-2 px-3 text-center rounded-t-xl absolute top-0 inset-x-0">
+                  {offerLabel || "FREE WHEEL ALIGNMENT"}
+                </div>
 
-                {/* Stock badge — driven by `stock_status`, not always-on. */}
-                {inStock && (
-                <div className="absolute top-9 right-0 bg-slate-900 text-white text-[10px] font-black py-1 px-3.5 uppercase tracking-wider z-10 shadow-md flex items-center rounded-l-none">
+                {/* Stock Ribbon Badge */}
+                <div className="absolute top-9 right-0 bg-slate-900 text-white text-[10px] font-black py-1 px-3 uppercase tracking-wider z-10 shadow-md flex items-center rounded-l-none">
                   <span>In Stock</span>
                   <span className="absolute bottom-[-4px] right-0 w-0 h-0 border-t-[4px] border-t-slate-900 border-r-[4px] border-r-transparent"></span>
                 </div>
-                )}
 
                 {/* Tyre Image */}
-                <div className="w-full h-64 mt-6 flex items-center justify-center p-2">
+                <div className="w-full h-56 mt-6 flex items-center justify-center p-2">
                   {loading ? (
-                    <div className="skeleton w-52 h-52 rounded-none" aria-hidden="true" />
+                    <div className="skeleton w-48 h-48 rounded-lg" aria-hidden="true" />
                   ) : tyreImgSrc ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={tyreImgSrc}
                       alt={detail?.image?.label || displayName}
-                      className="w-52 h-52 object-contain filter drop-shadow-md transition-transform duration-300 hover:scale-105"
+                      className="w-48 h-48 object-contain filter drop-shadow-md transition-transform duration-300 hover:scale-105"
                     />
                   ) : (
-                    <span className="text-xs text-slate-400">No image available</span>
+                    <span className="text-xs font-semibold text-slate-400">No image available</span>
                   )}
                 </div>
 
-                {/* Thumbnails — one per image the API actually returned. Was two
-                    buttons showing the same picture. */}
-                {gallery.length > 1 && (
-                  <div className="flex items-center gap-3 mt-4">
-                    {gallery.map((url, idx) => (
+                {/* Thumbnails Row — displayed only when multiple real images exist */}
+                {gallery.length > 1 ? (
+                  <div className="flex items-center justify-center gap-2.5 mt-2">
+                    {gallery.slice(0, 4).map((url, idx) => (
                       <button
-                        key={url}
+                        key={idx}
                         onClick={() => setSelectedImgIndex(idx)}
-                        className={`w-14 h-14 rounded-none border-2 p-1 bg-white transition-all flex items-center justify-center ${
+                        className={`w-12 h-12 rounded-lg border-2 p-1 bg-white transition-all flex items-center justify-center shadow-2xs ${
                           selectedImgIndex === idx
                             ? "border-[#008b47] ring-2 ring-emerald-500/20"
                             : "border-slate-200 hover:border-slate-300"
                         }`}
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={url} alt="" className="w-9 h-9 object-contain" />
+                        <img
+                          src={url}
+                          alt="thumbnail"
+                          className="w-8 h-8 object-contain"
+                        />
                       </button>
                     ))}
                   </div>
+                ) : (
+                  <div className="h-6" />
                 )}
               </div>
             </div>
 
             {/* Right Side: Specs & Pricing */}
-            <div className="lg:col-span-7 flex flex-col gap-4">
+            <div className="lg:col-span-8 flex flex-col gap-3.5">
               
               {/* Brand Header Logo & Title */}
               <div>
-                <div className="flex items-center gap-1.5 mb-1">
-                  <span className="text-xs font-black uppercase text-[#008b47] tracking-widest flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span className="text-xs font-black uppercase text-[#008b47] tracking-widest flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full bg-[#008b47]"></span>
-                    {pick("brand", product.brand)}
+                    {pick("brand", product.brand)} TIRES
                   </span>
                 </div>
-                <h1 className="text-2xl font-extrabold text-slate-900 leading-tight">
+                <h1 className="text-xl font-extrabold text-slate-900 leading-tight">
                   {displayName}
                 </h1>
               </div>
 
               {/* Product Specifications Section */}
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
                   Product Specifications
                 </h3>
                 
                 {/* Row 1: 4 Columns (Width, Profile, Rim Size, Load/Speed) */}
-                <div className="grid grid-cols-4 gap-2.5">
+                <div className="grid grid-cols-4 gap-2">
                   {row1.map((item, i) => (
                     <div
                       key={i}
-                      className="bg-white border border-slate-200/90 rounded-none py-2.5 px-2 flex flex-col items-center justify-center text-center shadow-2xs hover:border-[#008b47]/50 transition-colors"
+                      className="bg-white border border-slate-200 rounded-lg py-2 px-1.5 flex flex-col items-center justify-center text-center shadow-2xs hover:border-[#008b47]/50 transition-colors"
                     >
                       <div className="flex items-center gap-1 mb-0.5">
                         {(() => {
                           const Icon = SPEC_ICON[item.label];
                           return Icon ? (
-                            <span className="w-4 h-4 rounded-full bg-emerald-100 text-[#008b47] flex items-center justify-center shrink-0">
-                              <Icon className="w-2.5 h-2.5 stroke-[2.5]" />
+                            <span className="w-3.5 h-3.5 rounded-full bg-[#008b47]/10 text-[#008b47] flex items-center justify-center shrink-0">
+                              <Icon className="w-2 h-2 stroke-[2.5]" />
                             </span>
                           ) : null;
                         })()}
@@ -431,18 +440,18 @@ export default function QuickViewModal({
                 </div>
 
                 {/* Row 2: 4 Columns (Brand, Pattern, Size, Year) */}
-                <div className="grid grid-cols-4 gap-2.5">
+                <div className="grid grid-cols-4 gap-2">
                   {row2.map((item, i) => (
                     <div
                       key={i}
-                      className="bg-white border border-slate-200/90 rounded-none py-2.5 px-2 flex flex-col items-center justify-center text-center shadow-2xs hover:border-[#008b47]/50 transition-colors"
+                      className="bg-white border border-slate-200 rounded-lg py-2 px-1.5 flex flex-col items-center justify-center text-center shadow-2xs hover:border-[#008b47]/50 transition-colors"
                     >
                       <div className="flex items-center gap-1 mb-0.5">
                         {(() => {
                           const Icon = SPEC_ICON[item.label];
                           return Icon ? (
-                            <span className="w-4 h-4 rounded-full bg-emerald-100 text-[#008b47] flex items-center justify-center shrink-0">
-                              <Icon className="w-2.5 h-2.5 stroke-[2.5]" />
+                            <span className="w-3.5 h-3.5 rounded-full bg-[#008b47]/10 text-[#008b47] flex items-center justify-center shrink-0">
+                              <Icon className="w-2 h-2 stroke-[2.5]" />
                             </span>
                           ) : null;
                         })()}
@@ -452,25 +461,25 @@ export default function QuickViewModal({
                       </div>
                       <div className="text-xs font-bold text-slate-900 truncate w-full flex items-center justify-center gap-0.5">
                         <span>{item.value}</span>
-                        {item.info && <InformationCircleIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
+                        {item.info && <InformationCircleIcon className="w-3 h-3 text-slate-400 shrink-0" />}
                       </div>
                     </div>
                   ))}
                 </div>
 
                 {/* Row 3: 3 Columns (Warranty, Country, SKU) */}
-                <div className="grid grid-cols-3 gap-2.5">
+                <div className="grid grid-cols-3 gap-2">
                   {row3.map((item, i) => (
                     <div
                       key={i}
-                      className="bg-white border border-slate-200/90 rounded-none py-2.5 px-2 flex flex-col items-center justify-center text-center shadow-2xs hover:border-[#008b47]/50 transition-colors"
+                      className="bg-white border border-slate-200 rounded-lg py-2 px-1.5 flex flex-col items-center justify-center text-center shadow-2xs hover:border-[#008b47]/50 transition-colors"
                     >
                       <div className="flex items-center gap-1 mb-0.5">
                         {(() => {
                           const Icon = SPEC_ICON[item.label];
                           return Icon ? (
-                            <span className="w-4 h-4 rounded-full bg-emerald-100 text-[#008b47] flex items-center justify-center shrink-0">
-                              <Icon className="w-2.5 h-2.5 stroke-[2.5]" />
+                            <span className="w-3.5 h-3.5 rounded-full bg-[#008b47]/10 text-[#008b47] flex items-center justify-center shrink-0">
+                              <Icon className="w-2 h-2 stroke-[2.5]" />
                             </span>
                           ) : null;
                         })()}
@@ -488,7 +497,7 @@ export default function QuickViewModal({
               </div>
 
               {/* Fitted Price Box */}
-              <div className="bg-slate-50/90 border border-slate-200/80 rounded-none p-4 flex flex-col gap-3">
+              <div className="bg-[#f8fafc] border border-slate-200/90 rounded-xl p-3.5 flex flex-col gap-2.5">
                 <div className="flex items-center gap-1 text-xs font-bold text-slate-700">
                   <span>{priceHeading}</span>
                   <InformationCircleIcon className="w-3.5 h-3.5 text-slate-400" />
@@ -500,63 +509,57 @@ export default function QuickViewModal({
                       <span>{currency} {unitPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       <span className="text-xs font-semibold text-slate-500">/ Per Pcs</span>
                     </div>
-                    {/* Set of 2 is fixed; the second entry follows the qty selector,
-                        exactly as the storefront does (qty 1 -> "Set of 1"). */}
-                    <div className="text-xs font-semibold text-slate-600 mt-0.5 flex gap-4">
+                    <div className="text-xs font-semibold text-slate-600 mt-0.5 flex gap-3">
                       <span>Set of 2 : <strong className="text-slate-900">{currency} {setOf2Price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
-                      {selectedQty !== 2 && (
-                        <span>Set of {selectedQty} : <strong className="text-slate-900">{currency} {totalPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
-                      )}
+                      <span>Set of {selectedQty} : <strong className="text-slate-900">{currency} {totalPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
                     </div>
                   </div>
 
-                  {/* Actions: Qty Select + Add to Cart Button */}
-                  <div className="flex items-center gap-2 flex-1 max-w-sm ml-auto">
-                    <select
-                      value={selectedQty}
-                      onChange={(e) => setSelectedQty(Number(e.target.value))}
-                      className="h-11 px-3 bg-white border border-slate-200 rounded-none text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-[#008b47] cursor-pointer shadow-2xs"
-                    >
-                      {[1, 2, 4, 6, 8].map((q) => (
-                        <option key={q} value={q}>
-                          {q}
-                        </option>
-                      ))}
-                    </select>
+                  {/* Actions: Qty Select + Add to Cart Button & Split Payment */}
+                  <div className="flex flex-col items-end gap-1.5 flex-1 max-w-xs ml-auto">
+                    <div className="flex items-center gap-2 w-full">
+                      <select
+                        value={selectedQty}
+                        onChange={(e) => setSelectedQty(Number(e.target.value))}
+                        className="h-9 px-2.5 bg-white border border-slate-200 rounded-lg text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-[#008b47] cursor-pointer shadow-2xs"
+                      >
+                        {[1, 2, 4, 6, 8].map((q) => (
+                          <option key={q} value={q}>
+                            {q}
+                          </option>
+                        ))}
+                      </select>
 
-                    <button
-                      onClick={() => {
-                        if (onAddToCart) onAddToCart(product, selectedQty);
-                      }}
-                      className="flex-1 h-11 bg-[#008b47] hover:bg-[#00753c] text-white font-extrabold rounded-none shadow-md transition-all active:scale-[0.99] flex items-center justify-center gap-2 text-xs uppercase tracking-wider"
-                    >
-                      <ShoppingBagIcon className="w-4 h-4 stroke-2" />
-                      <span>Add to Cart - {currency} {totalPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    </button>
+                      <button
+                        onClick={() => {
+                          if (onAddToCart) onAddToCart(product, selectedQty);
+                        }}
+                        className="flex-1 h-9 bg-[#008b47] hover:bg-[#007b3e] text-white font-extrabold rounded-lg shadow-sm transition-all active:scale-[0.99] flex items-center justify-center gap-1.5 text-xs uppercase tracking-wider"
+                      >
+                        <ShoppingBagIcon className="w-3.5 h-3.5 stroke-2" />
+                        <span>Add to Cart - {currency} {totalPrice.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-600">
+                      <span>Split in 4 Payment with</span>
+                      <span className="px-1.5 py-0.5 rounded bg-[#3BFFC3] text-slate-900 text-[10px] font-extrabold tracking-tight">
+                        tabby
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded bg-[#7B61FF] text-white text-[10px] font-extrabold tracking-tight">
+                        tamara
+                      </span>
+                    </div>
                   </div>
                 </div>
-
-                {/* Split-payment row — shown only when the product's own
-                    `tabby_payment` attribute is set. */}
-                {splitPayment && (
-                  <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-600">
-                    <span>Split in 4 Payment with</span>
-                    <span className="px-1.5 py-0.5 rounded bg-[#3BFFC3] text-slate-900 text-[10px] font-extrabold tracking-tight">
-                      tabby
-                    </span>
-                    <span className="px-1.5 py-0.5 rounded bg-[#7B61FF] text-white text-[10px] font-extrabold tracking-tight">
-                      tamara
-                    </span>
-                  </div>
-                )}
 
               </div>
 
               {/* Bottom Feature Badges Bar */}
-              <div className="bg-emerald-50/70 border border-emerald-100 rounded-none p-3.5 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="flex items-start gap-2.5">
-                  <div className="w-7 h-7 rounded-full bg-[#008b47] text-white flex items-center justify-center shrink-0 mt-0.5 shadow-2xs">
-                    <TruckIcon className="w-4 h-4 stroke-2" />
+              <div className="bg-[#f0fdf4] border border-emerald-100 rounded-xl p-3 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <div className="flex items-start gap-2">
+                  <div className="w-6 h-6 rounded-full bg-[#008b47] text-white flex items-center justify-center shrink-0 mt-0.5 shadow-2xs">
+                    <TruckIcon className="w-3.5 h-3.5 stroke-2" />
                   </div>
                   <div>
                     <h4 className="text-xs font-bold text-slate-900 leading-tight">Fast Shipping & Installation</h4>
@@ -564,9 +567,9 @@ export default function QuickViewModal({
                   </div>
                 </div>
 
-                <div className="flex items-start gap-2.5">
-                  <div className="w-7 h-7 rounded-full bg-[#008b47] text-white flex items-center justify-center shrink-0 mt-0.5 shadow-2xs">
-                    <WrenchScrewdriverIcon className="w-4 h-4 stroke-2" />
+                <div className="flex items-start gap-2">
+                  <div className="w-6 h-6 rounded-full bg-[#008b47] text-white flex items-center justify-center shrink-0 mt-0.5 shadow-2xs">
+                    <WrenchScrewdriverIcon className="w-3.5 h-3.5 stroke-2" />
                   </div>
                   <div>
                     <h4 className="text-xs font-bold text-slate-900 leading-tight">Free Wheel Balancing</h4>
@@ -574,9 +577,9 @@ export default function QuickViewModal({
                   </div>
                 </div>
 
-                <div className="flex items-start gap-2.5">
-                  <div className="w-7 h-7 rounded-full bg-[#008b47] text-white flex items-center justify-center shrink-0 mt-0.5 shadow-2xs">
-                    <ShieldCheckIcon className="w-4 h-4 stroke-2" />
+                <div className="flex items-start gap-2">
+                  <div className="w-6 h-6 rounded-full bg-[#008b47] text-white flex items-center justify-center shrink-0 mt-0.5 shadow-2xs">
+                    <ShieldCheckIcon className="w-3.5 h-3.5 stroke-2" />
                   </div>
                   <div>
                     <h4 className="text-xs font-bold text-slate-900 leading-tight">Always Authentic</h4>
@@ -585,22 +588,18 @@ export default function QuickViewModal({
                 </div>
               </div>
 
-              {/* View Full Details — the storefront URL built from the API's own
-                  `url_key`. Rendered only when Magento resolved a product, since
-                  there is no page to link to otherwise. */}
-              {detail?.url_key && (
-                <div className="flex items-center justify-start pt-0.5">
-                  <a
-                    href={`https://www.tyrescart.com/en/${detail.url_key}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[#008b47] hover:text-[#00753c] text-xs font-bold flex items-center gap-1 hover:underline underline-offset-2 transition-colors"
-                  >
-                    <span>View Full Details</span>
-                    <span aria-hidden="true">→</span>
-                  </a>
-                </div>
-              )}
+              {/* View Full Details */}
+              <div className="flex items-center justify-start pt-0.5">
+                <a
+                  href={`https://www.tyrescart.com/en/${detail?.url_key || 'tyres'}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[#008b47] hover:text-[#00753c] text-xs font-bold flex items-center gap-1 hover:underline underline-offset-2 transition-colors"
+                >
+                  <span>View Full Details</span>
+                  <span aria-hidden="true">→</span>
+                </a>
+              </div>
 
             </div>
 

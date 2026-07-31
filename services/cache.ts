@@ -56,10 +56,12 @@ import {
   fetchTcAttributeLabelsGraphQL,
   fetchTcQuickViewGraphQL,
   fetchTcQuickViewMatchesGraphQL,
+  fetchSupplierPriceHistoryGraphQL,
   isRetryableError,
 } from "./graphql";
 import type { TcProductsQueryVars } from "./queries";
 import type {
+  SupplierPriceHistoryPoint,
   TcQuickViewProduct,
   TcAttributeLabels,
   TcProductsBatch,
@@ -1383,6 +1385,24 @@ export function fetchTcQuickViewMatchesCached(
   maxAgeMs?: number,
 ): Promise<TcQuickViewProduct[]> {
   return getCachedQuery(`tc:quickview:match:${terms}`, () => fetchTcQuickViewMatchesGraphQL(terms), { maxAgeMs });
+}
+
+/**
+ * Price history for one product, cache-first.
+ *
+ * One request per product whose chart is opened — never bulk, never on page load.
+ * Persisting it means a re-opened chart is instant and still renders offline.
+ */
+export function fetchSupplierPriceHistoryCached(
+  id: number | string,
+  source: string,
+  maxAgeMs?: number,
+): Promise<SupplierPriceHistoryPoint[]> {
+  return getCachedQuery(
+    `supplier:priceHistory:${source}:${id}`,
+    () => fetchSupplierPriceHistoryGraphQL(id, source),
+    { maxAgeMs },
+  );
 }
 
 /** When the tc catalogue last reached the API successfully (ms epoch, 0 if never). */

@@ -144,12 +144,21 @@ Width, Profile, Rim, Load-Speed and Warranty, which exist in neither source.
 
 ### Cost history
 Clicking a **Cost value** in the supplier table opens `components/CostHistoryModal.tsx`
-(Recharts line chart, Date Wise / Month Wise tabs). Records are written **only by a
-manual sync**, and only when a product's cost actually changed — `SyncButton` calls
-`markManualSync(task)` before `syncManager.start()` and the task consumes it, because
-`SyncTaskDefinition.run` takes no arguments and cannot otherwise tell how it was
-triggered. Auto-sync, resumes and cold-cache bootstraps record nothing. The chart
-reads IndexedDB only; it never fetches.
+(Recharts line chart, Date Wise / Month Wise tabs).
+
+The series comes from **`supplierProductPriceHistory(id, source)`** — the
+authoritative API history. `source` follows the row's `product_source`
+discriminator: `"supplier"` charts the cost we pay, `"competitor"` the
+competitor's retail price; both return the value in a field named `price`. Dates
+arrive as `DD-MMM-YYYY` ("08-May-2025"), which `new Date()` does not parse
+reliably — use `parseHistoryDate`. One request per chart opened, cached per
+`(id, source)`.
+
+IndexedDB `costHistory` is now the **offline fallback only**, consulted when the
+API returns nothing. It is still written by manual syncs (`markManualSync` /
+`consumeManualSync`, because `SyncTaskDefinition.run` takes no arguments and
+cannot otherwise tell how it was triggered), which keeps the chart working with
+no connection.
 
 ## Known gaps
 

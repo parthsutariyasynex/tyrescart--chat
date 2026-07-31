@@ -1767,6 +1767,7 @@ export default function SupplierProductsPage() {
             pattern: costHistoryItem.pattern,
             itemCode: costHistoryItem.itemCode,
             cost: costHistoryItem.cost,
+            productType: costHistoryItem.productType,
           }}
           onCloseAction={() => setCostHistoryItem(null)}
         />

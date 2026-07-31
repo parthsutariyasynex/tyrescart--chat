@@ -132,6 +132,65 @@ export async function recordCostChanges(
   return additions.length;
 }
 
+/* ─────────────────────────────────────────────────────────────
+   API-SOURCED HISTORY
+
+   `supplierProductPriceHistory` is the authoritative series. The IndexedDB
+   records above predate it — they were the only way to observe a price change
+   before the endpoint existed — and are now the offline fallback.
+───────────────────────────────────────────────────────────── */
+
+const MONTHS: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+
+/**
+ * Parse the API's "08-May-2025" into a timestamp.
+ *
+ * `new Date("08-May-2025")` is not reliably parseable across engines, so the
+ * parts are read explicitly. Returns NaN on anything unrecognised, and the
+ * caller drops those points rather than plotting them at the epoch.
+ */
+export function parseHistoryDate(value: string): number {
+  const m = String(value ?? "").trim().match(/^(\d{1,2})[-\s]([A-Za-z]{3,})[-\s](\d{4})$/);
+  if (m) {
+    const month = MONTHS[m[2].slice(0, 3).toLowerCase()];
+    if (month !== undefined) return new Date(Number(m[3]), month, Number(m[1])).getTime();
+  }
+  const fallback = Date.parse(value);
+  return Number.isNaN(fallback) ? NaN : fallback;
+}
+
+/**
+ * Convert the API series into the same shape the chart already consumes, so the
+ * date/month builders and the summary work unchanged.
+ *
+ * Points with an unparseable date or a non-numeric price are dropped — a chart
+ * is better short one point than plotting a NaN.
+ */
+export function fromApiHistory(
+  points: { date: string; price: number }[],
+  productId: string | number,
+  sku = "",
+): CostHistoryRecord[] {
+  return points
+    .map((p) => {
+      const ts = parseHistoryDate(p.date);
+      const cost = Number(p.price);
+      if (Number.isNaN(ts) || !Number.isFinite(cost)) return null;
+      return {
+        productId,
+        sku,
+        cost,
+        syncDate: new Date(ts).toISOString().slice(0, 10),
+        syncTimestamp: ts,
+      } satisfies CostHistoryRecord;
+    })
+    .filter((r): r is CostHistoryRecord => r !== null)
+    .sort((a, b) => a.syncTimestamp - b.syncTimestamp);
+}
+
 /** One product's history, oldest first — the order the chart plots. */
 export async function getCostHistory(productId: string | number): Promise<CostHistoryRecord[]> {
   // The store's `productId` index keeps this off a full scan. Records are read

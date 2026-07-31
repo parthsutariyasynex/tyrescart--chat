@@ -385,6 +385,26 @@ export function tcQuickViewMatchQuery(terms: string, pageSize = 20): string {
   }`;
 }
 
+/**
+ * Price history for ONE supplier product, straight from the API.
+ *
+ * `source` is the row's `product_source` discriminator:
+ * - "supplier"   → the series is the COST we pay
+ * - "competitor" → the series is the competitor's retail PRICE
+ * Either way the field comes back as `price`; the caller labels it.
+ *
+ * Dates arrive as "08-May-2025" (DD-MMM-YYYY), not ISO — see `parseHistoryDate`.
+ */
+export function supplierPriceHistoryQuery(id: number | string, source: string): string {
+  const esc = (v: string) => String(v).replace(/"/g, '\\"');
+  return `query {
+    supplierProductPriceHistory(id: ${Number(id)}, source: "${esc(source)}") {
+      date
+      price
+    }
+  }`;
+}
+
 /** Option id → label maps for {@link TC_LABELLED_ATTRIBUTES}. Fetched once. */
 export function tcAttributeLabelsQuery(): string {
   const attrs = TC_LABELLED_ATTRIBUTES

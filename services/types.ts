@@ -284,3 +284,9 @@ export interface TcQuickViewProduct {
   } | null;
   custom_attributesV2: { items: (TcAttributeItem | null)[] | null } | null;
 }
+
+/** One point from `supplierProductPriceHistory`. `date` is "DD-MMM-YYYY". */
+export interface SupplierPriceHistoryPoint {
+  date: string;
+  price: number;
+}

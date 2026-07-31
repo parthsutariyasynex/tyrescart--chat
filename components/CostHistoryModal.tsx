@@ -18,11 +18,13 @@ import dynamic from "next/dynamic";
 import { XMarkIcon } from "@heroicons/react/24/outline";
 import {
   getCostHistory,
+  fromApiHistory,
   toDateSeries,
   toMonthSeries,
   summarise,
   type CostHistoryRecord,
 } from "@/services/costHistory";
+import { fetchSupplierPriceHistoryCached } from "@/services/cache";
 
 /** Chart body, client-only: Recharts measures the DOM and cannot server-render. */
 const CostLineChart = dynamic(() => import("./CostLineChart"), {
@@ -43,6 +45,9 @@ export interface CostHistoryProduct {
   itemCode?: string;
   /** Cost currently on the row — shown while history loads, and as a fallback. */
   cost: number;
+  /** The feed's `product_source` discriminator, "Supplier" or "Competitor".
+   *  Selects which series the API returns: our cost, or a competitor's price. */
+  productType?: string;
 }
 
 const money = (n: number) =>
@@ -85,11 +90,33 @@ export default function CostHistoryModal({
   // parent, so a different product mounts a fresh component with history=null.
   useEffect(() => {
     let alive = true;
-    void getCostHistory(product.id)
+
+    /**
+     * `supplierProductPriceHistory` is the authoritative series — real observed
+     * prices, not just the points this browser happened to record during a manual
+     * sync. `source` follows the row's own discriminator, so a competitor row
+     * charts the competitor's price and a supplier row charts our cost.
+     *
+     * IndexedDB stays the fallback: it is what the chart used before the endpoint
+     * existed, and it keeps the chart working offline. Only consulted when the
+     * API returns nothing, so real history always wins.
+     */
+    async function load(): Promise<CostHistoryRecord[]> {
+      const source = (product.productType || "supplier").toLowerCase().includes("competitor")
+        ? "competitor"
+        : "supplier";
+
+      const api = await fetchSupplierPriceHistoryCached(product.id, source).catch(() => []);
+      if (api.length) return fromApiHistory(api, product.id, product.itemCode ?? "");
+
+      return getCostHistory(product.id).catch(() => []);
+    }
+
+    void load()
       .then((rows) => { if (alive) setHistory(rows); })
       .catch(() => { if (alive) setHistory([]); });
     return () => { alive = false; };
-  }, [product.id]);
+  }, [product.id, product.productType, product.itemCode]);
 
   // Escape closes
   useEffect(() => {

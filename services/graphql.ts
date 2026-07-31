@@ -12,9 +12,11 @@ import {
   tcAttributeLabelsQuery,
   tcQuickViewQuery,
   tcQuickViewMatchQuery,
+  supplierPriceHistoryQuery,
   type TcProductsQueryVars,
 } from "./queries";
 import type {
+  SupplierPriceHistoryPoint,
   TcQuickViewProduct,
   TcAttributeLabels,
   TcProductsResponse,
@@ -220,4 +222,13 @@ export async function fetchTcQuickViewGraphQL(sku: string): Promise<TcQuickViewP
 export async function fetchTcQuickViewMatchesGraphQL(terms: string): Promise<TcQuickViewProduct[]> {
   const data = await executeGraphQLQuery(tcQuickViewMatchQuery(terms));
   return (data?.products?.items as TcQuickViewProduct[] | undefined) ?? [];
+}
+
+/** Price history for one supplier product. Empty array when none is recorded. */
+export async function fetchSupplierPriceHistoryGraphQL(
+  id: number | string,
+  source: string,
+): Promise<SupplierPriceHistoryPoint[]> {
+  const data = await executeGraphQLQuery(supplierPriceHistoryQuery(id, source));
+  return (data?.supplierProductPriceHistory as SupplierPriceHistoryPoint[] | undefined) ?? [];
 }
