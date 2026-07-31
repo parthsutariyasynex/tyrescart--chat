@@ -911,11 +911,9 @@ export default function SupplierProductsPage() {
   };
 
   const copyRowData = (item: Product) => {
-    // Formatting lives in services/productFormatter.ts — same function the
-    // tc-products page uses, so the two can never drift apart.
     const rowString = buildRowString(item);
     navigator.clipboard.writeText(rowString);
-    addToast(`Copied: "${rowString}"`);
+    addToast(`Copied product details to clipboard!`);
   };
 
   const exportCSV = () => {
@@ -1770,7 +1768,7 @@ export default function SupplierProductsPage() {
             itemCode: costHistoryItem.itemCode,
             cost: costHistoryItem.cost,
           }}
-          onClose={() => setCostHistoryItem(null)}
+          onCloseAction={() => setCostHistoryItem(null)}
         />
       )}
 

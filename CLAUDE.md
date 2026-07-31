@@ -104,6 +104,24 @@ Note the `Skeleton` primitive renders class `.skeleton` (shimmer defined in
 `globals.css`), **not** `animate-pulse` — detecting skeletons by the wrong class
 gives false negatives.
 
+### Quick View
+The eye button in the supplier table's Action column opens
+`components/QuickViewModal.tsx`, which fetches full product detail from the
+DEFAULT Magento `products` query (`tcQuickViewQuery` → `fetchTcQuickViewCached`,
+one request per product opened, cache-first so re-opens are free and work
+offline). The spec grid reads `custom_attributesV2` because it returns labels
+already resolved — no second `customAttributeMetadata` round-trip.
+
+**Attribute codes do not match the on-screen labels:** PROFILE is `height`,
+LOAD/SPEED is `load_index`. Select attributes arrive as
+`selected_options:[{label,value}]`, free text as a plain `value` — a reader
+handling one shape silently drops the other.
+
+**Only `tyrescart`-sourced supplier rows exist in the storefront catalogue**
+(measured: 12/12 match; Mivomoto/Al Sarkal/pitstop/etc. match 0). For the rest the
+panel falls back to the supplier row's own fields and shows `-` for what is
+genuinely unknown.
+
 ### Cost history
 Clicking a **Cost value** in the supplier table opens `components/CostHistoryModal.tsx`
 (Recharts line chart, Date Wise / Month Wise tabs). Records are written **only by a

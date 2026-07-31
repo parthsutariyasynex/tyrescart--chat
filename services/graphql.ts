@@ -10,9 +10,11 @@ import {
   tyresChatQuery,
   tcProductsQuery,
   tcAttributeLabelsQuery,
+  tcQuickViewQuery,
   type TcProductsQueryVars,
 } from "./queries";
 import type {
+  TcQuickViewProduct,
   TcAttributeLabels,
   TcProductsResponse,
   FetchProductsParams,
@@ -200,4 +202,14 @@ export async function fetchTcAttributeLabelsGraphQL(): Promise<TcAttributeLabels
     out[item.attribute_code] = map;
   }
   return out;
+}
+
+/**
+ * One product's full detail for the Quick View panel. Returns null when the sku
+ * has no storefront product — the caller shows an empty state rather than a
+ * half-populated panel.
+ */
+export async function fetchTcQuickViewGraphQL(sku: string): Promise<TcQuickViewProduct | null> {
+  const data = await executeGraphQLQuery(tcQuickViewQuery(sku));
+  return (data?.products?.items?.[0] as TcQuickViewProduct | undefined) ?? null;
 }

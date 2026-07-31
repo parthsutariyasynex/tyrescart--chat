@@ -54,10 +54,12 @@ import {
   fetchTyresChatGraphQL,
   fetchTcProductsGraphQL,
   fetchTcAttributeLabelsGraphQL,
+  fetchTcQuickViewGraphQL,
   isRetryableError,
 } from "./graphql";
 import type { TcProductsQueryVars } from "./queries";
 import type {
+  TcQuickViewProduct,
   TcAttributeLabels,
   TcProductsBatch,
   TcProductsResponse,
@@ -1358,6 +1360,20 @@ export function fetchTcAttributeLabelsCached(
     maxAgeMs,
     metaKey: "tcProducts:labelsLastSync",
   });
+}
+
+/**
+ * Quick View for one product, cache-first.
+ *
+ * One request per product the user actually opens — never bulk, never on load.
+ * Cached under its own key so re-opening the same product is instant and works
+ * offline, using the same read-through helper (and TTL) as everything else.
+ */
+export function fetchTcQuickViewCached(
+  sku: string,
+  maxAgeMs?: number,
+): Promise<TcQuickViewProduct | null> {
+  return getCachedQuery(`tc:quickview:${sku}`, () => fetchTcQuickViewGraphQL(sku), { maxAgeMs });
 }
 
 /** When the tc catalogue last reached the API successfully (ms epoch, 0 if never). */

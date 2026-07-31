@@ -255,3 +255,30 @@ export interface TcProductsBatch {
   page: number;
   items: TcApiProduct[];
 }
+
+/** One entry from `custom_attributesV2`: either free text or selected options. */
+export interface TcAttributeItem {
+  code: string;
+  /** Present on free-text attributes, e.g. `load_index: "79T"`. */
+  value?: string | null;
+  /** Present on select attributes, e.g. `height: [{label:"65", value:"52"}]`. */
+  selected_options?: { label: string; value: string }[] | null;
+}
+
+/** A single product as returned by {@link tcQuickViewQuery}. */
+export interface TcQuickViewProduct {
+  sku: string;
+  name: string;
+  stock_status: string | null;
+  url_key: string | null;
+  offers: number | null;
+  image: { url: string | null; label: string | null } | null;
+  media_gallery: { url: string | null; label: string | null }[] | null;
+  price_range: {
+    minimum_price: {
+      regular_price: { value: number | null; currency: string | null };
+      final_price: { value: number | null; currency: string | null };
+    };
+  } | null;
+  custom_attributesV2: { items: (TcAttributeItem | null)[] | null } | null;
+}

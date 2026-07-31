@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   XMarkIcon,
   ShoppingBagIcon,
@@ -9,6 +9,33 @@ import {
   ShieldCheckIcon,
   WrenchScrewdriverIcon,
 } from "@heroicons/react/24/outline";
+import { fetchTcQuickViewCached } from "@/services/cache";
+import type { TcAttributeItem, TcQuickViewProduct } from "@/services/types";
+
+/** Shown when the API has no value. Never a made-up default. */
+const UNKNOWN = "-";
+
+/**
+ * Read one attribute from `custom_attributesV2`, whatever shape it arrives in.
+ *
+ * Select attributes return `selected_options: [{label, value}]`, free-text ones a
+ * plain `value`. Handling only one shape silently drops the other — which is why
+ * LOAD/SPEED (free text) came back empty while the select fields worked.
+ *
+ * Some attributes return a single SPACE as their label (`runflat`, `oem_marking`,
+ * `ev`), so labels are trimmed or the grid fills with blank boxes.
+ */
+function readAttr(items: (TcAttributeItem | null)[] | null | undefined, code: string): string {
+  const a = (items ?? []).find((x) => x?.code === code);
+  if (!a) return "";
+  if (a.value !== null && a.value !== undefined && String(a.value).trim() !== "") {
+    return String(a.value).trim();
+  }
+  return (a.selected_options ?? [])
+    .map((o) => (o?.label ?? "").trim())
+    .filter(Boolean)
+    .join(", ");
+}
 
 export interface QuickViewProduct {
   id: number | string;
@@ -33,29 +60,6 @@ interface QuickViewModalProps {
   onAddToCart?: (product: QuickViewProduct, qty: number) => void;
 }
 
-/** Utility to parse tyre size components (Width, Profile, Rim Size, Load/Speed) */
-function parseTyreSizeDetails(sizeStr: string = "", pattern: string = "") {
-  const combined = `${sizeStr} ${pattern}`.trim();
-  
-  // Width: e.g. "165" from "165/65 R14"
-  const widthMatch = combined.match(/\b(\d{3})\b/);
-  const width = widthMatch ? `${widthMatch[1]} mm` : "-";
-
-  // Profile / Aspect ratio: e.g. "65" from "165/65"
-  const profileMatch = combined.match(/\d{3}\/(\d{2})/);
-  const profile = profileMatch ? profileMatch[1] : "-";
-
-  // Rim size: e.g. "R14" or "14"
-  const rimMatch = combined.match(/R\s*(\d{2})/i) || combined.match(/\b(\d{2})\b/);
-  const rimSize = rimMatch ? `R${rimMatch[1]}` : "-";
-
-  // Load/Speed rating: e.g. "79T" or "99H" or "91W"
-  const loadSpeedMatch = combined.match(/\b(\d{2,3}[A-Z])\b/i);
-  const loadSpeed = loadSpeedMatch ? loadSpeedMatch[1].toUpperCase() : "-";
-
-  return { width, profile, rimSize, loadSpeed };
-}
-
 export default function QuickViewModal({
   product,
   onClose,
@@ -63,53 +67,142 @@ export default function QuickViewModal({
 }: QuickViewModalProps) {
   const [selectedQty, setSelectedQty] = useState<number>(4);
   const [selectedImgIndex, setSelectedImgIndex] = useState<number>(0);
+  const [isOpen, setIsOpen] = useState<boolean>(false);
+  const [isClosing, setIsClosing] = useState<boolean>(false);
+  /** undefined = still loading, null = no storefront product for this sku. */
+  const [detail, setDetail] = useState<TcQuickViewProduct | null | undefined>(undefined);
 
-  const specs = parseTyreSizeDetails(product.sizeFull || product.size, product.pattern);
-  const fullSizeText = product.sizeFull || product.size || "-";
-  const unitPrice = product.cost || 0;
+  /**
+   * Full detail for this SKU from the live `products` query, cache-first.
+   *
+   * Only rows sourced from `tyrescart` exist in the storefront catalogue —
+   * measured, 12/12 match, while other suppliers match 0. When there is no
+   * storefront product the panel falls back to the supplier row's own fields and
+   * shows "-" for what genuinely is not known, rather than inventing values.
+   */
+  useEffect(() => {
+    let alive = true;
+    const sku = product.itemCode;
+    // Resolved in a microtask rather than synchronously: a bare `setDetail(null)`
+    // in the effect body is a cascading render.
+    const request = sku ? fetchTcQuickViewCached(sku) : Promise.resolve(null);
+    void request
+      .then((d) => { if (alive) setDetail(d); })
+      .catch(() => { if (alive) setDetail(null); });
+    return () => { alive = false; };
+  }, [product.itemCode]);
+
+  useEffect(() => {
+    // Trigger smooth slow open slide-up after mount
+    const timer = setTimeout(() => {
+      setIsOpen(true);
+    }, 30);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const handleClose = () => {
+    setIsClosing(true);
+    setTimeout(() => {
+      onClose();
+    }, 700); // 700ms ultra-smooth slow closing duration
+  };
+
+  const attrs = detail?.custom_attributesV2?.items;
+  const loading = detail === undefined;
+
+  /** API value first, then the supplier row, then "-". Never a literal. */
+  const pick = (code: string, rowValue?: string | number | null) => {
+    const fromApi = readAttr(attrs, code);
+    if (fromApi) return fromApi;
+    const v = rowValue === null || rowValue === undefined ? "" : String(rowValue).trim();
+    return v || UNKNOWN;
+  };
+
+  // PROFILE is `height` and LOAD/SPEED is `load_index` — the codes do not match
+  // the on-screen labels, which is why both looked absent. Neither can be derived
+  // from the supplier row, so they show "-" when the API has no product.
+  const specWidth = readAttr(attrs, "width");
+  const specProfile = readAttr(attrs, "height");
+  const specRim = readAttr(attrs, "rim");
+  const specLoad = readAttr(attrs, "load_index");
+
+  const apiSize = readAttr(attrs, "tyre_size");
+  const fullSizeText = apiSize
+    ? [apiSize, specLoad].filter(Boolean).join(" ")
+    : (product.sizeFull || product.size || UNKNOWN);
+
+  const priceRange = detail?.price_range?.minimum_price;
+  const apiPrice = priceRange?.final_price?.value ?? priceRange?.regular_price?.value ?? 0;
+  const currency = priceRange?.final_price?.currency ?? priceRange?.regular_price?.currency ?? "AED";
+  // The storefront's own price when it has one, otherwise the supplier's cost.
+  const unitPrice = apiPrice > 0 ? apiPrice : (product.cost || 0);
   const setOf2Price = unitPrice * 2;
   const setOf4Price = unitPrice * 4;
   const totalPrice = unitPrice * selectedQty;
+  const priceHeading = readAttr(attrs, "price_included_text") || "Price";
 
-  const tyreImgSrc = product.image || "/tyre-placeholder.png";
+  // Offer banner and stock badge render only when the API actually says so.
+  const offerLabel = readAttr(attrs, "offers");
+  const inStock = detail?.stock_status === "IN_STOCK";
+
+  const gallery = useMemo(() => {
+    const urls = [detail?.image?.url, ...((detail?.media_gallery ?? []).map((g) => g?.url))]
+      .filter((u): u is string => typeof u === "string" && u.length > 0);
+    return [...new Set(urls)];
+  }, [detail]);
+
+  const tyreImgSrc = gallery[selectedImgIndex] ?? gallery[0] ?? product.image ?? "";
+  const displayName = detail?.name || [product.brand, product.pattern].filter(Boolean).join(" ") || product.itemCode;
 
   // Split spec rows matching exact screenshot layout:
   // Row 1 (4 cols): Width, Profile, Rim Size, Load/Speed
   const row1 = [
-    { label: "WIDTH", value: specs.width },
-    { label: "PROFILE", value: specs.profile },
-    { label: "RIM SIZE", value: specs.rimSize },
-    { label: "LOAD/SPEED", value: specs.loadSpeed },
+    { label: "WIDTH", value: specWidth ? `${specWidth} mm` : UNKNOWN },
+    { label: "PROFILE", value: specProfile || UNKNOWN },
+    { label: "RIM SIZE", value: specRim ? `R${specRim}` : UNKNOWN },
+    { label: "LOAD/SPEED", value: specLoad || UNKNOWN },
   ];
 
   // Row 2 (4 cols): Brand, Pattern, Size, Year
   const row2 = [
-    { label: "BRAND", value: product.brand || "Sailun" },
-    { label: "PATTERN", value: product.pattern || "Atrezzo Eco" },
+    { label: "BRAND", value: pick("brand", product.brand) },
+    { label: "PATTERN", value: pick("pattern", product.pattern) },
     { label: "SIZE", value: fullSizeText, info: true },
-    { label: "YEAR", value: product.year ? String(product.year) : "2024" },
+    { label: "YEAR", value: pick("year", product.year && product.year > 0 ? product.year : "") },
   ];
 
   // Row 3 (3 cols): Warranty, Country, SKU
   const row3 = [
-    { label: "WARRANTY", value: "3 Years Warranty" },
-    { label: "COUNTRY", value: product.country || "China" },
-    { label: "SKU", value: product.itemCode || "TCKL-18431" },
+    // Warranty exists only on the storefront product — the supplier feed has no
+    // such field, so it is "-" rather than an assumed "3 Years Warranty".
+    { label: "WARRANTY", value: pick("warranty_period") },
+    { label: "COUNTRY", value: pick("country", product.country) },
+    { label: "SKU", value: detail?.sku || product.itemCode || UNKNOWN },
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+    <div
+      className={`fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs transition-opacity duration-700 ease-out ${
+        isOpen && !isClosing ? "opacity-100" : "opacity-0 pointer-events-none"
+      }`}
+    >
       {/* Backdrop overlay click to close */}
-      <div className="absolute inset-0" onClick={onClose} />
+      <div className="absolute inset-0" onClick={handleClose} />
 
-      {/* Full-width Modal Container with NO Rounded Corners */}
-      <div className="relative w-full max-w-full bg-white rounded-none shadow-2xl border-t border-slate-200 overflow-hidden z-10 animate-in slide-in-from-bottom duration-300 max-h-[95vh] flex flex-col p-6 sm:p-8">
+      {/* Slower Smooth Slide-Up (Open) & Slide-Down (Close) Container (700ms duration) */}
+      <div
+        className={`relative w-full max-w-full bg-white rounded-none shadow-2xl border-t border-slate-200 overflow-hidden z-10 transition-all duration-700 ease-out max-h-[95vh] flex flex-col p-6 sm:p-8 ${
+          isOpen && !isClosing
+            ? "translate-y-0 opacity-100"
+            : "translate-y-full opacity-0"
+        }`}
+      >
         
         {/* Header */}
         <div className="flex items-center justify-between mb-5 shrink-0 px-2 sm:px-4">
           <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Quick View</h2>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="w-9 h-9 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-400 hover:text-slate-700 transition-colors"
             title="Close"
           >
@@ -125,46 +218,59 @@ export default function QuickViewModal({
             <div className="lg:col-span-5 flex flex-col items-center">
               <div className="w-full bg-white border border-slate-200/90 rounded-none p-5 relative shadow-2xs overflow-hidden flex flex-col items-center">
                 
-                {/* Top Green Banner */}
-                <div className="w-full bg-[#008b47] text-white text-xs font-black uppercase tracking-wider py-2 px-3 text-center rounded-none absolute top-0 inset-x-0">
-                  FREE WHEEL ALIGNMENT
-                </div>
+                {/* Promo banner — the API's own `offers` label, and only when
+                    there is one. It used to read FREE WHEEL ALIGNMENT on every
+                    product regardless. */}
+                {offerLabel && (
+                  <div className="w-full bg-[#008b47] text-white text-xs font-black uppercase tracking-wider py-2 px-3 text-center rounded-none absolute top-0 inset-x-0">
+                    {offerLabel}
+                  </div>
+                )}
 
-                {/* Ribbon Angle In Stock Badge */}
+                {/* Stock badge — driven by `stock_status`, not always-on. */}
+                {inStock && (
                 <div className="absolute top-9 right-0 bg-slate-900 text-white text-[10px] font-black py-1 px-3.5 uppercase tracking-wider z-10 shadow-md flex items-center rounded-l-none">
                   <span>In Stock</span>
                   <span className="absolute bottom-[-4px] right-0 w-0 h-0 border-t-[4px] border-t-slate-900 border-r-[4px] border-r-transparent"></span>
                 </div>
+                )}
 
                 {/* Tyre Image */}
                 <div className="w-full h-64 mt-6 flex items-center justify-center p-2">
-                  <img
-                    src={tyreImgSrc}
-                    alt={product.brand || "Tyre"}
-                    className="w-52 h-52 object-contain filter drop-shadow-md transition-transform duration-300 hover:scale-105"
-                  />
+                  {loading ? (
+                    <div className="skeleton w-52 h-52 rounded-none" aria-hidden="true" />
+                  ) : tyreImgSrc ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={tyreImgSrc}
+                      alt={detail?.image?.label || displayName}
+                      className="w-52 h-52 object-contain filter drop-shadow-md transition-transform duration-300 hover:scale-105"
+                    />
+                  ) : (
+                    <span className="text-xs text-slate-400">No image available</span>
+                  )}
                 </div>
 
-                {/* Thumbnails Row */}
-                <div className="flex items-center gap-3 mt-4">
-                  {[0, 1].map((idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => setSelectedImgIndex(idx)}
-                      className={`w-14 h-14 rounded-none border-2 p-1 bg-white transition-all flex items-center justify-center ${
-                        selectedImgIndex === idx
-                          ? "border-[#008b47] ring-2 ring-emerald-500/20"
-                          : "border-slate-200 hover:border-slate-300"
-                      }`}
-                    >
-                      <img
-                        src={tyreImgSrc}
-                        alt="thumbnail"
-                        className="w-9 h-9 object-contain"
-                      />
-                    </button>
-                  ))}
-                </div>
+                {/* Thumbnails — one per image the API actually returned. Was two
+                    buttons showing the same picture. */}
+                {gallery.length > 1 && (
+                  <div className="flex items-center gap-3 mt-4">
+                    {gallery.map((url, idx) => (
+                      <button
+                        key={url}
+                        onClick={() => setSelectedImgIndex(idx)}
+                        className={`w-14 h-14 rounded-none border-2 p-1 bg-white transition-all flex items-center justify-center ${
+                          selectedImgIndex === idx
+                            ? "border-[#008b47] ring-2 ring-emerald-500/20"
+                            : "border-slate-200 hover:border-slate-300"
+                        }`}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={url} alt="" className="w-9 h-9 object-contain" />
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -176,11 +282,11 @@ export default function QuickViewModal({
                 <div className="flex items-center gap-1.5 mb-1">
                   <span className="text-xs font-black uppercase text-[#008b47] tracking-widest flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-[#008b47]"></span>
-                    {product.brand || "SAILUN"} TIRES
+                    {pick("brand", product.brand)}
                   </span>
                 </div>
                 <h1 className="text-2xl font-extrabold text-slate-900 leading-tight">
-                  {product.brand || "Sailun"} {product.pattern || "165/65 R14 79T Atrezzo Eco 2024"}
+                  {displayName}
                 </h1>
               </div>
 
@@ -262,19 +368,19 @@ export default function QuickViewModal({
               {/* Fitted Price Box */}
               <div className="bg-slate-50/90 border border-slate-200/80 rounded-none p-4 flex flex-col gap-3">
                 <div className="flex items-center gap-1 text-xs font-bold text-slate-700">
-                  <span>Fitted Price</span>
+                  <span>{priceHeading}</span>
                   <InformationCircleIcon className="w-3.5 h-3.5 text-slate-400" />
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <div className="text-2xl font-black text-slate-900 tracking-tight flex items-baseline gap-1">
-                      <span>AED {unitPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span>{currency} {unitPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       <span className="text-xs font-semibold text-slate-500">/ Per Pcs</span>
                     </div>
                     <div className="text-xs font-semibold text-slate-600 mt-0.5 flex gap-4">
-                      <span>Set of 2: <strong className="text-slate-900">AED {setOf2Price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
-                      <span>Set of 4: <strong className="text-slate-900">AED {setOf4Price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
+                      <span>Set of 2: <strong className="text-slate-900">{currency} {setOf2Price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
+                      <span>Set of 4: <strong className="text-slate-900">{currency} {setOf4Price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
                     </div>
                   </div>
 
@@ -299,17 +405,11 @@ export default function QuickViewModal({
                       className="flex-1 h-11 bg-[#008b47] hover:bg-[#00753c] text-white font-extrabold rounded-none shadow-md transition-all active:scale-[0.99] flex items-center justify-center gap-2 text-xs uppercase tracking-wider"
                     >
                       <ShoppingBagIcon className="w-4 h-4 stroke-2" />
-                      <span>Add to Cart - AED {totalPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span>Add to Cart - {currency} {totalPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </button>
                   </div>
                 </div>
 
-                {/* Split Payment Logos / Text */}
-                <div className="flex items-center gap-2 pt-0.5 text-[11px] text-slate-600 font-semibold">
-                  <span>Split in 4 Payment with</span>
-                  <span className="px-2 py-0.5 bg-teal-100 text-teal-900 font-bold rounded-none text-[10px]">tabby</span>
-                  <span className="px-2 py-0.5 bg-pink-100 text-pink-900 font-bold rounded-none text-[10px]">tamara</span>
-                </div>
               </div>
 
               {/* Bottom Feature Badges Bar */}
@@ -346,15 +446,15 @@ export default function QuickViewModal({
               </div>
 
               {/* View Full Details Link */}
-              <div className="flex items-center justify-start pt-0.5">
+              {/* <div className="flex items-center justify-start pt-0.5">
                 <button
-                  onClick={onClose}
+                  onClick={handleClose}
                   className="text-[#008b47] hover:text-[#00753c] text-xs font-bold flex items-center gap-1 hover:underline underline-offset-2 transition-colors"
                 >
                   <span>View Full Details</span>
                   <span>→</span>
                 </button>
-              </div>
+              </div> */}
 
             </div>
 

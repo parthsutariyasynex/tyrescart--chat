@@ -294,6 +294,50 @@ export function tcProductsQuery(vars: TcProductsQueryVars = {}): string {
   }`;
 }
 
+/**
+ * Quick View — everything the detail panel shows for ONE product.
+ *
+ * Stock Magento apart from `offers`, which is a store EAV attribute Magento
+ * auto-exposes on ProductInterface (verified: the query runs unchanged with that
+ * line removed).
+ *
+ * The spec grid reads `custom_attributesV2` rather than the top-level fields
+ * because it returns labels ALREADY RESOLVED — `height → "65"`, not the option id
+ * `52` — so the panel needs no second `customAttributeMetadata` round-trip.
+ *
+ * Attribute codes do not match the on-screen labels: PROFILE is `height` and
+ * LOAD/SPEED is `load_index`. See QUICK_VIEW_SPEC in the modal.
+ */
+export function tcQuickViewQuery(sku: string): string {
+  const esc = (v: string) => v.replace(/"/g, '\\"');
+  return `query {
+    products(filter: { sku: { eq: "${esc(sku)}" } }, pageSize: 1) {
+      items {
+        sku
+        name
+        stock_status
+        url_key
+        offers
+        image { url label }
+        media_gallery { url label }
+        price_range {
+          minimum_price {
+            regular_price { value currency }
+            final_price { value currency }
+          }
+        }
+        custom_attributesV2 {
+          items {
+            code
+            ... on AttributeValue { value }
+            ... on AttributeSelectedOptions { selected_options { label value } }
+          }
+        }
+      }
+    }
+  }`;
+}
+
 /** Option id → label maps for {@link TC_LABELLED_ATTRIBUTES}. Fetched once. */
 export function tcAttributeLabelsQuery(): string {
   const attrs = TC_LABELLED_ATTRIBUTES
