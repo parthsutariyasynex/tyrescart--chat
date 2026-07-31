@@ -89,7 +89,7 @@ export default function Sidebar({ theme }: SidebarProps = {}) {
                 }`}
               >
                 {isActive && (
-                  <span className={`absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 ${activeStyles.bar} rounded-r-full`} />
+                  <span className={`absolute top-0 left-1/2 -translate-x-1/2 h-1 w-6 ${activeStyles.bar} rounded-b-full`} />
                 )}
                 <Icon className="w-5 h-5" />
                 <span className="text-[10px] mt-1 tracking-tight">{item.name}</span>

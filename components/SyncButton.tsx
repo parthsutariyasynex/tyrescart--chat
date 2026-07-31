@@ -29,6 +29,7 @@ import { useToast } from "@/components/ToastProvider";
 import { useSyncTask } from "@/hooks/useSyncManager";
 import { syncManager, type SyncTaskId } from "@/services/syncManager";
 import { SYNC_TASK } from "@/services/syncTasks";
+import { markManualSync } from "@/services/costHistory";
 
 /** Which task a route's Sync button runs. */
 const ROUTE_TASK: { prefix: string; task: SyncTaskId }[] = [
@@ -119,6 +120,11 @@ function ActiveSyncButton({
     setClicked(true);
     lastRunAt.set(task, Date.now());
     try {
+      // Cost history is recorded on MANUAL syncs only — a history point should
+      // mean "the price was X when we re-checked". The task cannot see how it
+      // was triggered (`run` takes no arguments), so the trigger publishes it
+      // here and the task consumes it.
+      markManualSync(task);
       await syncManager.start(task);
       const done = syncManager.getTask(task);
       if (done?.status === "error") toast(done.error || "Sync failed. Please try again.", "error");

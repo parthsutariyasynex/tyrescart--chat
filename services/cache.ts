@@ -612,7 +612,7 @@ export async function purgeHistoricalSupplierRows(): Promise<number> {
 
   const removed = await idbDeleteWhere<CachedSupplierProduct>(
     STORE_SUPPLIER_PRODUCTS,
-    (row) => Number(row.is_latest) === 1,
+    (row) => Number(row.is_latest) !== 1,
   ).catch(() => 0);
 
   await idbSetMeta(META_LATEST_ONLY_PURGED, true).catch(() => { });

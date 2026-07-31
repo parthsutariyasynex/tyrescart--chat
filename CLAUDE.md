@@ -48,7 +48,7 @@ types live in `services/types.ts`.
 ### Data flow
 1. **Fetch** — `services/graphql.ts` builds a query from `services/queries.ts` and POSTs it through `/api/graphql`.
 2. **Cache** — `services/cache.ts` wraps every fetch in a read-through: fresh IndexedDB entry (`CACHE_TTL_MS`, 5 min) is served with **no network**; otherwise fetch → persist → return; on failure the stale entry is served rather than nothing.
-3. **Persist** — `services/db.ts`, database `tyrescart-pos` v5, stores: `productQueries` (per-query/per-page responses), `supplierProducts` (one record per product, keyed `id`), `tyresChat`, `cart`, `meta`.
+3. **Persist** — `services/db.ts`, database `tyrescart-pos` v6, stores: `productQueries` (per-query/per-page responses), `supplierProducts` (one record per product, keyed `id`), `costHistory` (one record per observed cost CHANGE, `productId` index), `tyresChat`, `cart`, `meta`.
 4. **Render** — pages hold normalized rows in state, filter/sort/paginate entirely client-side. No API call is made for search, filtering, sorting or pagination.
 
 ### Background sync
@@ -103,6 +103,15 @@ Reference figures on the live data (dev server, 1600×900):
 Note the `Skeleton` primitive renders class `.skeleton` (shimmer defined in
 `globals.css`), **not** `animate-pulse` — detecting skeletons by the wrong class
 gives false negatives.
+
+### Cost history
+Clicking a **Cost value** in the supplier table opens `components/CostHistoryModal.tsx`
+(Recharts line chart, Date Wise / Month Wise tabs). Records are written **only by a
+manual sync**, and only when a product's cost actually changed — `SyncButton` calls
+`markManualSync(task)` before `syncManager.start()` and the task consumes it, because
+`SyncTaskDefinition.run` takes no arguments and cannot otherwise tell how it was
+triggered. Auto-sync, resumes and cold-cache bootstraps record nothing. The chart
+reads IndexedDB only; it never fetches.
 
 ## Known gaps
 

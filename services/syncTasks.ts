@@ -12,6 +12,7 @@
  */
 import { syncManager, type SyncTaskDefinition } from "./syncManager";
 import { syncModule } from "./syncService";
+import { consumeManualSync, recordCostChanges } from "./costHistory";
 import {
   syncSupplierProductsPage,
   syncAllSupplierProducts,
@@ -46,7 +47,17 @@ const supplierProductsTask: SyncTaskDefinition = {
     // pre-latest-only cache still holds.
     const syncBatch = Date.now();
 
-    const forward = (batch: CachedSupplierProduct[]) => onBatch(batch);
+    // Manual runs additionally record cost history. Consumed (not just read) so
+    // a later automatic run of this task records nothing.
+    const isManual = consumeManualSync(SYNC_TASK.supplierProducts);
+    const seenRows: CachedSupplierProduct[] = [];
+
+    const forward = (batch: CachedSupplierProduct[]) => {
+      onBatch(batch);
+      // Buffer rather than write per batch: the comparison needs each product's
+      // previous cost, and reading that once beats reading it per batch.
+      if (isManual) seenRows.push(...batch);
+    };
 
     // ONE pass. There used to be a latest-first phase ahead of the full
     // catalogue, because the LATEST? view sat behind ~50k historical rows and
@@ -55,6 +66,15 @@ const supplierProductsTask: SyncTaskDefinition = {
     // rows twice — so it is gone, not skipped.
     const result = await syncAllSupplierProducts({ syncBatch, onProgress, onBatch: forward });
     if (signal.aborted) return "Sync cancelled.";
+
+    // After the catalogue is persisted, so history can never reference a row the
+    // store does not have. Failure here must not fail the sync — the rows are
+    // already saved and history is supplementary.
+    if (isManual && seenRows.length) {
+      await recordCostChanges(seenRows).catch((e) =>
+        console.warn("[syncTasks] cost history not recorded:", e),
+      );
+    }
 
     if (result.complete) return `Synced all ${nf(result.items)} supplier products.`;
     if (result.aborted) {
@@ -89,8 +109,16 @@ const supplierPageTask: SyncTaskDefinition = {
   label: "Supplier page",
   excludeFromStartAll: true,
   async run() {
+    const isManual = consumeManualSync(SYNC_TASK.supplierPage);
     const { pageSize, currentPage } = supplierPageRequest;
     const rows = await syncSupplierProductsPage({ pageSize, currentPage });
+    // This task only ever runs from the header Sync button, but the mark is
+    // still consumed rather than assumed — one rule for both supplier tasks.
+    if (isManual && rows.length) {
+      await recordCostChanges(rows).catch((e) =>
+        console.warn("[syncTasks] cost history not recorded:", e),
+      );
+    }
     return `Synced page ${currentPage} — ${nf(rows.length)} supplier products cached.`;
   },
 };

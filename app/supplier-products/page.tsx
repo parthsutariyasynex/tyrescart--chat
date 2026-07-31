@@ -23,6 +23,7 @@ import {
   searchWithAspectRimFallback,
 } from '@/services/searchFilter';
 import { Skeleton } from '@/components/Skeletons';
+import CostHistoryModal from '@/components/CostHistoryModal';
 import {
   streamCachedSupplierProducts,
   purgeHistoricalSupplierRows,
@@ -342,6 +343,8 @@ export default function SupplierProductsPage() {
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [activeDrawerItem, setActiveDrawerItem] = useState<Product | null>(null);
+  /** Product whose Cost History modal is open, or null. */
+  const [costHistoryItem, setCostHistoryItem] = useState<Product | null>(null);
   const [isColumnModalOpen, setIsColumnModalOpen] = useState(false);
   const [isDensityMenuOpen, setIsDensityMenuOpen] = useState(false);
   const [isPageSizeOpen, setIsPageSizeOpen] = useState(false);
@@ -1626,9 +1629,18 @@ export default function SupplierProductsPage() {
 
                           {!hiddenColumns.has('cost') && (
                             <td className={`${cellPaddingClass} text-right whitespace-nowrap`}>
-                              <div className="inline-flex items-center justify-end gap-1 text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap" dir="ltr">
+                              {/* The value itself opens Cost History — no extra icon or button.
+                                  `stopPropagation` keeps the row's own click (the detail drawer)
+                                  from firing underneath it. */}
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setCostHistoryItem(item); }}
+                                title="View cost history"
+                                className="inline-flex items-center justify-end gap-1 text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap rounded px-1 -mx-1 hover:text-emerald-700 hover:underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors cursor-pointer"
+                                dir="ltr"
+                              >
                                 <span className="whitespace-nowrap">{item.cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                              </div>
+                              </button>
                             </td>
                           )}
 
@@ -1731,6 +1743,24 @@ export default function SupplierProductsPage() {
           </section>
         </div>
       </main>
+
+      {/* Cost History — opened from a Cost value in the table. Keyed on the
+          product so switching rows remounts with a clean loading state. */}
+      {costHistoryItem && (
+        <CostHistoryModal
+          key={String(costHistoryItem.id)}
+          product={{
+            id: costHistoryItem.id,
+            brand: costHistoryItem.brand,
+            size: costHistoryItem.size,
+            sizeFull: costHistoryItem.sizeFull,
+            pattern: costHistoryItem.pattern,
+            itemCode: costHistoryItem.itemCode,
+            cost: costHistoryItem.cost,
+          }}
+          onClose={() => setCostHistoryItem(null)}
+        />
+      )}
 
       {/* Slide-Over Product Detail Drawer */}
       {

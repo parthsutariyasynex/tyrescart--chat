@@ -25,15 +25,19 @@ const DB_NAME = "tyrescart-pos";
 // them is purely a write-throughput win; no read path changes.
 // v5: adds the `cart` store for offline-first cart persistence. Purely
 // additive — no existing store is touched, so a user's synced catalogue
-// survives the upgrade untouched. (Phase 4 will add `orders`/`outbox` at v6;
-// they are NOT created here because empty speculative stores are just dead
-// schema.)
-const DB_VERSION = 5;
+// survives the upgrade untouched.
+// v6: adds `costHistory` — one record per observed cost CHANGE per product,
+// written only by a manual sync. Additive as well: the catalogue, cart and
+// cached queries all survive the upgrade. It carries a `productId` index because
+// the chart reads one product's history at a time, and a full scan of a store
+// that grows with every price change would defeat the point.
+const DB_VERSION = 6;
 
 export const STORE_PRODUCT_QUERIES = "productQueries";
 export const STORE_SUPPLIER_PRODUCTS = "supplierProducts";
 export const STORE_TYRES_CHAT = "tyresChat";
 export const STORE_CART = "cart";
+export const STORE_COST_HISTORY = "costHistory";
 export const STORE_META = "meta";
 
 /**
@@ -86,6 +90,16 @@ function openDB(): Promise<IDBDatabase> {
         // One record per cart line, keyed by product id so add-to-cart is an
         // upsert and quantities can't duplicate a line.
         db.createObjectStore(STORE_CART, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(STORE_COST_HISTORY)) {
+        // Auto-incrementing key: a product legitimately has many records over
+        // time, so nothing here is unique per product. The `productId` index is
+        // what the chart queries.
+        const hist = db.createObjectStore(STORE_COST_HISTORY, {
+          keyPath: "id",
+          autoIncrement: true,
+        });
+        hist.createIndex("productId", "productId", { unique: false });
       }
       if (!db.objectStoreNames.contains(STORE_META)) {
         db.createObjectStore(STORE_META, { keyPath: "key" });
@@ -255,6 +269,25 @@ export async function idbDeleteWhere<T>(
     };
     tx.oncomplete = () => resolve(removed);
     tx.onerror = () => reject(tx.error);
+  });
+}
+
+/**
+ * All records matching `value` on `index`, without scanning the store.
+ *
+ * Used by the cost-history chart, which needs one product's records out of a
+ * store that accumulates a row per price change across the whole catalogue.
+ */
+export async function idbGetAllByIndex<T>(
+  store: string,
+  index: string,
+  value: IDBValidKey,
+): Promise<T[]> {
+  const db = await openDB();
+  return new Promise<T[]>((resolve, reject) => {
+    const req = db.transaction(store, "readonly").objectStore(store).index(index).getAll(value);
+    req.onsuccess = () => resolve((req.result as T[]) ?? []);
+    req.onerror = () => reject(req.error);
   });
 }
 
