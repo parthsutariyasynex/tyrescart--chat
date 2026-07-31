@@ -210,11 +210,14 @@ function normalizeCategory(cat?: string): string {
   const trimmed = (cat || '').trim();
   if (!trimmed) return '';
   const lower = trimmed.toLowerCase();
+  if (lower.includes('motorcycle')) return '';
   if (lower === 'budget') return 'Budget';
   if (lower === 'tier 1' || lower === 'tier1') return 'Tier 1';
   if (lower === 'tier 2' || lower === 'tier2') return 'Tier 2';
   if (lower === 'tier 3' || lower === 'tier3') return 'Tier 3';
   if (lower === 'premium') return 'Premium';
+  if (lower === 'quality') return 'Quality';
+  if (lower === 'mid-range' || lower === 'midrange') return 'Mid-Range';
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
 }
 

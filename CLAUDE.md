@@ -168,6 +168,15 @@ their vehicles) into the form. Three things about that endpoint:
   lookup is skipped for anything with fewer than 7 digits rather than fired and
   wasted
 
+**Duplicate behaviour, verified by submitting the same phone twice against the
+live API:** the phone is the customer key, so a second submit does NOT create a
+duplicate customer — it returns the same `entity_id`. It DOES silently overwrite
+that customer's stored name and email with whatever is in the form, and it files
+a NEW booking each time (correct for an enquiry log). The phone field therefore
+runs a debounced `crmCustomerByPhone` check as you type and shows either
+"Customer already added" (with the overwrite warning) or "New customer - will be
+created on submit."
+
 The enquiry table is a **localStorage mirror**, not a CRM view: it can only ever
 list what this browser submitted, because the schema has no list query
 (`crmBookings`, `crmCustomerList`, `crmCustomerSearch` do not exist). Searching a
