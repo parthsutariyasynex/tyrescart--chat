@@ -444,6 +444,14 @@ export default function SupplierProductsPage() {
       });
       if (!alive) return;
 
+      /* The read is done — clear the loading flag whether or not it produced
+         rows. `onPage` clears it too (so the first page paints immediately), but
+         on a COLD cache the store is empty, no page is ever emitted, and the flag
+         would stay true forever: rows then arrive via sync batches and the table
+         sat on skeletons until a reload. `showSkeleton`'s bootstrap clause still
+         covers the genuinely-empty-while-syncing case. */
+      setIsLoading(false);
+
       /* Restore canonical order once, after the last page. Pages arrive in
          primary-key order, while the catalogue's order lives in `sort_seq`; the
          old code got this for free because it sorted the whole array before
@@ -1761,6 +1769,7 @@ export default function SupplierProductsPage() {
           onClose={() => setCostHistoryItem(null)}
         />
       )}
+
 
       {/* Slide-Over Product Detail Drawer */}
       {
