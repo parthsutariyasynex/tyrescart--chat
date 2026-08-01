@@ -5,7 +5,6 @@ import {
   XMarkIcon,
   MagnifyingGlassIcon,
   PencilSquareIcon,
-  TrashIcon,
   EyeIcon,
   PlusCircleIcon,
   ArrowPathIcon,
@@ -21,10 +20,7 @@ import {
 } from "@heroicons/react/24/outline";
 import {
   Inquiry,
-  getInquiries,
-  addInquiry,
   updateInquiry,
-  deleteInquiry,
 } from "@/services/inquiryStorage";
 import { createCrmBookingGraphQL, fetchCrmCustomerByPhoneGraphQL } from "@/services/graphql";
 import type { CrmCustomer } from "@/services/types";
@@ -89,7 +85,6 @@ export default function BookInquiryModal({
 
   // Custom Dropdown Open States (replacing native HTML select elements to eliminate browser blue highlights)
   const [isFormStatusOpen, setIsFormStatusOpen] = useState(false);
-  const [activeTableStatusId, setActiveTableStatusId] = useState<string | null>(null);
 
   // Animation states matching QuickViewModal / CostHistoryModal
   const [isAnimatedOpen, setIsAnimatedOpen] = useState(false);
@@ -157,17 +152,21 @@ export default function BookInquiryModal({
     }, 500);
   };
 
-  // Load inquiries when the modal opens. localStorage is an external store, so
-  // reading it here is the sanctioned use of an effect — deferred by a microtask
-  // so the write does not happen synchronously in the effect body.
+  /**
+   * The list is NOT loaded from storage.
+   *
+   * It is empty until a phone search returns CRM bookings, and those live only in
+   * `crmCustomer` state — never localStorage, never IndexedDB. Closing the modal
+   * or reloading clears it, which is intended: `crmCustomerByPhone` is the only
+   * CRM read the schema offers and it requires an exact phone, so there is
+   * nothing to list until the operator supplies one.
+   */
   useEffect(() => {
     if (!isOpen) return;
     let alive = true;
     void Promise.resolve().then(() => {
       if (!alive) return;
-      setInquiries(getInquiries());
-      // Prefill from the row the modal was opened on — the product's own size,
-      // never a sample value.
+      // Prefill from the row the modal was opened on — the product's own size.
       if (initialProduct?.size) setTireSize1(initialProduct.size);
     });
     return () => { alive = false; };
@@ -273,29 +272,20 @@ export default function BookInquiryModal({
           return;
         }
 
-        const created = addInquiry({
-          name: name.trim(),
-          phone: phone.trim(),
-          email: email.trim(),
-          tireSize1: tireSize1.trim(),
-          tireSize2: tireSize2.trim(),
-          vehiclePlateNumber: vehiclePlateNumber.trim(),
-          make: make.trim(),
-          model: model.trim(),
-          year: year.trim(),
-          note: note.trim(),
-          status,
-          // Straight from the mutation's response — never generated locally.
-          crmBookingId: res.booking?.entity_id ?? undefined,
-          crmCustomerId: res.customer?.entity_id ?? undefined,
-          crmStatus: res.booking?.status ?? null,
-          crmPriority: res.booking?.priority ?? null,
-          crmEnquiryDate: res.booking?.enquiry_date ?? null,
-        });
-        setInquiries(getInquiries());
+        /* No local row is written. The CRM is the only store, so the list is
+           refreshed by re-reading the customer we just filed against — the new
+           booking then appears through the same crmCustomerByPhone path as
+           everything else in the table. */
+        const submittedPhone = phone.trim();
+        const refreshed = await fetchCrmCustomerByPhoneGraphQL(submittedPhone).catch(() => null);
+        if (refreshed) {
+          setCrmCustomer(refreshed);
+          setSearchQuery(submittedPhone);
+          setCurrentPage(1);
+        }
         setToastMessage(
           res.message ||
-            `Enquiry ${res.booking?.entity_id ?? created.id} created in the CRM.`,
+            `Enquiry ${res.booking?.entity_id ?? ""} created in the CRM.`.replace("  ", " "),
         );
       } catch (err) {
         setToastMessage(
@@ -368,22 +358,7 @@ export default function BookInquiryModal({
   };
 
 
-  // Handle Delete
-  const handleDelete = (id: string) => {
-    if (window.confirm(`Are you sure you want to delete inquiry ${id}?`)) {
-      const updated = deleteInquiry(id);
-      setInquiries(updated);
-      setToastMessage(`Inquiry ${id} deleted.`);
-      if (editingId === id) resetForm();
-    }
-  };
 
-  // Handle Quick Status Update
-  const handleStatusChange = (id: string, newStatus: Inquiry["status"]) => {
-    const updated = updateInquiry(id, { status: newStatus });
-    setInquiries(updated);
-    setToastMessage(`Inquiry ${id} status updated to ${newStatus}.`);
-  };
 
   // Filtered dataset
   /**
@@ -429,11 +404,8 @@ export default function BookInquiryModal({
   const filteredInquiries = useMemo(() => {
     // CRM rows first, then local ones — with anything already mirrored locally
     // dropped so a booking filed from this browser is not listed twice.
-    const crmIds = new Set(crmRows.map((r) => String(r.crmBookingId ?? "")));
-    const localOnly = inquiries.filter(
-      (i) => !i.crmBookingId || !crmIds.has(String(i.crmBookingId)),
-    );
-    return [...crmRows, ...localOnly].filter((item) => {
+    // CRM rows only. Nothing from localStorage reaches the table.
+    return crmRows.filter((item) => {
       const q = searchQuery.toLowerCase().trim();
       const matchesSearch =
         !q ||
@@ -448,7 +420,7 @@ export default function BookInquiryModal({
 
       return matchesSearch && matchesStatus;
     });
-  }, [inquiries, crmRows, searchQuery, statusFilter]);
+  }, [crmRows, searchQuery, statusFilter]);
 
   // Pagination logic
   const totalPages = Math.ceil(filteredInquiries.length / pageSize) || 1;
@@ -948,70 +920,21 @@ export default function BookInquiryModal({
                             )}
                           </td>
 
-                          {/* Status Badge & Custom Dropdown */}
+                          {/* Status. CRM rows show a read-only badge: the schema has
+                              no updateCrmBookingStatus, so an editable control here
+                              could not persist anything. */}
                           <td className="px-3 py-2.5 text-center whitespace-nowrap">
-                            <div className="relative inline-flex items-center">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setActiveTableStatusId(
-                                    activeTableStatusId === item.id ? null : item.id
-                                  )
-                                }
-                                className={`appearance-none text-[11px] font-extrabold pl-5 pr-5 py-0.5 rounded-full border cursor-pointer transition-all shadow-2xs flex items-center gap-1 ${
-                                  item.status === "Pending"
-                                    ? "bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100/80"
-                                    : item.status === "Contacted"
-                                    ? "bg-teal-50 text-teal-800 border-teal-300 hover:bg-teal-100/80"
-                                    : "bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100/80"
-                                }`}
-                              >
-                                {item.status}
-                              </button>
-
-                              {/* Dot indicator */}
-                              <span
-                                className={`absolute left-2 w-1.5 h-1.5 rounded-full pointer-events-none ${
-                                  item.status === "Pending"
-                                    ? "bg-amber-500"
-                                    : item.status === "Contacted"
-                                    ? "bg-teal-500"
-                                    : "bg-emerald-500"
-                                }`}
-                              />
-
-                              {/* Chevron icon */}
-                              <ChevronDownIcon className="w-3 h-3 absolute right-1.5 pointer-events-none text-slate-400" />
-
-                              {/* Custom Popover (Opens Downward) */}
-                              {activeTableStatusId === item.id && (
-                                <div className="absolute right-0 top-full mt-1.5 w-32 bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-50 animate-in fade-in zoom-in-95 duration-100 text-left">
-                                  {[
-                                    { val: "Pending", bg: "bg-amber-50 text-amber-800 hover:bg-amber-100/80", dot: "bg-amber-500" },
-                                    { val: "Contacted", bg: "bg-teal-50 text-teal-800 hover:bg-teal-100/80", dot: "bg-teal-500" },
-                                    { val: "Closed", bg: "bg-emerald-50 text-emerald-800 hover:bg-emerald-100/80", dot: "bg-emerald-500" },
-                                  ].map((opt) => (
-                                    <button
-                                      key={opt.val}
-                                      type="button"
-                                      onClick={() => {
-                                        handleStatusChange(item.id, opt.val as Inquiry["status"]);
-                                        setActiveTableStatusId(null);
-                                      }}
-                                      className={`w-full text-left px-2.5 py-1.5 text-[11px] font-bold flex items-center justify-between transition-colors ${
-                                        item.status === opt.val ? `${opt.bg} border-l-2 ${opt.val === 'Pending' ? 'border-l-amber-500' : opt.val === 'Contacted' ? 'border-l-teal-500' : 'border-l-emerald-500'}` : "text-slate-700 hover:bg-slate-50"
-                                      }`}
-                                    >
-                                      <span className="flex items-center gap-1.5">
-                                        <span className={`w-1.5 h-1.5 rounded-full ${opt.dot}`} />
-                                        {opt.val}
-                                      </span>
-                                      {item.status === opt.val && <span className="font-extrabold text-emerald-600 text-[10px]">✓</span>}
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
+                            {/* Read-only: every row comes from the CRM, and the
+                                schema has no updateCrmBookingStatus to persist a
+                                change. The editable dropdown is gone rather than
+                                left to silently do nothing. */}
+                            <span
+                              title="Status is managed in the CRM — no update mutation is available"
+                              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-500 text-[11px] font-bold cursor-default"
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                              {item.crmStatus ? `Status ${item.crmStatus}` : "—"}
+                            </span>
                           </td>
 
                           {/* Actions */}
@@ -1032,14 +955,10 @@ export default function BookInquiryModal({
                               >
                                 <PencilSquareIcon className="w-4 h-4" />
                               </button>
-
-                              <button
-                                onClick={() => handleDelete(item.id)}
-                                className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                                title="Delete Inquiry"
-                              >
-                                <TrashIcon className="w-4 h-4" />
-                              </button>
+                              {/* Delete removed: the schema has no deleteCrmBooking
+                                  or cancelCrmBooking, so the control could only ever
+                                  have removed a local copy while leaving the CRM
+                                  record in place. */}
                             </div>
                           </td>
                         </tr>

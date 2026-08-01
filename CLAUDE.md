@@ -177,12 +177,20 @@ runs a debounced `crmCustomerByPhone` check as you type and shows either
 "Customer already added" (with the overwrite warning) or "New customer - will be
 created on submit."
 
-The enquiry table is a **localStorage mirror**, not a CRM view: it can only ever
-list what this browser submitted, because the schema has no list query
-(`crmBookings`, `crmCustomerList`, `crmCustomerSearch` do not exist). Searching a
-phone merges that customer's CRM bookings into the table as read-only rows,
-badged **CRM** and tinted sky — read-only because there is no update or delete
-mutation to push a change back.
+The enquiry table is **GraphQL-only**: it reads nothing from localStorage or
+IndexedDB. It opens EMPTY and fills only with the bookings `crmCustomerByPhone`
+returns for a searched number, held in memory for that session — closing the
+modal or reloading empties it again. After `createCrmBooking` succeeds the list is
+refreshed by re-reading that phone, so the new booking arrives through the same
+path as every other row.
+
+This shape is forced by the schema, verified by probing 14 candidate names:
+`crmBookings`, `crmCustomerList`, `crmCustomerSearch`, `crmInquiries` and the rest
+do not exist, and `crmCustomerByPhone` takes a mandatory `phone: String!` that no
+wildcard satisfies. **Status and Delete row actions are therefore gone** — there is
+no `updateCrmBookingStatus` or `deleteCrmBooking` to persist either; status shows
+as a read-only `Status <code>` badge. `Inquiry` and `updateInquiry` are still
+imported for the edit-draft shape, but nothing populates the table from storage.
 
 ### Cost history
 Clicking a **Cost value** in the supplier table opens `components/CostHistoryModal.tsx`
