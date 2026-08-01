@@ -428,17 +428,20 @@ body {
   --emerald-600: #059669;
   --emerald-700: #047857;
 
-  --badge-premium-bg: #F3E8FF;
-  --badge-premium-text: #6D28D9;
-  --badge-premium-border: #E9D5FF;
+  /* Solid fills with white text, matching the TOP PREMIUM / TOP QUALITY /
+     TOP BUDGET banner scheme. Kept as variables so the palette stays in one
+     place — see the CLAUDE.md theming rule. */
+  --badge-premium-bg: #1B2138;
+  --badge-premium-text: #FFFFFF;
+  --badge-premium-border: #1B2138;
 
-  --badge-quality-bg: #E0F2FE;
-  --badge-quality-text: #0369A1;
-  --badge-quality-border: #BAE6FD;
+  --badge-quality-bg: #00A44F;
+  --badge-quality-text: #FFFFFF;
+  --badge-quality-border: #00A44F;
 
-  --badge-budget-bg: #FEF3C7;
-  --badge-budget-text: #B45309;
-  --badge-budget-border: #FDE68A;
+  --badge-budget-bg: #E8843C;
+  --badge-budget-text: #FFFFFF;
+  --badge-budget-border: #E8843C;
 
   --badge-midrange-bg: #D1FAE5;
   --badge-midrange-text: #047857;
@@ -503,6 +506,14 @@ body {
   background-color: var(--badge-budget-bg) !important;
   color: var(--badge-budget-text) !important;
   border-color: var(--badge-budget-border) !important;
+}
+
+/* Any category the badge map does not know — a new tier from the API renders
+   readably instead of unstyled. */
+.badge-cat-default {
+  background-color: var(--badge-default-bg, #f8fafc) !important;
+  color: var(--badge-default-text, #475569) !important;
+  border-color: var(--badge-default-border, #e2e8f0) !important;
 }
 
 .badge-cat-midrange {

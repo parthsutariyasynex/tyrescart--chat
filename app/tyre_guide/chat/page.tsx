@@ -9,6 +9,7 @@ import {
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
+import HeaderBookInquiry from "@/components/HeaderBookInquiry";
 import { getTyresChatCached, CACHE_ANY_AGE } from "@/services/cache";
 import type { TyresChatItem } from "@/services/types";
 import { useToast } from "@/components/ToastProvider";
@@ -212,6 +213,7 @@ export default function TyreGuideChatPage() {
               Total: {shortcuts.length}
             </span>
 
+            <HeaderBookInquiry variant="emerald" />
             <FullscreenButton tone="gray" />
 
             {/* Header Sync — current-page-only sync (shared useSync hook) */}

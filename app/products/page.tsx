@@ -8,6 +8,7 @@ import {
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
+import HeaderBookInquiry from "@/components/HeaderBookInquiry";
 import {
   fetchStorefrontBatch,
   fetchStorefrontBatchWithRetry,
@@ -352,6 +353,7 @@ export default function PosProductsPage() {
               </span>
             )}
 
+            <HeaderBookInquiry variant="emerald" />
             <FullscreenButton tone="gray" />
 
             {/* Header Sync — current-page-only sync (shared useSync hook) */}

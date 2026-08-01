@@ -10,10 +10,14 @@ import {
   BookmarkIcon,
   ShoppingCartIcon,
   CalendarDaysIcon,
+  EyeIcon,
+  DocumentTextIcon,
 } from '@heroicons/react/24/outline';
 import BookInquiryModal from "@/components/BookInquiryModal";
+import QuickViewModal from '@/components/QuickViewModal';
 import { buildRowString, buildBulkCopyString } from "@/services/productFormatter";
 import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
+import HeaderBookInquiry from "@/components/HeaderBookInquiry";
 import SyncButton from "@/components/SyncButton";
 import { CATEGORY_BADGES_SEMANTIC, BRAND_BADGES_SEMANTIC } from "@/constants/badges";
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
@@ -256,6 +260,37 @@ function mapTcProduct(p: TcApiProduct, maps: TcLabelMaps): Product {
 const categoryBadges = CATEGORY_BADGES_SEMANTIC;
 const brandBadges = BRAND_BADGES_SEMANTIC;
 
+const OFFER_COLOR_PALETTE = [
+  { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200/80', dot: 'bg-amber-500' },
+  { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200/80', dot: 'bg-emerald-500' },
+  { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200/80', dot: 'bg-indigo-500' },
+  { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200/80', dot: 'bg-purple-500' },
+  { bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200/80', dot: 'bg-rose-500' },
+  { bg: 'bg-sky-50', text: 'text-sky-700', border: 'border-sky-200/80', dot: 'bg-sky-500' },
+  { bg: 'bg-teal-50', text: 'text-teal-700', border: 'border-teal-200/80', dot: 'bg-teal-500' },
+  { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200/80', dot: 'bg-orange-500' },
+  { bg: 'bg-violet-50', text: 'text-violet-700', border: 'border-violet-200/80', dot: 'bg-violet-500' },
+  { bg: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-cyan-200/80', dot: 'bg-cyan-500' },
+];
+
+function getOfferBadgeStyle(offer: string, offerOptions?: string[]) {
+  if (!offer || offer === NO_API_FIELD) {
+    return { bg: 'bg-slate-50', text: 'text-slate-500', border: 'border-slate-200', dot: 'bg-slate-400' };
+  }
+  let index = -1;
+  if (offerOptions && offerOptions.length > 0) {
+    index = offerOptions.indexOf(offer);
+  }
+  if (index === -1) {
+    let hash = 0;
+    for (let i = 0; i < offer.length; i++) {
+      hash = offer.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    index = Math.abs(hash);
+  }
+  return OFFER_COLOR_PALETTE[index % OFFER_COLOR_PALETTE.length];
+}
+
 export default function TcProductsPage() {
   const isOnline = useOnlineStatus();
 
@@ -274,9 +309,10 @@ export default function TcProductsPage() {
   /** Price Range bounds — kept as raw strings so a field can be empty. */
   const [minPriceInput, setMinPriceInput] = useState('');
   const [maxPriceInput, setMaxPriceInput] = useState('');
-  /** Offers-only toggle — true = show only products the API marks with an offer.
-   *  Defaults to true, matching the checkbox's previous default state. */
-  const [offersOnly, setOffersOnly] = useState(true);
+  /** Offer filter — 'ALL' = show all products, 'HAS_OFFER' = any offer, or specific offer label.
+   *  Defaults to 'ALL' so all products are shown when no specific offer is selected. */
+  const [offerFilter, setOfferFilter] = useState('ALL');
+  const [isOfferOpen, setIsOfferOpen] = useState(false);
 
   const [pageSize, setPageSize] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
@@ -294,6 +330,7 @@ export default function TcProductsPage() {
   /** Persisted, offline-first cart — survives refresh, navigation and offline. */
   const cart = useCart();
   const [activeDrawerItem, setActiveDrawerItem] = useState<Product | null>(null);
+  const [quickViewItem, setQuickViewItem] = useState<Product | null>(null);
   const [inquiryModalItem, setInquiryModalItem] = useState<Product | null>(null);
   const [isInquiryModalOpen, setIsInquiryModalOpen] = useState(false);
   const [isColumnModalOpen, setIsColumnModalOpen] = useState(false);
@@ -514,9 +551,9 @@ export default function TcProductsPage() {
    * The page only observes — see `useSyncTask` / `useSyncBatches` above.
    */
 
-  // supplierRef removed — Supplier dropdown is not used on TC Products page.
   const categoryRef = useRef<HTMLDivElement>(null);
   const brandRef = useRef<HTMLDivElement>(null);
+  const offerRef = useRef<HTMLDivElement>(null);
   const pageSizeRef = useRef<HTMLDivElement>(null);
   const densityRef = useRef<HTMLDivElement>(null);
 
@@ -529,6 +566,9 @@ export default function TcProductsPage() {
       }
       if (brandRef.current && !brandRef.current.contains(target)) {
         setIsBrandOpen(false);
+      }
+      if (offerRef.current && !offerRef.current.contains(target)) {
+        setIsOfferOpen(false);
       }
       if (pageSizeRef.current && !pageSizeRef.current.contains(target)) {
         setIsPageSizeOpen(false);
@@ -555,6 +595,7 @@ export default function TcProductsPage() {
         setIsPageSizeOpen(false);
         setIsCategoryOpen(false);
         setIsBrandOpen(false);
+        setIsOfferOpen(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -626,9 +667,10 @@ export default function TcProductsPage() {
     if (!isNaN(minPrice)) result = result.filter(item => item.price >= minPrice);
     if (!isNaN(maxPrice)) result = result.filter(item => item.price <= maxPrice);
 
-    // OFFERS? checkbox — when checked, only products the API flags with an offer
-    // are shown. Purely client-side; never triggers an API call.
-    if (offersOnly) result = result.filter(item => item.hasOffer === true);
+    // Offers filter — 'ALL' shows all products, or specific offer label match.
+    if (offerFilter !== 'ALL') {
+      result = result.filter(item => item.offer === offerFilter);
+    }
 
     if (sortColumn) {
       // `sort` mutates in place. If no filter ran, `result` is still the
@@ -658,23 +700,22 @@ export default function TcProductsPage() {
     }
 
     return result;
-  }, [allProducts, searchQuery, categoryFilter, brandInput, sizeInput, yearInput, qtyInput, minPriceInput, maxPriceInput, offersOnly, sortColumn, sortAsc]);
+  }, [allProducts, searchQuery, categoryFilter, brandInput, sizeInput, yearInput, qtyInput, minPriceInput, maxPriceInput, offerFilter, sortColumn, sortAsc]);
 
-  // All three dropdown lists in ONE pass. Three separate useMemos each walked
-  // the full 318k-row array and allocated its own intermediate — at this size
-  // that is three full scans plus three throwaway arrays every time the
-  // catalogue changes. One reduce over the array gives the same three lists.
-  // supplierOptions removed — Supplier filter is not used on TC Products page.
-  const { categoryOptions, brandOptions } = useMemo(() => {
+  // Extract category, brand, and offer dropdown lists in ONE pass.
+  const { categoryOptions, brandOptions, offerOptions } = useMemo(() => {
     const categories = new Set<string>();
     const brands = new Set<string>();
+    const offers = new Set<string>();
     for (const p of allProducts) {
       if (p.category) categories.add(normalizeCategory(p.category));
       if (p.brand) brands.add(p.brand);
+      if (p.offer && p.offer !== NO_API_FIELD) offers.add(p.offer);
     }
     return {
       categoryOptions: Array.from(categories).sort(),
       brandOptions: Array.from(brands).sort(),
+      offerOptions: Array.from(offers).sort(),
     };
   }, [allProducts]);
 
@@ -791,7 +832,7 @@ export default function TcProductsPage() {
     setQtyInput('');
     setMinPriceInput('');
     setMaxPriceInput('');
-    setOffersOnly(true); // reset to default (checked)
+    setOfferFilter('ALL');
     setCurrentPage(1);
     addToast('Filters reset to default.');
   };
@@ -876,7 +917,8 @@ export default function TcProductsPage() {
    */
   const shareOnWhatsApp = (item: Product) => {
     const text = buildRowString(item);
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
+    navigator.clipboard.writeText(text);
+    addToast(`Copied product details to clipboard!`);
   };
 
   const copyToClipboard = (text: string) => {
@@ -902,9 +944,9 @@ export default function TcProductsPage() {
       Boolean(qtyInput.trim()) ||
       Boolean(minPriceInput.trim()) ||
       Boolean(maxPriceInput.trim()) ||
-      offersOnly
+      offerFilter !== 'ALL'
     );
-  }, [searchQuery, categoryFilter, brandInput, sizeInput, yearInput, qtyInput, minPriceInput, maxPriceInput, offersOnly]);
+  }, [searchQuery, categoryFilter, brandInput, sizeInput, yearInput, qtyInput, minPriceInput, maxPriceInput, offerFilter]);
 
   /**
    * Bulk copy — every product in the current search/filter result set, exactly
@@ -1017,25 +1059,36 @@ export default function TcProductsPage() {
             </div>
 
 
-            {/* Copy All Search Results — bulk version of the row-click copy.
-                Same formatter (`buildRowString`), one line per product. */}
+            {/* Copy All Search Results Button */}
             <button
               type="button"
               onClick={copyAllSearchResults}
-              title={hasActiveFilter ? "Copy All Search Results" : "Please enter a search query or filter first"}
-              aria-label="Copy All Search Results"
-              className={`h-9 w-9 inline-flex items-center justify-center rounded-lg transition-colors focus:outline-none active:scale-95 ${hasActiveFilter
-                ? 'text-slate-600 hover:text-emerald-600 hover:bg-slate-100'
-                : 'text-slate-300 hover:text-slate-400 hover:bg-slate-50'
-                }`}
+              title={hasActiveFilter ? "Copy All Search Results" : "Copy Search Results"}
+              aria-label="Copy Result"
+              className="h-9 flex items-center gap-2 px-3 text-xs font-bold bg-white text-slate-700 border border-slate-200 hover:border-emerald-500 hover:text-emerald-600 rounded-lg shadow-2xs transition-all active:scale-[0.98] shrink-0"
             >
-              <ClipboardDocumentIcon className="w-[18px] h-[18px]" />
+              <ClipboardDocumentIcon className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span className="whitespace-nowrap">Copy Result</span>
+            </button>
+
+            {/* Book Inquiry Button — always visible in header */}
+            <HeaderBookInquiry />
+
+            {/* Create Quote Button */}
+            <button
+              type="button"
+              title="Create Quote"
+              aria-label="Create Quote"
+              className="h-9 flex items-center gap-1.5 px-3.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs hover:shadow-indigo-600/20 transition-all active:scale-[0.98] shrink-0 cursor-pointer"
+            >
+              <DocumentTextIcon className="w-4 h-4 shrink-0" />
+              <span className="whitespace-nowrap">Create Quote</span>
             </button>
 
             {/* Export Button */}
             <button
               onClick={exportCSV}
-              className="h-9 flex items-center gap-2 px-3.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs transition-all hover:shadow-emerald-600/20 active:scale-[0.98]"
+              className="h-9 flex items-center gap-2 px-3.5 text-xs font-bold text-white bg-slate-700 hover:bg-slate-800 rounded-lg shadow-xs transition-all active:scale-[0.98]"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -1350,18 +1403,67 @@ export default function TcProductsPage() {
                 </div>
               </div>
 
-              {/* Offers? — filters to products the API marks with an offer. Same
-                  control, position and styling as before; only the data source
-                  (and therefore the label) changed. */}
-              <label className="flex items-center gap-2 h-10 text-slate-600 text-sm font-medium cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={offersOnly}
-                  onChange={(e) => { setOffersOnly(e.target.checked); setCurrentPage(1); }}
-                  className="w-4 h-4 rounded border-slate-300 text-emerald-600 accent-emerald-600 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:ring-offset-0 focus:outline-none cursor-pointer"
-                />
-                OFFERS?
-              </label>
+              {/* Offers Dropdown */}
+              <div ref={offerRef} className="flex flex-col min-w-[160px] relative">
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+                  Offers
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsOfferOpen(!isOfferOpen);
+                    setIsCategoryOpen(false);
+                    setIsBrandOpen(false);
+                    setIsPageSizeOpen(false);
+                    setIsDensityMenuOpen(false);
+                  }}
+                  className="h-10 bg-white border border-slate-200 rounded-lg px-3 flex items-center justify-between text-sm font-medium text-slate-700 hover:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs transition-all cursor-pointer"
+                >
+                  <div className="flex items-center gap-2 truncate">
+                    {offerFilter !== 'ALL' && (
+                      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${getOfferBadgeStyle(offerFilter, offerOptions).dot}`} />
+                    )}
+                    <span className="truncate">
+                      {offerFilter === 'ALL' ? 'All Offers' : offerFilter}
+                    </span>
+                  </div>
+                  <ChevronDownIcon className={`w-4 h-4 text-slate-400 ml-2 shrink-0 transition-transform ${isOfferOpen ? 'rotate-180 text-emerald-600' : ''}`} />
+                </button>
+
+                {isOfferOpen && (
+                  <div className="absolute left-0 top-full mt-1.5 min-w-full bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 max-h-60 overflow-y-auto animate-in fade-in zoom-in-95 duration-100">
+                    <button
+                      type="button"
+                      onClick={() => { setOfferFilter('ALL'); setCurrentPage(1); setIsOfferOpen(false); }}
+                      className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${offerFilter === 'ALL' ? 'text-emerald-700 bg-emerald-50/80 font-bold' : 'text-slate-700 hover:bg-slate-50'}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-slate-300" />
+                        <span>All Offers</span>
+                      </div>
+                      {offerFilter === 'ALL' && <span className="text-emerald-600 font-bold">✓</span>}
+                    </button>
+
+                    {offerOptions.map((off) => {
+                      const style = getOfferBadgeStyle(off, offerOptions);
+                      return (
+                        <button
+                          key={off}
+                          type="button"
+                          onClick={() => { setOfferFilter(off); setCurrentPage(1); setIsOfferOpen(false); }}
+                          className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${offerFilter === off ? 'text-emerald-700 bg-emerald-50/80 font-bold' : 'text-slate-700 hover:bg-slate-50'}`}
+                        >
+                          <div className="flex items-center gap-2 truncate">
+                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${style.dot}`} />
+                            <span className="truncate">{off}</span>
+                          </div>
+                          {offerFilter === off && <span className="text-emerald-600 font-bold ml-2">✓</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
 
               {/* Search button */}
               <button
@@ -1412,62 +1514,7 @@ export default function TcProductsPage() {
           {/* Data Table Container Card */}
           <section className="flex-1 min-h-0 bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col">
 
-            {/* Table Header Summary / Entries Per Page Selector */}
-            <div className="px-5 py-2.5 flex items-center justify-between border-b border-slate-200/70 bg-slate-50/70 relative z-20">
-              <button
-                onClick={() => {
-                  setInquiryModalItem(null);
-                  setIsInquiryModalOpen(true);
-                }}
-                className="h-8 px-3.5 flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-xs transition-all active:scale-95 cursor-pointer"
-                title="Book Inquiry"
-              >
-                <CalendarDaysIcon className="w-4 h-4" />
-                <span>Book Inquiry</span>
-              </button>
 
-              <div className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 bg-white px-3 py-1.5 rounded-lg border border-slate-200/90 shadow-2xs">
-                <span className="text-slate-400 font-medium">Show</span>
-
-                <div ref={pageSizeRef} className="relative">
-                  <button
-                    onClick={() => setIsPageSizeOpen(!isPageSizeOpen)}
-                    className="h-7 px-2.5 flex items-center gap-1.5 text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-md hover:bg-slate-100 hover:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all cursor-pointer"
-                  >
-                    <span>{pageSize}</span>
-                    <svg className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isPageSizeOpen ? 'rotate-180 text-emerald-600' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </button>
-
-                  {isPageSizeOpen && (
-                    <div className="absolute right-0 top-full mt-1.5 w-14 bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
-                      {[10, 25, 50, 100].map((size) => (
-                        <button
-                          key={size}
-                          onClick={() => {
-                            setPageSize(size);
-                            setCurrentPage(1);
-                            setIsPageSizeOpen(false);
-                          }}
-                          className={`w-full text-left px-2.5 py-1.5 text-xs font-semibold flex items-center justify-between transition-colors ${pageSize === size
-                            ? 'text-emerald-700 bg-emerald-50/80 font-bold'
-                            : 'text-slate-700 hover:bg-slate-50'
-                            }`}
-                        >
-                          <span>{size}</span>
-                          {pageSize === size && (
-                            <span className="text-emerald-600 font-bold text-xs">✓</span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <span className="text-slate-500">entries / page</span>
-              </div>
-            </div>
 
             {/* Scrollable Table — fills the card and scrolls INTERNALLY so row
                 count / page size never changes the card height (no layout shift). */}
@@ -1545,9 +1592,26 @@ export default function TcProductsPage() {
 
                           {!hiddenColumns.has('brand') && (
                             <td className={`${cellPaddingClass} whitespace-nowrap`}>
-                              <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border uppercase tracking-tight whitespace-nowrap inline-block ${brandBadges[item.brand] || 'badge-brand-default'}`}>
-                                {item.brand || '-'}
-                              </span>
+                              {/* Brand stays the primary text; the category sits under it
+                                  as a smaller, quieter chip. Same column — no new one.
+                                  Colours come from the shared map in constants/badges.ts,
+                                  keyed on the API's own category value. */}
+                              {/* The category line is ALWAYS reserved, even when a
+                                  product has no category. Rendering it only when
+                                  present made those rows 16px shorter than the rest
+                                  (measured 53px vs 69px), so the table looked ragged. */}
+                              <div className="flex flex-col items-start gap-0.5">
+                                <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border uppercase tracking-tight whitespace-nowrap inline-block ${brandBadges[item.brand] || 'badge-brand-default'}`}>
+                                  {item.brand || '-'}
+                                </span>
+                                <span className="h-[15px] flex items-center">
+                                  {item.category ? (
+                                    <span className={`px-1.5 text-[9px] leading-[13px] font-bold rounded uppercase tracking-wide whitespace-nowrap inline-block ${categoryBadges[item.category] || 'badge-cat-default'}`}>
+                                      {item.category}
+                                    </span>
+                                  ) : null}
+                                </span>
+                              </div>
                             </td>
                           )}
 
@@ -1623,24 +1687,30 @@ export default function TcProductsPage() {
                             <td className={`${cellPaddingClass} text-center`}>
                               {item.offer === NO_API_FIELD ? (
                                 <span className="text-xs text-slate-400 font-medium">{NO_API_FIELD}</span>
-                              ) : (
-                                // Badge, and `title` carries the full text: the promo
-                                // labels run to ~20 characters ("Free Wheel Alignment")
-                                // and would otherwise be clipped with no way to read them.
-                                <span
-                                  title={item.offer}
-                                  className="inline-block max-w-full truncate px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200"
-                                >
-                                  {item.offer}
-                                </span>
-                              )}
+                              ) : (() => {
+                                const style = getOfferBadgeStyle(item.offer, offerOptions);
+                                return (
+                                  <span
+                                    title={item.offer}
+                                    className={`inline-block max-w-full truncate px-2.5 py-0.5 rounded-md text-[10px] font-extrabold border shadow-2xs ${style.bg} ${style.text} ${style.border}`}
+                                  >
+                                    {item.offer}
+                                  </span>
+                                );
+                              })()}
                             </td>
                           )}
 
                           <td className={`${cellPaddingClass} text-center`}>
                             <div className="flex items-center justify-center gap-1.5">
-                              {/* List toggle button — calls toggleList() to add or remove.
-                                  To disable this button, delete this entire <button> block. */}
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setQuickViewItem(item); }}
+                                title="View Details"
+                                aria-label="View Details"
+                                className="w-7 h-7 aspect-square shrink-0 flex items-center justify-center rounded-lg border transition-all active:scale-95 bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-emerald-600 hover:border-emerald-300"
+                              >
+                                <EyeIcon className="w-3.5 h-3.5" />
+                              </button>
                               <button
                                 onClick={(e) => { e.stopPropagation(); toggleList(item); }}
                                 title={listIds.has(item.id) ? 'Remove from List' : 'Add to List'}
@@ -1663,8 +1733,8 @@ export default function TcProductsPage() {
                               </button>
                               <button
                                 onClick={(e) => { e.stopPropagation(); shareOnWhatsApp(item); }}
-                                title="Share on WhatsApp"
-                                aria-label="Share on WhatsApp"
+                                title="Copy details for WhatsApp"
+                                aria-label="Copy details for WhatsApp"
                                 className="w-7 h-7 aspect-square shrink-0 flex items-center justify-center rounded-lg border transition-all active:scale-95 bg-white text-[#25D366] border-[#25D366]/40 hover:bg-[#25D366]/10"
                               >
                                 <WhatsAppIcon className="w-3.5 h-3.5" />
@@ -1679,7 +1749,47 @@ export default function TcProductsPage() {
             </div>
 
             {/* Pagination Controls Bar */}
-            <div className="px-5 py-3.5 flex items-center justify-end border-t border-slate-100 bg-white">
+            <div className="px-5 py-3 flex items-center justify-between border-t border-slate-100 bg-white">
+
+              {/* Left: Show N entries/page */}
+              <div ref={pageSizeRef} className="relative inline-flex items-center gap-2 text-xs font-semibold text-slate-600 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200/90 shadow-2xs">
+                <span className="text-slate-400 font-medium">Show</span>
+                <button
+                  onClick={() => setIsPageSizeOpen(!isPageSizeOpen)}
+                  className="h-6 px-2 flex items-center gap-1 text-xs font-bold text-slate-800 bg-white border border-slate-200 rounded-md hover:bg-slate-100 hover:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all cursor-pointer"
+                >
+                  <span>{pageSize}</span>
+                  <svg className={`w-3 h-3 text-slate-400 transition-transform ${isPageSizeOpen ? 'rotate-180 text-emerald-600' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                <span className="text-slate-500">entries</span>
+
+                {isPageSizeOpen && (
+                  <div className="absolute left-0 bottom-full mb-1.5 w-16 bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
+                    {[10, 25, 50, 100].map((size) => (
+                      <button
+                        key={size}
+                        onClick={() => {
+                          setPageSize(size);
+                          setCurrentPage(1);
+                          setIsPageSizeOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-1.5 text-xs font-semibold flex items-center justify-between transition-colors ${
+                          pageSize === size
+                            ? 'text-emerald-700 bg-emerald-50/80 font-bold'
+                            : 'text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <span>{size}</span>
+                        {pageSize === size && <span className="text-emerald-600 font-bold">✓</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Right: Previous / page numbers / Next */}
               <div className="flex items-center gap-1.5">
                 <button
                   disabled={currentPage <= 1}
@@ -1703,10 +1813,11 @@ export default function TcProductsPage() {
                       <button
                         key={pageNum}
                         onClick={() => setCurrentPage(pageNum)}
-                        className={`w-7 h-7 text-xs font-semibold rounded-lg flex items-center justify-center transition-all ${currentPage === pageNum
-                          ? 'bg-emerald-600 text-white font-bold shadow-xs'
-                          : 'text-slate-600 hover:bg-slate-100'
-                          }`}
+                        className={`w-7 h-7 text-xs font-semibold rounded-lg flex items-center justify-center transition-all ${
+                          currentPage === pageNum
+                            ? 'bg-emerald-600 text-white font-bold shadow-xs'
+                            : 'text-slate-600 hover:bg-slate-100'
+                        }`}
                       >
                         {pageNum}
                       </button>
@@ -1722,6 +1833,7 @@ export default function TcProductsPage() {
                   Next
                 </button>
               </div>
+
             </div>
 
           </section>
@@ -1923,6 +2035,27 @@ export default function TcProductsPage() {
             : null
         }
       />
+
+      {/* Quick View Slide-Up Modal — Same as Supplier Products */}
+      {quickViewItem && (
+        <QuickViewModal
+          key={quickViewItem.id}
+          product={quickViewItem}
+          onClose={() => setQuickViewItem(null)}
+          onAddToCart={(prod, qty) => {
+            cart.add({
+              id: Number(prod.id),
+              sku: prod.itemCode,
+              name: prod.pattern,
+              brand: prod.brand,
+              size: prod.sizeFull || prod.size,
+              price: prod.cost,
+            });
+            addToast(`Added ${qty} x "${prod.pattern || prod.brand}" to cart!`);
+            setQuickViewItem(null);
+          }}
+        />
+      )}
 
       {/* Toast Notification Container */}
       <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 pointer-events-none">

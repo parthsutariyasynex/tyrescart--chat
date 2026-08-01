@@ -9,7 +9,8 @@ import {
   EyeIcon,
 } from '@heroicons/react/24/outline';
 import { buildRowString } from "@/services/productFormatter";
-import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
+import { OnlineStatusBadge, FullscreenButton } from '@/components/HeaderUtilities';
+import HeaderBookInquiry from '@/components/HeaderBookInquiry';
 import SyncButton from "@/components/SyncButton";
 import { CATEGORY_BADGES_TAILWIND, BRAND_BADGES_TAILWIND } from "@/constants/badges";
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
@@ -1006,6 +1007,9 @@ export default function SupplierProductsPage() {
               )}
             </div>
 
+
+            {/* Book Inquiry Button */}
+            <HeaderBookInquiry />
 
             {/* Export Button */}
             <button
