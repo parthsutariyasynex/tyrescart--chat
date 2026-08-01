@@ -254,7 +254,7 @@ export function toMonthSeries(history: CostHistoryRecord[]): CostPoint[] {
   return [...byMonth.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([, r]) => ({
-      label: new Date(r.syncTimestamp).toLocaleDateString("en-GB", { month: "short", year: "2-digit" }),
+      label: new Date(r.syncTimestamp).toLocaleDateString("en-GB", { month: "short", year: "numeric" }),
       cost: r.cost,
       ts: r.syncTimestamp,
     }));

@@ -334,53 +334,28 @@ export default function BookInquiryModal({
       (item.vehiclePlateNumber && item.vehiclePlateNumber.toLowerCase().includes(qLower))
     );
 
-    if (matches.length > 0) {
-      setErrors({});
-      const matchedItem = matches[0];
-      setEditingId(matchedItem.id);
-      setName(matchedItem.name);
-      setPhone(matchedItem.phone);
-      setEmail(matchedItem.email || "");
-      setVehiclePlateNumber(matchedItem.vehiclePlateNumber || "");
-      setMake(matchedItem.make || "");
-      setModel(matchedItem.model || "");
-      setYear(matchedItem.year || "");
-      setTireSize1(matchedItem.tireSize1 || "");
-      setTireSize2(matchedItem.tireSize2 || "");
-      setStatus(matchedItem.status);
-      setNote(matchedItem.note || "");
-    }
+    /* Search FILTERS the list; it does not populate the form. Loading a
+       customer's details into the form is the Edit button's job only, so a
+       search can never quietly overwrite something half-typed. */
+    if (matches.length > 0) setErrors({});
 
     const digits = targetQuery.replace(/[^\d]/g, "");
     if (digits.length >= 7) {
       void fetchCrmCustomerByPhoneGraphQL(targetQuery)
         .then((c) => {
+          // Only feeds the list (via crmRows). The form is left alone.
           setCrmCustomer(c);
           if (c) {
-            if (matches.length === 0) {
-              setName(c.name ?? "");
-              setPhone(c.phone ?? "");
-              setEmail(c.email ?? "");
-              if (c.vehicles && c.vehicles.length > 0) {
-                const v = c.vehicles[0];
-                setMake(v.make ?? "");
-                setModel(v.model ?? "");
-                setYear(v.year ?? "");
-                setVehiclePlateNumber(v.plant_number ?? "");
-                if (v.tire_size_1) setTireSize1(v.tire_size_1);
-                if (v.tire_size_2) setTireSize2(v.tire_size_2);
-              }
-            }
             setToastMessage(`Found CRM customer record & inquiries for "${c.name ?? targetQuery}".`);
           } else if (matches.length > 0) {
-            setToastMessage(`Found ${matches.length} matching inquiry! Customer details loaded into form.`);
+            setToastMessage(`Found ${matches.length} matching inquiry.`);
           } else {
             setToastMessage(`No record found for "${targetQuery}".`);
           }
         })
         .catch(() => {
           if (matches.length > 0) {
-            setToastMessage(`Found ${matches.length} matching inquiry! Customer details loaded into form.`);
+            setToastMessage(`Found ${matches.length} matching inquiry.`);
           } else {
             setToastMessage(`No record found for "${targetQuery}".`);
           }

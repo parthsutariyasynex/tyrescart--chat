@@ -19,7 +19,6 @@ import { XMarkIcon } from "@heroicons/react/24/outline";
 import {
   fromApiHistory,
   toDateSeries,
-  toMonthSeries,
   summarise,
   type CostHistoryRecord,
 } from "@/services/costHistory";
@@ -52,8 +51,6 @@ export interface CostHistoryProduct {
 const money = (n: number) =>
   n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-type Tab = "date" | "month";
-
 export interface CostHistoryModalProps {
   product: CostHistoryProduct;
   onCloseAction: () => void;
@@ -64,7 +61,6 @@ export default function CostHistoryModal({
   onCloseAction,
 }: CostHistoryModalProps) {
   const [history, setHistory] = useState<CostHistoryRecord[] | null>(null);
-  const [tab, setTab] = useState<Tab>("date");
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [isClosing, setIsClosing] = useState<boolean>(false);
 
@@ -123,10 +119,8 @@ export default function CostHistoryModal({
   }, []);
 
   const dateSeries = useMemo(() => toDateSeries(history ?? []), [history]);
-  const monthSeries = useMemo(() => toMonthSeries(history ?? []), [history]);
   const stats = useMemo(() => summarise(history ?? []), [history]);
 
-  const series = tab === "date" ? dateSeries : monthSeries;
   const loading = history === null;
   const empty = !loading && (history?.length ?? 0) === 0;
 
@@ -203,26 +197,8 @@ export default function CostHistoryModal({
           ))}
         </div>
 
-        {/* ── Tabs ── */}
-        <div className="px-6 pt-5 shrink-0 max-w-7xl mx-auto w-full">
-          <div className="inline-flex p-0.5 bg-slate-100 rounded-none">
-            {([["date", "Date Wise"], ["month", "Month Wise"]] as [Tab, string][]).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setTab(key)}
-                className={`px-4 py-2 text-xs font-extrabold rounded-none transition-colors focus:outline-none ${
-                  tab === key ? "bg-white text-emerald-700 shadow-2xs" : "text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-
         {/* ── Chart Area ── */}
-        <div className="px-6 pb-6 pt-3 overflow-y-auto flex-1 max-w-7xl mx-auto w-full">
+        <div className="px-6 pb-6 pt-5 overflow-y-auto flex-1 max-w-7xl mx-auto w-full">
           {loading ? (
             <div className="h-[320px] flex items-center justify-center">
               <div className="skeleton h-full w-full rounded-none" aria-hidden="true" />
@@ -240,7 +216,7 @@ export default function CostHistoryModal({
               </p>
             </div>
           ) : (
-            <CostLineChart data={series} xLabel={tab === "date" ? "Date" : "Month"} />
+            <CostLineChart data={dateSeries} xLabel="Date" />
           )}
         </div>
       </div>
