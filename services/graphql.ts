@@ -67,13 +67,23 @@ async function executeGraphQLQuery(query: string) {
   const targetUrl = isServer ? "https://www.tyrescart.com/graphql" : "/api/graphql";
 
   try {
+    /* The key is attached ONLY on the server path, which talks to Magento
+       directly. In the browser this posts to our own /api/graphql proxy, and
+       that route adds the header server-side — so the secret never has to reach
+       the client, and no NEXT_PUBLIC_ variable (which Next inlines into the
+       bundle) is involved. */
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+    };
+    if (isServer && process.env.KLEVER_API_KEY) {
+      headers["X-Klever-Api-Key"] = process.env.KLEVER_API_KEY;
+    }
+
     console.time("API Fetch");
     const res = await fetch(targetUrl, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-      },
+      headers,
       body: JSON.stringify({ query }),
     });
     console.timeEnd("API Fetch");

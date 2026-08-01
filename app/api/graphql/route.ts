@@ -21,6 +21,19 @@ const RETRY_BACKOFF_MS = 300;
  * retry rides over those blips instead of surfacing them to the client (which,
  * during the 16-batch background load, would abort the whole run).
  */
+/**
+ * Upstream API key. Read from the environment ONLY.
+ *
+ * No literal fallback: a hardcoded default ships the secret in the source and,
+ * once pushed, lives in git history permanently. Set it in `.env.local`, which
+ * `.gitignore` already excludes.
+ *
+ * Deliberately NOT `NEXT_PUBLIC_` — Next inlines those into the client bundle,
+ * where anyone loading the page could read it. This route runs server-side, so
+ * the key never needs to reach the browser.
+ */
+const KLEVER_API_KEY = process.env.KLEVER_API_KEY ?? "";
+
 async function fetchUpstream(body: unknown): Promise<Response> {
   let lastErr: unknown;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -30,6 +43,7 @@ async function fetchUpstream(body: unknown): Promise<Response> {
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json",
+          "X-Klever-Api-Key": KLEVER_API_KEY,
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         },
         body: JSON.stringify(body),

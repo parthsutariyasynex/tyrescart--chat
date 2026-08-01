@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import {
   XMarkIcon,
   MagnifyingGlassIcon,
@@ -49,6 +50,7 @@ export default function BookInquiryModal({
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [city, setCity] = useState("");
   const [tireSize1, setTireSize1] = useState("");
   const [tireSize2, setTireSize2] = useState("");
   const [vehiclePlateNumber, setVehiclePlateNumber] = useState("");
@@ -91,18 +93,22 @@ export default function BookInquiryModal({
   const [isClosing, setIsClosing] = useState(false);
 
   useEffect(() => {
-    // Both branches are deferred: a synchronous setState in an effect body
-    // triggers a cascading render. The 30ms open delay is what lets the
-    // enter transition play from its starting position.
-    const timer = setTimeout(() => {
-      if (isOpen) {
-        setIsClosing(false);
-        setIsAnimatedOpen(true);
-      } else {
-        setIsAnimatedOpen(false);
-      }
-    }, isOpen ? 30 : 0);
-    return () => clearTimeout(timer);
+    let raf1: number;
+    let raf2: number;
+    if (isOpen) {
+      setIsClosing(false);
+      raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(() => {
+          setIsAnimatedOpen(true);
+        });
+      });
+    } else {
+      setIsAnimatedOpen(false);
+    }
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
   }, [isOpen]);
 
   /**
@@ -184,6 +190,7 @@ export default function BookInquiryModal({
     setName("");
     setPhone("");
     setEmail("");
+    setCity("");
     setTireSize1(initialProduct?.size || "");
     setTireSize2("");
     setVehiclePlateNumber("");
@@ -203,6 +210,7 @@ export default function BookInquiryModal({
     setName(inquiry.name || "");
     setPhone(inquiry.phone || "");
     setEmail(inquiry.email || "");
+    setCity(inquiry.city || "");
     setTireSize1(inquiry.tireSize1 || "");
     setTireSize2(inquiry.tireSize2 || "");
     setVehiclePlateNumber(inquiry.vehiclePlateNumber || "");
@@ -234,6 +242,7 @@ export default function BookInquiryModal({
         name: name.trim(),
         phone: phone.trim(),
         email: email.trim(),
+        city: city.trim(),
         tireSize1: tireSize1.trim(),
         tireSize2: tireSize2.trim(),
         vehiclePlateNumber: vehiclePlateNumber.trim(),
@@ -429,11 +438,17 @@ export default function BookInquiryModal({
     return filteredInquiries.slice(start, start + pageSize);
   }, [filteredInquiries, currentPage, pageSize]);
 
-  if (!isOpen && !isClosing) return null;
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
-  return (
+  if (!isOpen && !isClosing) return null;
+  if (!mounted) return null;
+
+  return createPortal(
     <div
-      className={`fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs transition-opacity duration-500 ease-out ${
+      className={`fixed inset-0 z-[9999] flex items-end justify-center bg-black/60 backdrop-blur-xs transition-opacity duration-500 ease-out ${
         isAnimatedOpen && !isClosing ? "opacity-100" : "opacity-0 pointer-events-none"
       }`}
       onClick={handleClose}
@@ -442,10 +457,10 @@ export default function BookInquiryModal({
     >
       {/* Slide-Up Bottom Container (Full Width like CostHistoryModal & QuickViewModal) */}
       <div
-        className={`relative bg-white w-full max-w-full border-t border-slate-200 shadow-2xl flex flex-col overflow-hidden transition-all duration-500 ease-out max-h-[90vh] rounded-none ${
+        className={`relative bg-white w-full max-w-full border-t border-slate-200 shadow-2xl flex flex-col overflow-hidden transition-transform duration-500 ease-out max-h-[90vh] rounded-none ${
           isAnimatedOpen && !isClosing
-            ? "translate-y-0 opacity-100"
-            : "translate-y-full opacity-0"
+            ? "translate-y-0"
+            : "translate-y-full"
         }`}
         onClick={(e) => e.stopPropagation()}
       >
@@ -488,8 +503,8 @@ export default function BookInquiryModal({
         {/* Body Split View (pb-28 guarantees zero layout shift when dropdown popovers open) */}
         <div className="flex-1 overflow-y-auto p-5 sm:p-6 pb-28 grid grid-cols-1 lg:grid-cols-12 gap-6 bg-slate-50/50">
           
-          {/* Left Column: Form Section */}
-          <div className="lg:col-span-5 bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between min-h-[580px]">
+          {/* Right Column: Form Section */}
+          <div className="lg:col-span-5 lg:order-2 bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between min-h-[580px]">
             <div>
               <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
@@ -579,17 +594,30 @@ export default function BookInquiryModal({
                   </div>
                 </div>
 
-                {/* Email */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Email Address</label>
-                  <div className="relative">
-                    <EnvelopeIcon className="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" />
+                {/* Email & City */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Email Address</label>
+                    <div className="relative">
+                      <EnvelopeIcon className="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" />
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="customer@example.com"
+                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">City</label>
                     <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="customer@example.com"
-                      className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                      type="text"
+                      value={city}
+                      onChange={(e) => setCity(e.target.value)}
+                      placeholder="e.g. Riyadh, Jeddah"
+                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                     />
                   </div>
                 </div>
@@ -773,8 +801,8 @@ export default function BookInquiryModal({
             </div>
           </div>
 
-          {/* Right Column: Inquiry List Section */}
-          <div className="lg:col-span-7 bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between min-h-[580px]">
+          {/* Left Column: Inquiry List Section */}
+          <div className="lg:col-span-7 lg:order-1 bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between min-h-[580px]">
             <div>
               {/* Search & Filter Header */}
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
@@ -1027,10 +1055,20 @@ export default function BookInquiryModal({
                   </div>
                 </div>
 
-                {viewingInquiry.email && (
-                  <div>
-                    <span className="text-slate-400 font-semibold block text-[10px]">EMAIL</span>
-                    <span className="text-slate-700 font-medium">{viewingInquiry.email}</span>
+                {(viewingInquiry.email || viewingInquiry.city) && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {viewingInquiry.email && (
+                      <div>
+                        <span className="text-slate-400 font-semibold block text-[10px]">EMAIL</span>
+                        <span className="text-slate-700 font-medium">{viewingInquiry.email}</span>
+                      </div>
+                    )}
+                    {viewingInquiry.city && (
+                      <div>
+                        <span className="text-slate-400 font-semibold block text-[10px]">CITY</span>
+                        <span className="text-slate-700 font-medium">{viewingInquiry.city}</span>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1089,6 +1127,7 @@ export default function BookInquiryModal({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -12,7 +12,6 @@ import {
   BuildingStorefrontIcon,
 } from '@heroicons/react/24/outline';
 import SidebarSyncButton from '@/components/SidebarSyncButton';
-import SidebarBookInquiry from '@/components/SidebarBookInquiry';
 
 export interface NavItem {
   name: string;
@@ -97,9 +96,6 @@ export default function Sidebar({ theme }: SidebarProps = {}) {
               </Link>
             );
           })}
-
-          {/* Global Book Inquiry Button */}
-          <SidebarBookInquiry />
 
           {/* Shared Sidebar Sync Button */}
           <SidebarSyncButton />

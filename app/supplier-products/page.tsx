@@ -1,12 +1,13 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import Link from 'next/link';
 import {
   MagnifyingGlassIcon,
   ArrowPathIcon,
   ChevronDownIcon,
   XMarkIcon,
-  EyeIcon,
+  ChatBubbleLeftRightIcon,
 } from '@heroicons/react/24/outline';
 import { buildRowString } from "@/services/productFormatter";
 import { OnlineStatusBadge, FullscreenButton } from '@/components/HeaderUtilities';
@@ -1011,6 +1012,17 @@ export default function SupplierProductsPage() {
             {/* Book Inquiry Button */}
             <HeaderBookInquiry />
 
+            {/* Tyres Guide Button */}
+            <button
+              type="button"
+              title="Tyres Guide"
+              aria-label="Tyres Guide"
+              className="h-9 flex items-center gap-1.5 px-3.5 text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-lg shadow-xs hover:shadow-amber-500/20 transition-all active:scale-[0.98] shrink-0 cursor-pointer"
+            >
+              <ChatBubbleLeftRightIcon className="w-4 h-4 shrink-0" />
+              <span className="whitespace-nowrap">Tyres Guide</span>
+            </button>
+
             {/* Export Button */}
             <button
               onClick={exportCSV}
@@ -1485,8 +1497,8 @@ export default function SupplierProductsPage() {
                     {!hiddenColumns.has('pattern') && <th onClick={() => handleSort('pattern')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[350px]">Tyre Pattern <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('size') && <th onClick={() => handleSort('size')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[140px]">Size <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('runflat') && <th className="py-3 px-2 text-center whitespace-nowrap w-[75px]">Runflat</th>}
+                    {!hiddenColumns.has('country') && <th onClick={() => handleSort('country')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[110px]">Countries <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('year') && <th onClick={() => handleSort('year')} className="py-3 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap w-[65px]">Year <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('country') && <th onClick={() => handleSort('country')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[110px]">Country <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('qty') && <th onClick={() => handleSort('qty')} className="py-3 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap w-[60px]">Qty <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('cost') && <th onClick={() => handleSort('cost')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[115px]">Cost <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('fittingPrice') && <th onClick={() => handleSort('fittingPrice')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[125px]">Fitting Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
@@ -1505,8 +1517,8 @@ export default function SupplierProductsPage() {
                         {!hiddenColumns.has('pattern') && <td className={cellPaddingClass}><Skeleton className="h-4 w-32 rounded" /></td>}
                         {!hiddenColumns.has('size') && <td className={cellPaddingClass}><Skeleton className="h-4 w-20 rounded" /></td>}
                         {!hiddenColumns.has('runflat') && <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-4 w-10 rounded mx-auto" /></td>}
-                        {!hiddenColumns.has('year') && <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-4 w-12 rounded mx-auto" /></td>}
                         {!hiddenColumns.has('country') && <td className={cellPaddingClass}><Skeleton className="h-4 w-16 rounded" /></td>}
+                        {!hiddenColumns.has('year') && <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-4 w-12 rounded mx-auto" /></td>}
                         {!hiddenColumns.has('qty') && <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-6 w-8 rounded-full mx-auto" /></td>}
                         {!hiddenColumns.has('cost') && <td className={`${cellPaddingClass} text-right`}><Skeleton className="h-4 w-14 rounded ml-auto" /></td>}
                         {!hiddenColumns.has('fittingPrice') && <td className={`${cellPaddingClass} text-right`}><Skeleton className="h-4 w-14 rounded ml-auto" /></td>}
@@ -1516,10 +1528,6 @@ export default function SupplierProductsPage() {
                     ))
                   ) : currentItems.length === 0 ? (
                     <tr>
-                      {/* Height matched to a full page of rows (measured 53px each) so the
-                          table body stays the same height whether it holds data, the
-                          skeleton, or this message — switching between them can't shift
-                          the layout. */}
                       <td
                         colSpan={14}
                         className="py-16 text-center text-slate-400 align-middle"
@@ -1540,19 +1548,16 @@ export default function SupplierProductsPage() {
                     </tr>
                   ) : (
                     currentItems.map((item) => {
-                      const isSelected = selectedIds.has(item.id);
-
                       return (
                         <tr
                           key={item.id}
-                          onClick={() => copyRowData(item)}
-                          title="Click to copy entire row data"
-                          className={`transition-all hover:bg-emerald-50/50 cursor-pointer group ${isSelected ? 'bg-emerald-50/70' : ''}`}
+                          onClick={() => setQuickViewItem(item)}
+                          title="Click row to view details"
+                          className="hover:bg-slate-50/70 transition-colors cursor-pointer group"
                         >
-
                           {!hiddenColumns.has('source') && (
                             <td className={`${cellPaddingClass} whitespace-nowrap`}>
-                              <span className="px-2 py-0.5 bg-slate-100 rounded text-[11px] font-bold text-slate-600 border border-slate-200/60 whitespace-nowrap inline-block">
+                              <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-bold rounded border border-indigo-200 uppercase whitespace-nowrap inline-block">
                                 {item.source}
                               </span>
                             </td>
@@ -1560,52 +1565,37 @@ export default function SupplierProductsPage() {
 
                           {!hiddenColumns.has('type') && (
                             <td className={`${cellPaddingClass} whitespace-nowrap`}>
-                              {item.productType ? (
-                                <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border uppercase tracking-tight whitespace-nowrap inline-block ${item.productType === 'Supplier'
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
-                                  : 'bg-amber-50 text-amber-700 border-amber-200/60'
-                                  }`}>
-                                  {item.productType}
-                                </span>
-                              ) : (
-                                <span className="text-slate-400 font-medium">-</span>
-                              )}
+                              <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded uppercase whitespace-nowrap inline-block">
+                                {item.productType}
+                              </span>
                             </td>
                           )}
 
                           {!hiddenColumns.has('category') && (
                             <td className={`${cellPaddingClass} whitespace-nowrap`}>
-                              {item.category ? (
-                                <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border uppercase tracking-tight whitespace-nowrap inline-block ${categoryBadges[item.category] || 'bg-slate-100 text-slate-700'}`}>
-                                  {item.category}
-                                </span>
-                              ) : (
-                                <span className="text-slate-400 font-medium">-</span>
-                              )}
+                              <span className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase whitespace-nowrap inline-block ${categoryBadges[item.category] || 'bg-slate-100 text-slate-600'}`}>
+                                {item.category}
+                              </span>
                             </td>
                           )}
 
                           {!hiddenColumns.has('brand') && (
-                            <td className={`${cellPaddingClass} whitespace-nowrap`}>
-                              <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border uppercase tracking-tight whitespace-nowrap inline-block ${brandBadges[item.brand] || 'bg-slate-100 text-slate-700'}`}>
+                            <td className={`${cellPaddingClass} text-xs font-semibold text-slate-800 whitespace-nowrap`}>
+                              <span className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase whitespace-nowrap inline-block ${brandBadges[item.brand] || 'bg-slate-100 text-slate-700'}`}>
                                 {item.brand}
                               </span>
                             </td>
                           )}
 
                           {!hiddenColumns.has('pattern') && (
-                            <td className={cellPaddingClass}>
-                              <span className="font-bold text-xs text-slate-900 group-hover:text-emerald-700 transition-colors leading-relaxed">
-                                {item.pattern}
-                              </span>
+                            <td className={`${cellPaddingClass} text-xs font-bold text-slate-900`}>
+                              <span className="line-clamp-2">{item.pattern}</span>
                             </td>
                           )}
 
                           {!hiddenColumns.has('size') && (
-                            <td className={`${cellPaddingClass} whitespace-nowrap`}>
-                              <span className="px-2 py-0.5 bg-slate-100 rounded text-xs font-semibold text-slate-700 font-mono whitespace-nowrap inline-block">
-                                {item.sizeFull}
-                              </span>
+                            <td className={`${cellPaddingClass} text-xs font-mono text-slate-700 whitespace-nowrap`}>
+                              {item.size}
                             </td>
                           )}
 
@@ -1619,17 +1609,17 @@ export default function SupplierProductsPage() {
                             </td>
                           )}
 
-                          {!hiddenColumns.has('year') && (
-                            <td className={`${cellPaddingClass} text-center text-xs font-medium text-slate-600 whitespace-nowrap`}>
-                              {item.year && item.year > 0 ? item.year : <span className="text-slate-400 font-medium">-</span>}
-                            </td>
-                          )}
-
                           {!hiddenColumns.has('country') && (
                             <td className={`${cellPaddingClass} whitespace-nowrap`}>
                               <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 whitespace-nowrap">
                                 {item.country && item.country.trim() ? item.country : <span className="text-slate-400 font-medium">-</span>}
                               </div>
+                            </td>
+                          )}
+
+                          {!hiddenColumns.has('year') && (
+                            <td className={`${cellPaddingClass} text-center text-xs font-medium text-slate-600 whitespace-nowrap`}>
+                              {item.year && item.year > 0 ? item.year : <span className="text-slate-400 font-medium">-</span>}
                             </td>
                           )}
 
@@ -1679,17 +1669,7 @@ export default function SupplierProductsPage() {
                           )}
 
                           <td className={`${cellPaddingClass} text-center`}>
-                            <div className="flex items-center justify-center gap-1">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setQuickViewItem(item);
-                                }}
-                                className="p-1 text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors"
-                                title="View Details"
-                              >
-                                <EyeIcon className="w-4 h-4" />
-                              </button>
+                            <div className="flex items-center justify-center">
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import Link from 'next/link';
 import {
   MagnifyingGlassIcon,
   ArrowPathIcon,
@@ -9,11 +10,14 @@ import {
   XMarkIcon,
   BookmarkIcon,
   ShoppingCartIcon,
+  TruckIcon,
   CalendarDaysIcon,
   EyeIcon,
   DocumentTextIcon,
+  ChatBubbleLeftRightIcon,
 } from '@heroicons/react/24/outline';
 import BookInquiryModal from "@/components/BookInquiryModal";
+import CheckSupplierModal from "@/components/CheckSupplierModal";
 import QuickViewModal from '@/components/QuickViewModal';
 import { buildRowString, buildBulkCopyString } from "@/services/productFormatter";
 import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
@@ -330,6 +334,8 @@ export default function TcProductsPage() {
   /** Persisted, offline-first cart — survives refresh, navigation and offline. */
   const cart = useCart();
   const [activeDrawerItem, setActiveDrawerItem] = useState<Product | null>(null);
+  /** Row whose supplier-availability panel is open, or null. */
+  const [checkSupplierItem, setCheckSupplierItem] = useState<Product | null>(null);
   const [quickViewItem, setQuickViewItem] = useState<Product | null>(null);
   const [inquiryModalItem, setInquiryModalItem] = useState<Product | null>(null);
   const [isInquiryModalOpen, setIsInquiryModalOpen] = useState(false);
@@ -1085,6 +1091,17 @@ export default function TcProductsPage() {
               <span className="whitespace-nowrap">Create Quote</span>
             </button>
 
+            {/* Tyres Guide Button */}
+            <button
+              type="button"
+              title="Tyres Guide"
+              aria-label="Tyres Guide"
+              className="h-9 flex items-center gap-1.5 px-3.5 text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-lg shadow-xs hover:shadow-amber-500/20 transition-all active:scale-[0.98] shrink-0 cursor-pointer"
+            >
+              <ChatBubbleLeftRightIcon className="w-4 h-4 shrink-0" />
+              <span className="whitespace-nowrap">Tyres Guide</span>
+            </button>
+
             {/* Export Button */}
             <button
               onClick={exportCSV}
@@ -1519,21 +1536,21 @@ export default function TcProductsPage() {
             {/* Scrollable Table — fills the card and scrolls INTERNALLY so row
                 count / page size never changes the card height (no layout shift). */}
             <div className="flex-1 min-h-0 overflow-auto [scrollbar-gutter:stable]">
-              <table className="w-full min-w-[1660px] text-left border-collapse table-fixed">
+              <table className="w-full min-w-full text-left border-collapse table-fixed">
                 <thead className="bg-slate-50/90 backdrop-blur sticky top-0 z-10 border-b border-slate-200">
                   <tr className="text-[11px] font-bold text-slate-500 uppercase tracking-wider select-none">
-                    {!hiddenColumns.has('brand') && <th onClick={() => handleSort('brand')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[130px]">Brand <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('size') && <th onClick={() => handleSort('size')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[150px]">Tyre Size <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('name') && <th onClick={() => handleSort('pattern')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[320px]">Name <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('runflat') && <th className="py-3 px-2 text-center whitespace-nowrap w-[85px]">RunFlat</th>}
-                    {!hiddenColumns.has('origin') && <th onClick={() => handleSort('country')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[120px]">Origin <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('year') && <th onClick={() => handleSort('year')} className="py-3 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap w-[65px]">Year <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('oem') && <th className="py-3 px-2 text-center whitespace-nowrap w-[80px]">OEM</th>}
-                    {!hiddenColumns.has('qty') && <th onClick={() => handleSort('qty')} className="py-3 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap w-[65px]">Qty <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('price') && <th onClick={() => handleSort('price')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[120px]">Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('setOf4Price') && <th onClick={() => handleSort('setOf4Price')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[140px]">Set of 4 Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('offer') && <th className="py-3 px-2 text-center whitespace-nowrap w-[150px]">Offer</th>}
-                    <th className="py-3 px-3 text-center whitespace-nowrap w-[100px]">Action</th>
+                    {!hiddenColumns.has('brand') && <th onClick={() => handleSort('brand')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[110px]">Brand <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('size') && <th onClick={() => handleSort('size')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[130px]">Tyre Size <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('name') && <th onClick={() => handleSort('pattern')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[240px]">Name <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('oem') && <th className="py-3 px-2 text-center whitespace-nowrap w-[60px]">OEM</th>}
+                    {!hiddenColumns.has('runflat') && <th className="py-3 px-2 text-center whitespace-nowrap w-[65px]">RunFlat</th>}
+                    {!hiddenColumns.has('origin') && <th onClick={() => handleSort('country')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[90px]">Origin <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('year') && <th onClick={() => handleSort('year')} className="py-3 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap w-[55px]">Year <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('qty') && <th onClick={() => handleSort('qty')} className="py-3 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap w-[55px]">Qty <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('price') && <th onClick={() => handleSort('price')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[95px]">Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('setOf4Price') && <th onClick={() => handleSort('setOf4Price')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[115px]">Set of 4 Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('offer') && <th className="py-3 px-2 text-center whitespace-nowrap w-[115px]">Offer</th>}
+                    <th className="py-3 px-3 text-center whitespace-nowrap w-[150px]">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-sans">
@@ -1543,10 +1560,10 @@ export default function TcProductsPage() {
                         {!hiddenColumns.has('brand') && <td className={cellPaddingClass}><Skeleton className="h-5 w-20 rounded-md" /></td>}
                         {!hiddenColumns.has('size') && <td className={cellPaddingClass}><Skeleton className="h-5 w-24 rounded-md" /></td>}
                         {!hiddenColumns.has('name') && <td className={cellPaddingClass}><Skeleton className="h-4 w-48 rounded" /></td>}
+                        {!hiddenColumns.has('oem') && <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-4 w-8 rounded mx-auto" /></td>}
                         {!hiddenColumns.has('runflat') && <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-4 w-10 rounded mx-auto" /></td>}
                         {!hiddenColumns.has('origin') && <td className={cellPaddingClass}><Skeleton className="h-4 w-16 rounded" /></td>}
                         {!hiddenColumns.has('year') && <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-4 w-12 rounded mx-auto" /></td>}
-                        {!hiddenColumns.has('oem') && <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-4 w-8 rounded mx-auto" /></td>}
                         {!hiddenColumns.has('qty') && <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-6 w-8 rounded-full mx-auto" /></td>}
                         {!hiddenColumns.has('price') && <td className={`${cellPaddingClass} text-right`}><Skeleton className="h-4 w-16 rounded ml-auto" /></td>}
                         {!hiddenColumns.has('setOf4Price') && <td className={`${cellPaddingClass} text-right`}><Skeleton className="h-4 w-20 rounded ml-auto" /></td>}
@@ -1629,6 +1646,10 @@ export default function TcProductsPage() {
                             </td>
                           )}
 
+                          {!hiddenColumns.has('oem') && (
+                            <td className={`${cellPaddingClass} text-center text-xs text-slate-400 font-medium`}>{item.oem}</td>
+                          )}
+
                           {!hiddenColumns.has('runflat') && (
                             <td className={`${cellPaddingClass} text-center whitespace-nowrap`}>
                               {item.runflat ? (
@@ -1651,10 +1672,6 @@ export default function TcProductsPage() {
                             <td className={`${cellPaddingClass} text-center text-xs font-semibold text-slate-700`}>
                               {item.year && item.year > 0 ? item.year : <span className="text-slate-400 font-medium">-</span>}
                             </td>
-                          )}
-
-                          {!hiddenColumns.has('oem') && (
-                            <td className={`${cellPaddingClass} text-center text-xs text-slate-400 font-medium`}>{item.oem}</td>
                           )}
 
                           {!hiddenColumns.has('qty') && (
@@ -1738,6 +1755,14 @@ export default function TcProductsPage() {
                                 className="w-7 h-7 aspect-square shrink-0 flex items-center justify-center rounded-lg border transition-all active:scale-95 bg-white text-[#25D366] border-[#25D366]/40 hover:bg-[#25D366]/10"
                               >
                                 <WhatsAppIcon className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setCheckSupplierItem(item); }}
+                                title="Check Supplier"
+                                aria-label="Check Supplier"
+                                className="w-7 h-7 aspect-square shrink-0 flex items-center justify-center rounded-lg border transition-all active:scale-95 bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-900"
+                              >
+                                <TruckIcon className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           </td>
@@ -1839,6 +1864,20 @@ export default function TcProductsPage() {
           </section>
         </div>
       </main>
+
+      {checkSupplierItem && (
+        <CheckSupplierModal
+          key={String(checkSupplierItem.id)}
+          product={{
+            itemCode: checkSupplierItem.itemCode,
+            brand: checkSupplierItem.brand,
+            size: checkSupplierItem.size,
+            sizeFull: checkSupplierItem.sizeFull,
+            pattern: checkSupplierItem.pattern,
+          }}
+          onCloseAction={() => setCheckSupplierItem(null)}
+        />
+      )}
 
       {/* Slide-Over Product Detail Drawer */}
       {
@@ -1987,10 +2026,10 @@ export default function TcProductsPage() {
                   { key: 'brand', label: 'Brand' },
                   { key: 'size', label: 'Tyre Size' },
                   { key: 'name', label: 'Name' },
+                  { key: 'oem', label: 'OEM' },
                   { key: 'runflat', label: 'RunFlat' },
                   { key: 'origin', label: 'Origin' },
                   { key: 'year', label: 'Year' },
-                  { key: 'oem', label: 'OEM' },
                   { key: 'qty', label: 'Qty' },
                   { key: 'price', label: 'Price' },
                   { key: 'setOf4Price', label: 'Set of 4 Price' },

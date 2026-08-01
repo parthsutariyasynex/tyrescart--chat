@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import {
   XMarkIcon,
   ShoppingBagIcon,
@@ -201,19 +202,28 @@ export default function QuickViewModal({
     return () => { alive = false; };
   }, [product.itemCode, product.brand, product.pattern, product.size]);
 
+  const [isAnimatedOpen, setIsAnimatedOpen] = useState<boolean>(false);
+
   useEffect(() => {
-    // Trigger smooth slow open slide-up after mount
-    const timer = setTimeout(() => {
-      setIsOpen(true);
-    }, 30);
-    return () => clearTimeout(timer);
+    let raf1: number;
+    let raf2: number;
+    raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        setIsAnimatedOpen(true);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
   }, []);
 
   const handleClose = () => {
     setIsClosing(true);
+    setIsAnimatedOpen(false);
     setTimeout(() => {
       onClose();
-    }, 700); // 700ms ultra-smooth slow closing duration
+    }, 450);
   };
 
   const attrs = detail?.custom_attributesV2?.items;
@@ -299,10 +309,17 @@ export default function QuickViewModal({
     { label: "SKU", value: detail?.sku || product.itemCode || UNKNOWN },
   ];
 
-  return (
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) return null;
+
+  return createPortal(
     <div
-      className={`fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs transition-opacity duration-500 ease-out ${
-        isOpen && !isClosing ? "opacity-100" : "opacity-0 pointer-events-none"
+      className={`fixed inset-0 z-[9999] flex items-end justify-center bg-black/60 backdrop-blur-xs transition-opacity duration-500 ease-out ${
+        isAnimatedOpen && !isClosing ? "opacity-100" : "opacity-0 pointer-events-none"
       }`}
     >
       {/* Backdrop overlay click to close */}
@@ -310,10 +327,10 @@ export default function QuickViewModal({
 
       {/* Slide-Up Bottom Container */}
       <div
-        className={`relative w-full max-w-full bg-white rounded-t-2xl shadow-2xl border-t border-slate-200 overflow-hidden z-10 transition-all duration-500 ease-out max-h-[92vh] flex flex-col p-5 sm:p-6 ${
-          isOpen && !isClosing
-            ? "translate-y-0 opacity-100"
-            : "translate-y-full opacity-0"
+        className={`relative w-full max-w-full bg-white rounded-t-2xl shadow-2xl border-t border-slate-200 overflow-hidden z-10 transition-transform duration-500 ease-out max-h-[92vh] flex flex-col p-5 sm:p-6 ${
+          isAnimatedOpen && !isClosing
+            ? "translate-y-0"
+            : "translate-y-full"
         }`}
       >
         
@@ -645,6 +662,7 @@ export default function QuickViewModal({
         </div>
 
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

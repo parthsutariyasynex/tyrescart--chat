@@ -12,6 +12,7 @@ export interface Inquiry {
   name: string;
   phone: string;
   email?: string;
+  city?: string;
   tireSize1?: string;
   tireSize2?: string;
   vehiclePlateNumber?: string;
