@@ -135,9 +135,14 @@ export default function BookInquiryModal({
         .then((c) => {
           if (alive) {
             setPhoneCheck({ phone: p, customer: c, loading: false });
-            if (c) {
-              setToastMessage(`Existing customer found in CRM: ${c.name || p} (#${c.entity_id})`);
-            }
+            /* Reported as a toast, not inline: an inline line under the field
+               pushes the rest of the form down each time the lookup resolves.
+               The toast is out of flow, so the layout never moves. */
+            setToastMessage(
+              c
+                ? `\u26A0 Customer already added${c.name ? ` - ${c.name}` : ""} (CRM #${c.entity_id})`
+                : "\u2713 New customer - will be created on submit",
+            );
           }
         })
         .catch(() => { if (alive) setPhoneCheck(undefined); });
@@ -624,12 +629,6 @@ export default function BookInquiryModal({
                       </p>
                     )}
 
-                    {!phoneCheck?.loading && phoneCheck && !phoneCheck.customer && (
-                      <p className="text-[11px] font-semibold text-emerald-700 mt-1 flex items-center gap-1">
-                        <CheckCircleIcon className="w-3.5 h-3.5 shrink-0" />
-                        New customer - will be created on submit.
-                      </p>
-                    )}
                   </div>
                 </div>
 

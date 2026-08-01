@@ -1264,10 +1264,10 @@ export async function isTyresChatRecentlySynced(maxAgeMs = 30000): Promise<boole
  * the next visit re-syncs against the new shape. Bump it again if the tc query
  * gains another field the UI depends on.
  */
-export const TC_CACHE_KEY_PREFIX = "tc:products:v3:";
+export const TC_CACHE_KEY_PREFIX = "tc:products:v4:";
 
 /** Entries written before the `tyres_category` field existed. Purged once — see below. */
-const TC_LEGACY_KEY_PREFIXES = ["tc:products:{", "tc:products:v2:"];
+const TC_LEGACY_KEY_PREFIXES = ["tc:products:{", "tc:products:v2:", "tc:products:v3:"];
 
 /**
  * One-time removal of tc pages cached under a previous query shape.
@@ -1277,7 +1277,7 @@ const TC_LEGACY_KEY_PREFIXES = ["tc:products:{", "tc:products:v2:"];
  * page's bulk read already opens this store.
  */
 export async function purgeLegacyTcCache(): Promise<number> {
-  const done = await idbGetMeta<boolean>("tcProducts:legacyPurged").catch(() => null);
+  const done = await idbGetMeta<boolean>("tcProducts:legacyPurged_v4").catch(() => null);
   if (done) return 0;
 
   const keys = await idbGetAll<{ key?: string }>(STORE_PRODUCT_QUERIES).catch(() => []);
@@ -1289,8 +1289,8 @@ export async function purgeLegacyTcCache(): Promise<number> {
     await idbDelete(STORE_PRODUCT_QUERIES, k).catch(() => { });
     removed++;
   }
-  await idbSetMeta("tcProducts:legacyPurged", true).catch(() => { });
-  if (removed) console.log(`[cache] purged ${removed} tc pages cached before the \`offers\` field`);
+  await idbSetMeta("tcProducts:legacyPurged_v4", true).catch(() => { });
+  if (removed) console.log(`[cache] purged ${removed} tc pages cached before the \`tyres_category\` field`);
   return removed;
 }
 
@@ -1356,10 +1356,9 @@ export function fetchTcProductsCached(
 export function fetchTcAttributeLabelsCached(
   maxAgeMs = TC_LABELS_TTL_MS,
 ): Promise<TcAttributeLabels> {
-  // `:v2` because this key does not vary with the query text: adding `offers` to
-  // TC_LABELLED_ATTRIBUTES would otherwise keep serving cached maps that lack it,
-  // and the Offer column would show raw option ids for a day (the 24h TTL).
-  return getCachedQuery("tc:attributeLabels:v2", fetchTcAttributeLabelsGraphQL, {
+  // `:v3` because adding `tyres_category` to TC_LABELLED_ATTRIBUTES requires
+  // clearing old cached maps that lacked option labels for tyres_category.
+  return getCachedQuery("tc:attributeLabels:v3", fetchTcAttributeLabelsGraphQL, {
     maxAgeMs,
     metaKey: "tcProducts:labelsLastSync",
   });
