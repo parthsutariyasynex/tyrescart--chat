@@ -23,7 +23,7 @@ import {
 } from "@heroicons/react/24/outline";
 
 /** One icon per spec cell, as the storefront shows — not a repeated tick. */
-const SPEC_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
+export const SPEC_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   WIDTH: ArrowsRightLeftIcon,
   PROFILE: ArrowsUpDownIcon,
   "RIM SIZE": ViewfinderCircleIcon,
@@ -58,7 +58,7 @@ function sameValue(a: string, b: string): boolean {
  * ratio and no load index, so profile and load stay blank. Exotic motorcycle
  * notations ("2.75-10", "MH90-21") match nothing at all and yield nothing.
  */
-function splitSupplierSize(raw: string): {
+export function splitSupplierSize(raw: string): {
   width: string; profile: string; rim: string; load: string;
 } {
   const empty = { width: "", profile: "", rim: "", load: "" };

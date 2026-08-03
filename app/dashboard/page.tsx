@@ -38,8 +38,6 @@ export default function DashboardPage() {
           isOnline={isOnline}
           actions={
             <HeaderActions
-              showBookInquiry={false}
-              showTyresGuide={false}
             />
           }
         />

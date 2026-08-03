@@ -12,7 +12,7 @@ interface PageSizeMenuProps {
 export default function PageSizeMenu({
   pageSize,
   onPageSizeChange,
-  options = [10, 25, 50, 100],
+  options = [15, 30, 50, 100],
   position = "top",
 }: PageSizeMenuProps) {
   const [isOpen, setIsOpen] = useState(false);

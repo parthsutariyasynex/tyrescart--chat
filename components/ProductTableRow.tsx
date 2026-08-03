@@ -42,7 +42,7 @@ export const ProductTableRow = React.memo(function ProductTableRow({
   item,
   type,
   hiddenColumns,
-  cellPaddingClass = "py-3 px-4",
+  cellPaddingClass = "py-0.5 px-2",
   isSelected = false,
   brandBadges,
   categoryBadges,
@@ -60,7 +60,7 @@ export const ProductTableRow = React.memo(function ProductTableRow({
   return (
     <tr
       onClick={() => onCopyRow(item)}
-      title="Click to copy entire row data"
+      title="Click row to view details"
       className={`transition-all hover:bg-emerald-50/50 cursor-pointer group ${
         isSelected ? "bg-emerald-50/70" : ""
       }`}
@@ -68,33 +68,37 @@ export const ProductTableRow = React.memo(function ProductTableRow({
       {/* Brand Column */}
       {!hiddenColumns.has("brand") && (
         <td className={`${cellPaddingClass} whitespace-nowrap`}>
-          <div className="flex flex-col items-start gap-0.5">
+          <span
+            className={`px-2.5 py-0.5 text-[11px] font-semibold tracking-normal rounded-full border whitespace-nowrap inline-block ${
+              brandBadges[item.brand] || "badge-brand-default"
+            }`}
+          >
+            {item.brand || "-"}
+          </span>
+        </td>
+      )}
+
+      {/* Category Column */}
+      {!hiddenColumns.has("category") && (
+        <td className={`${cellPaddingClass} whitespace-nowrap`}>
+          {item.category ? (
             <span
-              className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border uppercase tracking-tight whitespace-nowrap inline-block ${
-                brandBadges[item.brand] || "badge-brand-default"
+              className={`px-2 py-0.5 text-[10px] font-semibold tracking-normal rounded-full border uppercase whitespace-nowrap inline-block ${
+                categoryBadges[item.category] || "badge-cat-default"
               }`}
             >
-              {item.brand || "-"}
+              {item.category}
             </span>
-            <span className="h-[15px] flex items-center">
-              {item.category ? (
-                <span
-                  className={`px-1.5 text-[9px] leading-[13px] font-bold rounded uppercase tracking-wide whitespace-nowrap inline-block ${
-                    categoryBadges[item.category] || "badge-cat-default"
-                  }`}
-                >
-                  {item.category}
-                </span>
-              ) : null}
-            </span>
-          </div>
+          ) : (
+            <span className="text-slate-400 font-normal text-xs">-</span>
+          )}
         </td>
       )}
 
       {/* Size Column */}
       {!hiddenColumns.has("size") && (
         <td className={cellPaddingClass}>
-          <span className="px-2 py-0.5 text-[11px] font-semibold rounded-md bg-slate-50 text-slate-700 border border-slate-200/70 font-mono whitespace-nowrap">
+          <span className="px-2 py-0.5 text-xs font-semibold rounded-md bg-slate-100/80 text-slate-700 border border-slate-200/80 font-mono whitespace-nowrap">
             {item.sizeFull || item.size || "-"}
           </span>
         </td>
@@ -102,8 +106,31 @@ export const ProductTableRow = React.memo(function ProductTableRow({
 
       {/* Name / Pattern Column */}
       {(!hiddenColumns.has("name") || !hiddenColumns.has("pattern")) && (
-        <td className={`${cellPaddingClass} text-xs font-bold text-slate-800`}>
-          <span className="line-clamp-2">{item.pattern || "-"}</span>
+        <td className={`${cellPaddingClass} text-xs font-semibold text-slate-900`}>
+          <div className="flex items-center gap-1.5">
+            <span
+              className="line-clamp-2 cursor-pointer hover:text-emerald-600 transition-colors"
+              onClick={(e) => {
+                e.stopPropagation();
+                onQuickView(item);
+              }}
+              title="Click to view details"
+            >
+              {item.pattern || "-"}
+            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onQuickView(item);
+              }}
+              title="View Details"
+              aria-label="View Details"
+              className="w-5 h-5 aspect-square shrink-0 inline-flex items-center justify-center rounded-full border transition-all active:scale-95 bg-slate-50 text-slate-500 border-slate-200 hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-300 ml-1"
+            >
+              <EyeIcon className="w-3 h-3" />
+            </button>
+          </div>
         </td>
       )}
 
@@ -222,18 +249,6 @@ export const ProductTableRow = React.memo(function ProductTableRow({
       {/* Action Buttons Column */}
       <td className={`${cellPaddingClass} text-center`}>
         <div className="flex items-center justify-center gap-1.5">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onQuickView(item);
-            }}
-            title="View Details"
-            aria-label="View Details"
-            className="w-7 h-7 aspect-square shrink-0 flex items-center justify-center rounded-lg border transition-all active:scale-95 bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-emerald-600 hover:border-emerald-300"
-          >
-            <EyeIcon className="w-3.5 h-3.5" />
-          </button>
-
           {type === "supplier" && onCostHistory && (
             <button
               onClick={(e) => {
@@ -242,9 +257,9 @@ export const ProductTableRow = React.memo(function ProductTableRow({
               }}
               title="Cost History"
               aria-label="Cost History"
-              className="w-7 h-7 aspect-square shrink-0 flex items-center justify-center rounded-lg border transition-all active:scale-95 bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-blue-600 hover:border-blue-300"
+              className="w-6 h-6 aspect-square shrink-0 flex items-center justify-center rounded-md border transition-all active:scale-95 bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-blue-600 hover:border-blue-300"
             >
-              <ClockIcon className="w-3.5 h-3.5" />
+              <ClockIcon className="w-3 h-3" />
             </button>
           )}
 
@@ -255,13 +270,13 @@ export const ProductTableRow = React.memo(function ProductTableRow({
                 onToggleList(item);
               }}
               title={inList ? "Remove from List" : "Add to List"}
-              className={`w-7 h-7 aspect-square shrink-0 flex items-center justify-center rounded-lg border transition-all active:scale-95 ${
+              className={`w-6 h-6 aspect-square shrink-0 flex items-center justify-center rounded-md border transition-all active:scale-95 ${
                 inList
                   ? "bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700 shadow-2xs"
                   : "bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50"
               }`}
             >
-              <BookmarkIcon className="w-3.5 h-3.5" />
+              <BookmarkIcon className="w-3 h-3" />
             </button>
           )}
 
@@ -272,13 +287,13 @@ export const ProductTableRow = React.memo(function ProductTableRow({
                 onAddToCart(item);
               }}
               title="Add to Cart"
-              className={`w-7 h-7 aspect-square shrink-0 flex items-center justify-center rounded-lg border transition-all active:scale-95 ${
+              className={`w-6 h-6 aspect-square shrink-0 flex items-center justify-center rounded-md border transition-all active:scale-95 ${
                 inCart
                   ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs"
                   : "bg-white text-emerald-600 border-emerald-200 hover:bg-emerald-50"
               }`}
             >
-              <ShoppingCartIcon className="w-3.5 h-3.5" />
+              <ShoppingCartIcon className="w-3 h-3" />
             </button>
           )}
 
@@ -290,9 +305,9 @@ export const ProductTableRow = React.memo(function ProductTableRow({
               }}
               title="Copy details for WhatsApp"
               aria-label="Copy details for WhatsApp"
-              className="w-7 h-7 aspect-square shrink-0 flex items-center justify-center rounded-lg border transition-all active:scale-95 bg-white text-[#25D366] border-[#25D366]/40 hover:bg-[#25D366]/10"
+              className="w-6 h-6 aspect-square shrink-0 flex items-center justify-center rounded-md border transition-all active:scale-95 bg-white text-[#25D366] border-[#25D366]/40 hover:bg-[#25D366]/10"
             >
-              <WhatsAppIcon className="w-3.5 h-3.5" />
+              <WhatsAppIcon className="w-3 h-3" />
             </button>
           )}
 
@@ -304,9 +319,9 @@ export const ProductTableRow = React.memo(function ProductTableRow({
               }}
               title="Check Supplier"
               aria-label="Check Supplier"
-              className="w-7 h-7 aspect-square shrink-0 flex items-center justify-center rounded-lg border transition-all active:scale-95 bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-900"
+              className="w-6 h-6 aspect-square shrink-0 flex items-center justify-center rounded-md border transition-all active:scale-95 bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-900"
             >
-              <TruckIcon className="w-3.5 h-3.5" />
+              <TruckIcon className="w-3 h-3" />
             </button>
           )}
         </div>

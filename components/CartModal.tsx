@@ -100,13 +100,13 @@ export default function CartModal({ onCloseAction, onCheckoutAction }: CartModal
           </button>
         </div>
 
-        {/* Side-by-Side Content Body */}
+        {/* Side-by-Side / Stacked Content Body */}
         <div className="flex-1 min-h-0 overflow-hidden p-4 sm:p-6">
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_310px] gap-5 h-full min-h-0">
+          <div className="flex flex-col gap-4 h-full min-h-0">
             
-            {/* Left Panel: Table of Line Items (Takes remaining space 1fr) */}
-            <div className="flex flex-col bg-white border border-slate-200/90 rounded-xl shadow-2xs overflow-hidden" style={{height: '100%'}}>
-              <div className="overflow-auto flex-1" style={{maxHeight: '100%'}}>
+            {/* Top Table Panel (Takes full width, scrollable) */}
+            <div className="flex-1 min-h-0 min-w-0 flex flex-col bg-white border border-slate-200/90 rounded-xl shadow-2xs overflow-hidden">
+              <div className="overflow-auto flex-1">
                 <table className="w-full text-sm border-collapse min-w-[650px]">
                   <thead>
                     <tr className="sticky top-0 z-10 bg-[#4a3f3a] text-white text-xs font-semibold">
@@ -184,38 +184,44 @@ export default function CartModal({ onCloseAction, onCheckoutAction }: CartModal
               </div>
             </div>
 
-            {/* Right Panel: Compact Order Summary & Checkout Actions (310px width) */}
-            <div className="flex flex-col bg-white border border-slate-200/90 rounded-xl p-5 shadow-2xs justify-between">
-              <div className="space-y-4">
-                <h3 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-3 flex items-center justify-between">
-                  <span>Order Summary</span>
-                  <span className="text-xs font-semibold text-slate-500">
-                    {lines.length} {lines.length === 1 ? "Item" : "Items"}
+            {/* Bottom Horizontal Panel: Order Summary & Checkout Actions */}
+            <div className="shrink-0 bg-white border border-slate-200/90 rounded-xl p-4 shadow-2xs flex flex-wrap items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center gap-6 text-xs text-slate-600">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-slate-500">Items:</span>
+                  <span className="font-bold text-slate-900">{lines.length}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-slate-500">Subtotal:</span>
+                  <span className="font-bold text-slate-800">AED {money(totals.subtotal)}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-slate-500">VAT ({VAT_RATE * 100}%):</span>
+                  <span className="font-bold text-slate-700">AED {money(totals.vat)}</span>
+                </div>
+                <div className="flex items-center gap-2 pl-4 border-l border-slate-200">
+                  <span className="text-xs font-extrabold text-slate-900">Grand Total:</span>
+                  <span className="text-base font-black text-emerald-600 font-mono">
+                    AED {money(totals.grand)}
                   </span>
-                </h3>
-
-                <div className="space-y-2.5 text-xs text-slate-600">
-                  <div className="flex justify-between items-center">
-                    <span>Subtotal</span>
-                    <span className="font-semibold text-slate-800">AED {money(totals.subtotal)}</span>
-                  </div>
-
-                  <div className="flex justify-between items-center">
-                    <span>VAT ({VAT_RATE * 100}%)</span>
-                    <span className="font-semibold text-slate-700">AED {money(totals.vat)}</span>
-                  </div>
-
-                  <div className="pt-3 border-t border-slate-200 flex justify-between items-baseline">
-                    <span className="text-sm font-extrabold text-slate-900">Grand Total</span>
-                    <span className="text-lg font-black text-emerald-600">
-                      AED {money(totals.grand)}
-                    </span>
-                  </div>
                 </div>
               </div>
 
-              {/* Actions */}
-              <div className="mt-6 pt-4 border-t border-slate-100 space-y-2.5">
+              {/* Action Buttons */}
+              <div className="flex items-center gap-3 ml-auto">
+                <button
+                  type="button"
+                  onClick={() => clear()}
+                  disabled={lines.length === 0}
+                  className={`h-9 px-4 text-xs font-semibold rounded-lg border transition-all active:scale-[0.98] inline-flex items-center justify-center gap-1.5 ${
+                    lines.length
+                      ? "border-slate-200 text-slate-600 hover:text-rose-600 hover:bg-rose-50 hover:border-rose-200 cursor-pointer"
+                      : "border-slate-200 text-slate-300 opacity-50 cursor-not-allowed active:scale-100"
+                  }`}
+                >
+                  <TrashIcon className="w-3.5 h-3.5" />
+                  Clear Cart
+                </button>
                 <button
                   type="button"
                   onClick={() => onCheckoutAction?.(totals.grand)}
@@ -227,27 +233,13 @@ export default function CartModal({ onCloseAction, onCheckoutAction }: CartModal
                         ? "Proceed to Checkout"
                         : "Checkout is not wired to an order API yet"
                   }
-                  className={`w-full h-11 text-xs font-extrabold rounded-xl text-white transition-all active:scale-[0.98] shadow-sm flex items-center justify-center gap-2 ${
+                  className={`h-9 px-6 text-xs font-extrabold rounded-lg text-white transition-all active:scale-[0.98] shadow-sm flex items-center justify-center gap-2 ${
                     canCheckout
                       ? "bg-emerald-600 hover:bg-emerald-700 cursor-pointer shadow-emerald-600/20"
                       : "bg-emerald-600 opacity-40 cursor-not-allowed active:scale-100"
                   }`}
                 >
                   Proceed to Checkout
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => clear()}
-                  disabled={lines.length === 0}
-                  className={`w-full h-9 text-xs font-semibold rounded-lg border transition-all active:scale-[0.98] inline-flex items-center justify-center gap-1.5 ${
-                    lines.length
-                      ? "border-slate-200 text-slate-600 hover:text-rose-600 hover:bg-rose-50 hover:border-rose-200 cursor-pointer"
-                      : "border-slate-200 text-slate-300 opacity-50 cursor-not-allowed active:scale-100"
-                  }`}
-                >
-                  <TrashIcon className="w-3.5 h-3.5" />
-                  Clear Cart
                 </button>
               </div>
             </div>

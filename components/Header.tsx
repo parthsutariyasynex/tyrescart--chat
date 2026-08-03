@@ -28,9 +28,9 @@ import type { SyncTaskId } from "@/services/syncManager";
 /** The two header shells that exist today. See the note above. */
 const SHELL = {
   plain:
-    "h-16 flex-none bg-white border-b border-gray-200 px-6 flex items-center justify-between gap-4 shadow-xs",
+    "h-16 flex-none bg-white border-b border-gray-200 px-3 sm:px-6 flex items-center justify-between gap-4 shadow-xs",
   sticky:
-    "sticky top-0 z-20 h-16 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-6 flex items-center justify-between shrink-0 shadow-2xs",
+    "sticky top-0 z-20 h-16 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-3 sm:px-6 flex items-center justify-between shrink-0 shadow-2xs",
 } as const;
 
 /** Right-hand cluster spacing, per shell — preserved as it was on each page. */
@@ -108,7 +108,7 @@ export default function Header({
       {search}
 
       {/* ── Right ── */}
-      <div className={`flex items-center ${ACTION_GAP[variant]}`}>
+      <div className={`flex items-center ${ACTION_GAP[variant]} max-xl:min-w-0 max-xl:overflow-x-auto`}>
         {actions}
         {bookInquiry !== false &&
           (bookInquiry === "emerald" ? <HeaderBookInquiry variant="emerald" /> : <HeaderBookInquiry />)}

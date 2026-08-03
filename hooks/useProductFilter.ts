@@ -3,17 +3,37 @@
 import { useMemo } from "react";
 import {
   searchWithAspectRimFallback,
+  matchesSearch,
+  matchesAspectRim,
+  parseAspectRim,
   SEARCHABLE_FIELDS,
   DEFAULT_SIZE_FIELDS,
 } from "@/services/searchFilter";
 
+/** Both spellings of the size a row can carry: tc has `sizeFull`
+ *  ("225/40 R18 92Y"), the supplier feed only `size` ("225/40 R18"). */
+const SIZE_BOX_FIELDS = ["sizeFull", "size"] as const;
+
+/**
+ * Size-box predicate.
+ *
+ * Delegates to `searchFilter`, which normalises BOTH sides to digits
+ * (`toNumericOnly`) before comparing. That normalisation is the whole point: a
+ * size has many spellings — "225/40R18", "225/40 R18", "22540R18", "2254018" —
+ * and they must all collapse to the same "2254018".
+ *
+ * This previously did its own `replace(/[^a-zA-Z0-9]/g, "")` substring test,
+ * which stripped punctuation but KEPT letters, so "225/40 R18" reduced to
+ * "22540r18" and the digits-only query "2254018" could never match — the "r"
+ * sat in the middle of it. Anything typed without the R silently returned zero
+ * rows.
+ */
 export function matchesSizeInput(item: { size?: string; sizeFull?: string }, s: string): boolean {
-  const sizeVal = item.sizeFull || item.size || "";
-  if (!s || !sizeVal) return false;
-  const needle = s.toLowerCase();
-  const plainNeedle = s.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
-  const plainItem = sizeVal.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
-  return sizeVal.toLowerCase().includes(needle) || plainItem.includes(plainNeedle);
+  if (!s.trim()) return false;
+  // Width-omitted queries ("40R18", "4018") mean aspect+rim, not a width prefix.
+  const ar = parseAspectRim(s);
+  if (ar) return matchesAspectRim(item, ar.aspect, ar.rim, SIZE_BOX_FIELDS);
+  return matchesSearch(item, s, SIZE_BOX_FIELDS, SIZE_BOX_FIELDS);
 }
 
 export interface FilterOptions<T> {

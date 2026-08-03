@@ -27,6 +27,7 @@ import ToastContainer from "@/components/ToastContainer";
 type TableDensity = 'compact' | 'comfortable' | 'breathable';
 import { useProductFilter } from '@/hooks/useProductFilter';
 import { useProductSorting } from '@/hooks/useProductSorting';
+import ChatModal from "@/components/ChatModal";
 import ProductTableRow from '@/components/ProductTableRow';
 import { buildRowString, buildBulkCopyString } from "@/services/productFormatter";
 import Header from "@/components/Header";
@@ -327,7 +328,7 @@ export default function TcProductsPage() {
   const [offerFilter, setOfferFilter] = useState('ALL');
   const [isOfferOpen, setIsOfferOpen] = useState(false);
 
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(15);
   const [currentPage, setCurrentPage] = useState(1);
   const { sortColumn, sortAsc, handleSort, sortItems } = useProductSorting<Product>('date', false);
 
@@ -345,6 +346,7 @@ export default function TcProductsPage() {
   const [inquiryModalItem, setInquiryModalItem] = useState<Product | null>(null);
   const [isInquiryModalOpen, setIsInquiryModalOpen] = useState(false);
   const [isQuotationModalOpen, setIsQuotationModalOpen] = useState(false);
+  const [isChatModalOpen, setIsChatModalOpen] = useState(false);
   const [density, setDensity] = useState<TableDensity>('comfortable');
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -581,6 +583,12 @@ export default function TcProductsPage() {
     minPriceInput,
     maxPriceInput,
     offerFilter,
+    // The hook defaults to the RAW SupplierProductItem names
+    // ("product_name", "sku", "brand_category"), which do not exist on this
+    // page's mapped shape — so without these the Query box silently searched
+    // only brand/country/size and could never match a name, SKU or category.
+    searchFields: SEARCH_FIELDS,
+    searchSizeFields: SEARCH_SIZE_FIELDS,
   });
 
   const filteredProducts = useMemo(() => {
@@ -781,8 +789,8 @@ export default function TcProductsPage() {
       price: item.price,
     });
     addToast(`Added "${item.pattern || item.brand}" to cart.`);
-    // Show the line-item form straight away, as requested.
-    setIsCartOpen(true);
+    // Open the modern Quotation modal
+    setIsQuotationModalOpen(true);
   };
 
   /**
@@ -875,9 +883,9 @@ export default function TcProductsPage() {
 
   // Cell padding class based on Density mode
   const cellPaddingClass = useMemo(() => {
-    if (density === 'compact') return 'py-2 px-3.5';
-    if (density === 'comfortable') return 'py-3 px-4';
-    return 'py-4 px-4'; // breathable
+    if (density === 'compact') return 'py-0.5 px-2';
+    if (density === 'comfortable') return 'py-1 px-2.5';
+    return 'py-1.5 px-3'; // breathable
   }, [density]);
 
   return (
@@ -895,25 +903,26 @@ export default function TcProductsPage() {
           fullscreenTone="slate"
           syncTitle="Sync TC products"
           isOnline={isOnline}
-          badge={
-            <span className="inline-flex items-center justify-center min-w-[92px] bg-emerald-50 text-emerald-700 text-xs font-semibold px-2.5 py-0.5 rounded-full border border-emerald-200/80 tabular-nums whitespace-nowrap">
-                {taskRunning ? (
-                  syncProgress ? (
-                    `Syncing: ${syncProgress.loaded.toLocaleString()} items`
-                  ) : (
-                    `Syncing... ${totalItems.toLocaleString()} items`
-                  )
-                ) : (
-                  `${totalItems.toLocaleString()} items`
-                )}
-              </span>
-          }
           actions={
             <HeaderActions
+              badge={
+                <span className="inline-flex items-center justify-center min-w-[92px] bg-emerald-50 text-emerald-700 text-xs font-semibold px-2.5 py-0.5 rounded-full border border-emerald-200/80 tabular-nums whitespace-nowrap">
+                  {taskRunning ? (
+                    syncProgress ? (
+                      `Syncing: ${syncProgress.loaded.toLocaleString()} items`
+                    ) : (
+                      `Syncing... ${totalItems.toLocaleString()} items`
+                    )
+                  ) : (
+                    `${totalItems.toLocaleString()} items`
+                  )}
+                </span>
+              }
               onCopyResult={copyAllSearchResults}
               hasActiveFilter={hasActiveFilter}
               onCreateQuote={() => setIsQuotationModalOpen(true)}
               onExportCSV={exportCSV}
+              onChat={() => setIsChatModalOpen(true)}
             />
           }
         />
@@ -999,21 +1008,22 @@ export default function TcProductsPage() {
             {/* Scrollable Table — fills the card and scrolls INTERNALLY so row
                 count / page size never changes the card height (no layout shift). */}
             <div className="flex-1 min-h-0 overflow-auto [scrollbar-gutter:stable]">
-              <table className="w-full min-w-full text-left border-collapse table-fixed">
+              <table className="w-full min-w-[1280px] xl:min-w-0 text-left border-collapse table-fixed">
                 <thead className="bg-slate-50/90 backdrop-blur sticky top-0 z-10 border-b border-slate-200">
                   <tr className="text-[11px] font-bold text-slate-500 uppercase tracking-wider select-none">
-                    {!hiddenColumns.has('brand') && <th onClick={() => handleSort('brand')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[110px]">Brand <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('size') && <th onClick={() => handleSort('size')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[130px]">Tyre Size <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('name') && <th onClick={() => handleSort('pattern')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[240px]">Name <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('oem') && <th className="py-3 px-2 text-center whitespace-nowrap w-[60px]">OEM</th>}
-                    {!hiddenColumns.has('runflat') && <th className="py-3 px-2 text-center whitespace-nowrap w-[65px]">RunFlat</th>}
-                    {!hiddenColumns.has('origin') && <th onClick={() => handleSort('country')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[90px]">Origin <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('year') && <th onClick={() => handleSort('year')} className="py-3 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap w-[55px]">Year <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('qty') && <th onClick={() => handleSort('qty')} className="py-3 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap w-[55px]">Qty <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('price') && <th onClick={() => handleSort('price')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[95px]">Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('setOf4Price') && <th onClick={() => handleSort('setOf4Price')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[115px]">Set of 4 Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('offer') && <th className="py-3 px-2 text-center whitespace-nowrap w-[115px]">Offer</th>}
-                    <th className="py-3 px-3 text-center whitespace-nowrap w-[150px]">Action</th>
+                    {!hiddenColumns.has('brand') && <th onClick={() => handleSort('brand')} className="py-2.5 px-1.5 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[7%]">Brand <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('category') && <th onClick={() => handleSort('category')} className="py-2.5 px-1.5 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[7.5%]">Category <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('size') && <th onClick={() => handleSort('size')} className="py-2.5 px-1.5 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[10%]">Tyre Size <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('name') && <th onClick={() => handleSort('pattern')} className="py-2.5 px-1.5 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[20%]">Name <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('oem') && <th className="py-2.5 px-1 text-center whitespace-nowrap w-[4%]">OEM</th>}
+                    {!hiddenColumns.has('runflat') && <th className="py-2.5 px-1 text-center whitespace-nowrap w-[4.5%]">RunFlat</th>}
+                    {!hiddenColumns.has('origin') && <th onClick={() => handleSort('country')} className="py-2.5 px-1.5 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[7%]">Origin <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('year') && <th onClick={() => handleSort('year')} className="py-2.5 px-1 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap w-[4%]">Year <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('qty') && <th onClick={() => handleSort('qty')} className="py-2.5 px-1 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap w-[4%]">Qty <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('price') && <th onClick={() => handleSort('price')} className="py-2.5 px-1.5 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[6%]">Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('setOf4Price') && <th onClick={() => handleSort('setOf4Price')} className="py-2.5 px-1.5 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[7%]">Set of 4 <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('offer') && <th className="py-2.5 px-1.5 text-center whitespace-nowrap w-[10%]">Offer</th>}
+                    <th className="py-2.5 px-1.5 text-center whitespace-nowrap w-[9%]">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-sans">
@@ -1021,6 +1031,7 @@ export default function TcProductsPage() {
                     Array.from({ length: pageSize }).map((_, rIdx) => (
                       <tr key={rIdx} className="hover:bg-slate-50/50">
                         {!hiddenColumns.has('brand') && <td className={cellPaddingClass}><Skeleton className="h-5 w-20 rounded-md" /></td>}
+                        {!hiddenColumns.has('category') && <td className={cellPaddingClass}><Skeleton className="h-5 w-16 rounded-md" /></td>}
                         {!hiddenColumns.has('size') && <td className={cellPaddingClass}><Skeleton className="h-5 w-24 rounded-md" /></td>}
                         {!hiddenColumns.has('name') && <td className={cellPaddingClass}><Skeleton className="h-4 w-48 rounded" /></td>}
                         {!hiddenColumns.has('oem') && <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-4 w-8 rounded mx-auto" /></td>}
@@ -1116,6 +1127,11 @@ export default function TcProductsPage() {
             size: checkSupplierItem.size,
             sizeFull: checkSupplierItem.sizeFull,
             pattern: checkSupplierItem.pattern,
+            price: checkSupplierItem.price,
+            year: checkSupplierItem.year,
+            country: checkSupplierItem.country,
+            flag: checkSupplierItem.flag,
+            runflat: checkSupplierItem.runflat,
           }}
           onCloseAction={() => setCheckSupplierItem(null)}
         />
@@ -1164,6 +1180,12 @@ export default function TcProductsPage() {
         isOpen={isQuotationModalOpen}
         onClose={() => setIsQuotationModalOpen(false)}
         onSave={() => addToast('Quotation saved successfully!')}
+      />
+
+      {/* Chat Shortcuts Modal */}
+      <ChatModal
+        isOpen={isChatModalOpen}
+        onClose={() => setIsChatModalOpen(false)}
       />
 
       {/* Toast Notification Container */}

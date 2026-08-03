@@ -31,6 +31,8 @@ import CostHistoryModal from '@/components/CostHistoryModal';
 import QuickViewModal from '@/components/QuickViewModal';
 import QuotationModal from '@/components/QuotationModal';
 import Filter from '@/components/Filter';
+import ChatModal from "@/components/ChatModal";
+import ProductTableRow from "@/components/ProductTableRow";
 import Pagination from "@/components/Pagination";
 import ToastContainer from "@/components/ToastContainer";
 type TableDensity = 'compact' | 'comfortable' | 'breathable';
@@ -348,7 +350,7 @@ export default function SupplierProductsPage() {
   const dMaxPriceInput = useDebouncedValue(maxPriceInput);
 
 
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(15);
   const [currentPage, setCurrentPage] = useState(1);
   const { sortColumn, sortAsc, handleSort, sortItems } = useProductSorting<Product>('date', false);
 
@@ -357,6 +359,7 @@ export default function SupplierProductsPage() {
   /** Product whose Quick View modal is open, or null. */
   const [quickViewItem, setQuickViewItem] = useState<Product | null>(null);
   const [isQuotationModalOpen, setIsQuotationModalOpen] = useState(false);
+  const [isChatModalOpen, setIsChatModalOpen] = useState(false);
   const [density, setDensity] = useState<TableDensity>('comfortable');
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -868,9 +871,9 @@ export default function SupplierProductsPage() {
 
   // Cell padding class based on Density mode
   const cellPaddingClass = useMemo(() => {
-    if (density === 'compact') return 'py-2 px-3.5';
-    if (density === 'comfortable') return 'py-3 px-4';
-    return 'py-4 px-4'; // breathable
+    if (density === 'compact') return 'py-0.5 px-2';
+    if (density === 'comfortable') return 'py-1 px-2.5';
+    return 'py-1.5 px-3'; // breathable
   }, [density]);
 
   return (
@@ -889,25 +892,26 @@ export default function SupplierProductsPage() {
           syncTask={SYNC_TASK.supplierPage}
           syncTitle="Sync current page"
           isOnline={isOnline}
-          badge={
-            <span className="inline-flex items-center justify-center min-w-[92px] bg-emerald-50 text-emerald-700 text-xs font-semibold px-2.5 py-0.5 rounded-full border border-emerald-200/80 tabular-nums whitespace-nowrap">
-              {fullSyncing ? (
-                syncProgress ? (
-                  `Syncing: ${syncProgress.loaded.toLocaleString()} items`
-                ) : (
-                  `Syncing... ${totalItems.toLocaleString()} items`
-                )
-              ) : (
-                `${totalItems.toLocaleString()} items`
-              )}
-            </span>
-          }
           actions={
             <HeaderActions
+              badge={
+                <span className="inline-flex items-center justify-center min-w-[92px] bg-emerald-50 text-emerald-700 text-xs font-semibold px-2.5 py-0.5 rounded-full border border-emerald-200/80 tabular-nums whitespace-nowrap">
+                  {fullSyncing ? (
+                    syncProgress ? (
+                      `Syncing: ${syncProgress.loaded.toLocaleString()} items`
+                    ) : (
+                      `Syncing... ${totalItems.toLocaleString()} items`
+                    )
+                  ) : (
+                    `${totalItems.toLocaleString()} items`
+                  )}
+                </span>
+              }
               onCopyResult={copyAllSearchResults}
               hasActiveFilter={hasActiveFilter}
               onCreateQuote={() => setIsQuotationModalOpen(true)}
               onExportCSV={exportCSV}
+              onChat={() => setIsChatModalOpen(true)}
             />
           }
         />
@@ -988,23 +992,6 @@ export default function SupplierProductsPage() {
 
           {/* Data Table Container Card */}
           <section className="flex-1 min-h-0 bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col">
-
-            {/* Table Header Summary / Entries Per Page Selector */}
-            <div className="px-5 py-2.5 flex items-center justify-end border-b border-slate-200/70 bg-slate-50/70">
-              <div className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 bg-white px-3 py-1.5 rounded-lg border border-slate-200/90 shadow-2xs">
-                <span className="text-slate-400 font-medium">Show</span>
-
-                <PageSizeMenu
-                  pageSize={pageSize}
-                  onPageSizeChange={(size) => {
-                    setPageSize(size);
-                    setCurrentPage(1);
-                  }}
-                />
-
-                <span className="text-slate-500">entries / page</span>
-              </div>
-            </div>
 
             {/* Scrollable Table — fills the card and scrolls INTERNALLY so row
                 count / page size never changes the card height (no layout shift). */}
@@ -1216,6 +1203,8 @@ export default function SupplierProductsPage() {
               currentPage={currentPage}
               totalPages={totalPages}
               onPageChange={setCurrentPage}
+              pageSize={pageSize}
+              setPageSize={(size) => { setPageSize(size); setCurrentPage(1); }}
             />
 
           </section>
@@ -1264,6 +1253,12 @@ export default function SupplierProductsPage() {
         isOpen={isQuotationModalOpen}
         onClose={() => setIsQuotationModalOpen(false)}
         onSave={() => addToast('Quotation saved successfully!')}
+      />
+
+      {/* Chat Shortcuts Modal */}
+      <ChatModal
+        isOpen={isChatModalOpen}
+        onClose={() => setIsChatModalOpen(false)}
       />
 
       {/* Toast Notification Container */}

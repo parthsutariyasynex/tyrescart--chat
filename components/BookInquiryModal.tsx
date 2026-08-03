@@ -501,7 +501,7 @@ export default function BookInquiryModal({
         </div>
 
         {/* Body Split View (pb-28 guarantees zero layout shift when dropdown popovers open) */}
-        <div className="flex-1 overflow-y-auto p-5 sm:p-6 pb-28 grid grid-cols-1 lg:grid-cols-12 gap-6 bg-slate-50/50">
+        <div className="flex-1 overflow-y-auto p-5 sm:p-6 pb-28 grid grid-cols-1 lg:grid-cols-12 gap-6 bg-slate-50/50 [&>*]:min-w-0">
           
           {/* Right Column: Form Section */}
           <div className="lg:col-span-5 lg:order-2 bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between min-h-[580px]">

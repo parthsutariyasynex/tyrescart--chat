@@ -40,8 +40,10 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { queryProducts, parseAspectRim } from "@/services/searchFilter";
 import { enrichProducts, type EnrichedProduct } from "@/services/productEnrich";
+import { useCart } from "@/hooks/useCart";
 
 export default function PosProductsPage() {
+  const cart = useCart();
 
   // `products` is the FULL list loaded into cache so far (grows as background
   // batches arrive). The UI never renders all of it at once — it renders only a
@@ -349,19 +351,18 @@ export default function PosProductsPage() {
             </div>
           }
           actions={
-            <div className="flex items-center gap-2.5">
-              {loading && products.length === 0 ? (
-                <Skeleton className="h-7 w-[105px] rounded-lg" />
-              ) : (
-                <span className="text-xs font-semibold h-7 min-w-[105px] inline-flex items-center justify-center px-2.5 bg-gray-100 border border-gray-200 text-gray-600 rounded-lg text-center whitespace-nowrap">
-                  Total: {view.total}
-                </span>
-              )}
-              <HeaderActions
-                showTyresGuide={false}
-                onCreateQuote={() => setIsQuotationModalOpen(true)}
-              />
-            </div>
+            <HeaderActions
+              badge={
+                loading && products.length === 0 ? (
+                  <Skeleton className="h-7 w-[105px] rounded-lg" />
+                ) : (
+                  <span className="text-xs font-semibold h-7 min-w-[105px] inline-flex items-center justify-center px-2.5 bg-gray-100 border border-gray-200 text-gray-600 rounded-lg text-center whitespace-nowrap">
+                    Total: {view.total}
+                  </span>
+                )
+              }
+              onCreateQuote={() => setIsQuotationModalOpen(true)}
+            />
           }
         />
 
@@ -456,6 +457,17 @@ export default function PosProductsPage() {
                     return (
                       <div
                         key={item.uid}
+                        onClick={() => {
+                          cart.add({
+                            id: Number(item.uid ? parseInt(atob(item.uid), 10) : 0) || Date.now(),
+                            sku: item.sku ?? "",
+                            name: title,
+                            brand: brand,
+                            size: "",
+                            price: priceVal,
+                          });
+                          setIsQuotationModalOpen(true);
+                        }}
                         className="group bg-white rounded-xl border border-gray-100 p-3 flex flex-col justify-between shadow-xs hover:shadow-md hover:border-orange-200 transition-all duration-200 cursor-pointer relative"
                       >
                         <div className="w-full aspect-square bg-white rounded-lg flex items-center justify-center p-3 mb-3 relative overflow-hidden group-hover:scale-[1.02] transition-transform">

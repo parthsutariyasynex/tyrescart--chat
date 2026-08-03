@@ -17,7 +17,7 @@ export default function Pagination({
   onPageChange,
   pageSize,
   setPageSize,
-  pageSizeOptions = [10, 25, 50, 100],
+  pageSizeOptions = [15, 30, 50, 100],
 }: PaginationProps) {
   const [isPageSizeOpen, setIsPageSizeOpen] = useState(false);
   const pageSizeRef = useRef<HTMLDivElement>(null);

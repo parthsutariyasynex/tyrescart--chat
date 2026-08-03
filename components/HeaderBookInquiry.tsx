@@ -28,7 +28,7 @@ export default function HeaderBookInquiry({
       <button
         type="button"
         onClick={() => setIsOpen(true)}
-        className={`h-9 flex items-center gap-1.5 px-3.5 text-xs font-bold rounded-lg transition-all active:scale-[0.98] cursor-pointer ${baseStyle} ${className}`}
+        className={`h-9 flex items-center gap-1.5 px-2.5 2xl:px-3.5 text-xs font-bold rounded-lg transition-all active:scale-[0.98] cursor-pointer ${baseStyle} ${className}`}
         title="Book Inquiry"
       >
         <CalendarDaysIcon className="w-4 h-4" />

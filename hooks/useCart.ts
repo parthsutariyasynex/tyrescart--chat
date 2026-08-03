@@ -45,6 +45,7 @@ export function useCart() {
     has,
     add: cartStore.add,
     setQty: cartStore.setQty,
+    setPrice: cartStore.setPrice,
     remove: cartStore.remove,
     clear: cartStore.clear,
   };

@@ -133,6 +133,15 @@ class CartStore {
     void idbPut(STORE_CART, next).catch((e) => console.error("[cart] setQty failed to persist:", e));
   };
 
+  /** Set an exact price for a cart item line. */
+  setPrice = (id: number, price: number): void => {
+    const existing = this.lines.find((l) => l.id === id);
+    if (!existing) return;
+    const next = { ...existing, price: Math.max(0, price) };
+    this.setLines(this.lines.map((l) => (l.id === id ? next : l)));
+    void idbPut(STORE_CART, next).catch((e) => console.error("[cart] setPrice failed to persist:", e));
+  };
+
   remove = (id: number): void => {
     this.setLines(this.lines.filter((l) => l.id !== id));
     void idbDelete(STORE_CART, id).catch((e) => console.error("[cart] remove failed to persist:", e));

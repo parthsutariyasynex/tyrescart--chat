@@ -212,15 +212,13 @@ export default function TyreGuideChatPage() {
             </div>
           }
           actions={
-            <div className="flex items-center gap-2.5">
-              <span className="text-xs font-semibold px-2.5 py-1 bg-gray-100 border border-gray-200 text-gray-600 rounded-lg">
-                Total: {shortcuts.length}
-              </span>
-              <HeaderActions
-                showChat={false}
-                showTyresGuide={false}
-              />
-            </div>
+            <HeaderActions
+              badge={
+                <span className="text-xs font-semibold px-2.5 py-1 bg-gray-100 border border-gray-200 text-gray-600 rounded-lg">
+                  Total: {shortcuts.length}
+                </span>
+              }
+            />
           }
         />
 
