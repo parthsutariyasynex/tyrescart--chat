@@ -514,6 +514,62 @@ export function crmCustomerByPhoneQuery(phone: string): string {
   }`;
 }
 
+/* ─────────────────────────────────────────────────────────────
+   Klever Quotation
+
+   WRITE-ONLY module: two mutations and NO queries (verified against the live
+   endpoint and the published docs). Once created, a quote cannot be read back —
+   the mutation response is the only chance to capture quote_id / quote_number.
+
+   There is also no delete / cancel / update, so neither operation may be cached
+   or retried: a repeat call files a SECOND quote.
+
+   These are the only documents in this file that take VARIABLES. `history` is a
+   nested array and `amount` / `car_year` are numeric, so interpolation would
+   mis-type the numbers and break on an apostrophe in a customer name.
+───────────────────────────────────────────────────────────── */
+
+export const CREATE_KLEVER_QUOTE = /* GraphQL */ `
+  mutation CreateKleverQuote($input: KleverQuoteInput!) {
+    createKleverQuote(input: $input) {
+      quote_id
+      quote_number
+      date
+      customer_name
+      phone
+      email
+      address
+      city
+      country
+      car_plate
+      car_make
+      car_model
+      car_year
+      amount
+      vat_percent
+      notes
+      status
+      quote_mode
+      payment_method
+      created_at
+    }
+  }
+`;
+
+export const ADD_QUOTE_HISTORY = /* GraphQL */ `
+  mutation AddQuoteHistory($input: KleverQuoteHistoryInput!) {
+    addKleverQuoteHistory(input: $input) {
+      history_id
+      klever_quote_id
+      action
+      status
+      comment
+      changed_by
+      created_at
+    }
+  }
+`;
+
 /** Option id → label maps for {@link TC_LABELLED_ATTRIBUTES}. Fetched once. */
 export function tcAttributeLabelsQuery(): string {
   const attrs = TC_LABELLED_ATTRIBUTES

@@ -15,9 +15,15 @@ import {
   supplierPriceHistoryQuery,
   createCrmBookingMutation,
   crmCustomerByPhoneQuery,
+  CREATE_KLEVER_QUOTE,
+  ADD_QUOTE_HISTORY,
   type TcProductsQueryVars,
 } from "./queries";
 import type {
+  KleverQuote,
+  KleverQuoteInput,
+  KleverQuoteHistory,
+  KleverQuoteHistoryInput,
   CrmCustomer,
   CrmBookingInput,
   CrmBookingResult,
@@ -62,7 +68,22 @@ export function isRetryableError(err: unknown): boolean {
 /**
  * Execute GraphQL Query through proxy or directly
  */
-async function executeGraphQLQuery(query: string) {
+/**
+ * Run a GraphQL document.
+ *
+ * `variables` is OPTIONAL and additive — every existing caller passes only a
+ * query string and behaves exactly as before. It exists because operations with
+ * nested inputs (e.g. the quotation module's `history: [..!]` array) cannot be
+ * built safely by string interpolation: a quote or backslash in user text
+ * escapes the document, and numbers get stringified.
+ *
+ * Exported so per-module service files can share this one client rather than
+ * hand-rolling their own fetch.
+ */
+export async function executeGraphQLQuery(
+  query: string,
+  variables?: Record<string, unknown>,
+) {
   const isServer = typeof window === "undefined";
   const targetUrl = isServer ? "https://www.tyrescart.com/graphql" : "/api/graphql";
 
@@ -84,7 +105,7 @@ async function executeGraphQLQuery(query: string) {
     const res = await fetch(targetUrl, {
       method: "POST",
       headers,
-      body: JSON.stringify({ query }),
+      body: JSON.stringify(variables ? { query, variables } : { query }),
     });
     console.timeEnd("API Fetch");
 
@@ -285,4 +306,42 @@ export async function fetchCrmCustomerByPhoneGraphQL(phone: string): Promise<Crm
     if (/no customer found/i.test(msg)) return null;
     throw err;
   }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Klever Quotation
+
+   Neither call is cached and neither is retried. The module has no delete,
+   cancel or update mutation, so a repeat call files a SECOND quote that can only
+   be cleared in the Magento admin — issue them from an explicit user action, and
+   disable the trigger while in flight.
+───────────────────────────────────────────────────────────── */
+
+/**
+ * File a new quotation.
+ *
+ * The response is the only place `quote_id` and `quote_number` ever appear —
+ * there is no query to read a quote back — so the caller must persist whatever
+ * it needs from the returned record.
+ */
+export async function createKleverQuote(input: KleverQuoteInput): Promise<KleverQuote> {
+  const data = await executeGraphQLQuery(CREATE_KLEVER_QUOTE, { input });
+  const res = data?.createKleverQuote as KleverQuote | undefined;
+  if (!res) throw new Error("Quotation failed: the server returned no record.");
+  return res;
+}
+
+/**
+ * Append an activity row to an existing quote.
+ *
+ * `quote_id` is validated server-side: an unknown id fails with
+ * "Quote N does not exist." rather than creating an orphan row.
+ */
+export async function addKleverQuoteHistory(
+  input: KleverQuoteHistoryInput,
+): Promise<KleverQuoteHistory> {
+  const data = await executeGraphQLQuery(ADD_QUOTE_HISTORY, { input });
+  const res = data?.addKleverQuoteHistory as KleverQuoteHistory | undefined;
+  if (!res) throw new Error("Quote history failed: the server returned no record.");
+  return res;
 }

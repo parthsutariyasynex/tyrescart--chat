@@ -8,14 +8,14 @@ import {
   CheckIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
-import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
-import HeaderBookInquiry from "@/components/HeaderBookInquiry";
+import Header from "@/components/Header";
+import HeaderActions from "@/components/HeaderActions";
+import QuotationModal from "@/components/QuotationModal";
 import { getTyresChatCached, CACHE_ANY_AGE } from "@/services/cache";
 import type { TyresChatItem } from "@/services/types";
 import { useToast } from "@/components/ToastProvider";
 import { ChatGridSkeleton } from "@/components/Skeletons";
 import Masonry from "react-masonry-css";
-import SyncButton from "@/components/SyncButton";
 import { registerModuleSync } from "@/services/syncService";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
@@ -44,6 +44,7 @@ export default function TyreGuideChatPage() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [copiedId, setCopiedId] = useState<number | string | null>(null);
+  const [isQuotationModalOpen, setIsQuotationModalOpen] = useState<boolean>(false);
   // Online status via useSyncExternalStore (no hydration mismatch, no
   // setState-in-effect).
   const isOnline = useOnlineStatus();
@@ -182,48 +183,46 @@ export default function TyreGuideChatPage() {
       <main className="flex-1 flex flex-col min-w-0 bg-[#f8fafc] overflow-hidden">
 
         {/* TOP HEADER BAR (MATCHING POS PRODUCTS PAGE) */}
-        <header className="h-16 flex-none bg-white border-b border-gray-200 px-6 flex items-center justify-between gap-4 shadow-xs">
-
-          {/* Search Box */}
-          <div className="flex items-center gap-3 flex-1 max-w-2xl">
-            <div className="relative flex-1">
-              <MagnifyingGlassIcon className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Search shortcut or description..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="search-field w-full h-10 pl-10 pr-4 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-inner"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  <XMarkIcon className="w-4 h-4" />
-                </button>
-              )}
+        <Header
+          bookInquiry={false}
+          syncTitle="Sync chat shortcuts"
+          syncTone="orange"
+          isOnline={isOnline}
+          onlineVariant="auto"
+          left={
+            <div className="flex items-center gap-3 flex-1 max-w-2xl">
+              <div className="relative flex-1">
+                <MagnifyingGlassIcon className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search shortcut or description..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="search-field w-full h-10 pl-10 pr-4 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-inner"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    <XMarkIcon className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-
-          {/* Right Header Actions */}
-          <div className="flex items-center gap-3">
-            {/* Total Count Badge */}
-            <span className="text-xs font-semibold px-2.5 py-1 bg-gray-100 border border-gray-200 text-gray-600 rounded-lg">
-              Total: {shortcuts.length}
-            </span>
-
-            <HeaderBookInquiry variant="emerald" />
-            <FullscreenButton tone="gray" />
-
-            {/* Header Sync — current-page-only sync (shared useSync hook) */}
-            <SyncButton title="Sync chat shortcuts" tone="orange" />
-
-            <OnlineStatusBadge isOnline={isOnline} variant="auto" />
-
-            {/* <LogoutButton /> */}
-          </div>
-        </header>
+          }
+          actions={
+            <div className="flex items-center gap-2.5">
+              <span className="text-xs font-semibold px-2.5 py-1 bg-gray-100 border border-gray-200 text-gray-600 rounded-lg">
+                Total: {shortcuts.length}
+              </span>
+              <HeaderActions
+                showChat={false}
+                showTyresGuide={false}
+              />
+            </div>
+          }
+        />
 
         {/* MAIN CHAT SHORTCUTS SCROLLABLE WORKSPACE */}
         <div className="flex-1 p-6 overflow-y-auto">
@@ -341,6 +340,10 @@ export default function TyreGuideChatPage() {
         </div>
       </main>
 
+      <QuotationModal
+        isOpen={isQuotationModalOpen}
+        onClose={() => setIsQuotationModalOpen(false)}
+      />
     </div>
   );
 }

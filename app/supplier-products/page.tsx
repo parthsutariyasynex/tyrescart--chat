@@ -8,11 +8,13 @@ import {
   ChevronDownIcon,
   XMarkIcon,
   ChatBubbleLeftRightIcon,
+  DocumentTextIcon,
+  ClipboardDocumentIcon,
 } from '@heroicons/react/24/outline';
-import { buildRowString } from "@/services/productFormatter";
-import { OnlineStatusBadge, FullscreenButton } from '@/components/HeaderUtilities';
+import { buildRowString, buildBulkCopyString } from "@/services/productFormatter";
+import Header from '@/components/Header';
 import HeaderBookInquiry from '@/components/HeaderBookInquiry';
-import SyncButton from "@/components/SyncButton";
+import HeaderActions from '@/components/HeaderActions';
 import { CATEGORY_BADGES_TAILWIND, BRAND_BADGES_TAILWIND } from "@/constants/badges";
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
@@ -27,6 +29,14 @@ import {
 import { Skeleton } from '@/components/Skeletons';
 import CostHistoryModal from '@/components/CostHistoryModal';
 import QuickViewModal from '@/components/QuickViewModal';
+import QuotationModal from '@/components/QuotationModal';
+import Filter from '@/components/Filter';
+import Pagination from "@/components/Pagination";
+import ToastContainer from "@/components/ToastContainer";
+type TableDensity = 'compact' | 'comfortable' | 'breathable';
+import PageSizeMenu from "@/components/PageSizeMenu";
+import { useProductFilter } from '@/hooks/useProductFilter';
+import { useProductSorting } from '@/hooks/useProductSorting';
 import {
   streamCachedSupplierProducts,
   purgeHistoricalSupplierRows,
@@ -340,26 +350,14 @@ export default function SupplierProductsPage() {
 
   const [pageSize, setPageSize] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
-  // Default to newest-first. Without a sort the table renders in cache order,
-  // which mirrors the API's `id ASC` — i.e. catalogue insertion order, not
-  // recency. On the live data that puts the OLDEST rows (2025-05-08) on page 1
-  // and the newest (2026-07-20) on page ~587, so the latest stock looked absent.
-  const [sortColumn, setSortColumn] = useState<keyof Product | null>('date');
-  const [sortAsc, setSortAsc] = useState(false);
+  const { sortColumn, sortAsc, handleSort, sortItems } = useProductSorting<Product>('date', false);
 
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [activeDrawerItem, setActiveDrawerItem] = useState<Product | null>(null);
   /** Product whose Cost History modal is open, or null. */
   const [costHistoryItem, setCostHistoryItem] = useState<Product | null>(null);
   /** Product whose Quick View modal is open, or null. */
   const [quickViewItem, setQuickViewItem] = useState<Product | null>(null);
-  const [isColumnModalOpen, setIsColumnModalOpen] = useState(false);
-  const [isDensityMenuOpen, setIsDensityMenuOpen] = useState(false);
-  const [isPageSizeOpen, setIsPageSizeOpen] = useState(false);
-  const [isSupplierOpen, setIsSupplierOpen] = useState(false);
-  const [isCategoryOpen, setIsCategoryOpen] = useState(false);
-  const [isBrandOpen, setIsBrandOpen] = useState(false);
-  const [density, setDensity] = useState<'compact' | 'comfortable' | 'breathable'>('comfortable');
+  const [isQuotationModalOpen, setIsQuotationModalOpen] = useState(false);
+  const [density, setDensity] = useState<TableDensity>('comfortable');
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
@@ -636,36 +634,6 @@ export default function SupplierProductsPage() {
    * The page only observes — see `useSyncTask` / `useSyncBatches` above.
    */
 
-  const supplierRef = useRef<HTMLDivElement>(null);
-  const categoryRef = useRef<HTMLDivElement>(null);
-  const brandRef = useRef<HTMLDivElement>(null);
-  const pageSizeRef = useRef<HTMLDivElement>(null);
-  const densityRef = useRef<HTMLDivElement>(null);
-
-  // Close all dropdowns when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (supplierRef.current && !supplierRef.current.contains(target)) {
-        setIsSupplierOpen(false);
-      }
-      if (categoryRef.current && !categoryRef.current.contains(target)) {
-        setIsCategoryOpen(false);
-      }
-      if (brandRef.current && !brandRef.current.contains(target)) {
-        setIsBrandOpen(false);
-      }
-      if (pageSizeRef.current && !pageSizeRef.current.contains(target)) {
-        setIsPageSizeOpen(false);
-      }
-      if (densityRef.current && !densityRef.current.contains(target)) {
-        setIsDensityMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
   // Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -673,88 +641,28 @@ export default function SupplierProductsPage() {
         e.preventDefault();
         document.getElementById('searchInput')?.focus();
       }
-      if (e.key === 'Escape') {
-        setActiveDrawerItem(null);
-        setIsColumnModalOpen(false);
-        setIsDensityMenuOpen(false);
-        setIsPageSizeOpen(false);
-        setIsSupplierOpen(false);
-        setIsCategoryOpen(false);
-        setIsBrandOpen(false);
-      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   // Filtered & Sorted Dataset
+  const filteredProductsRaw = useProductFilter({
+    allProducts,
+    searchQuery: dSearchQuery,
+    supplierFilter,
+    categoryFilter,
+    brandInput: dBrandInput,
+    sizeInput: dSizeInput,
+    yearInput: dYearInput,
+    qtyInput: dQtyInput,
+    minPriceInput: dMinPriceInput,
+    maxPriceInput: dMaxPriceInput,
+  });
+
   const filteredProducts = useMemo(() => {
-    console.time("Filtering");
-    let result: Product[] = allProducts;
-
-    if (dSearchQuery.trim()) {
-      result = searchWithAspectRimFallback(result, dSearchQuery.trim(), SEARCH_FIELDS, SEARCH_SIZE_FIELDS);
-    }
-
-    if (supplierFilter !== 'ALL') result = result.filter(item => item.source === supplierFilter);
-    if (categoryFilter !== 'ALL') result = result.filter(item => item.category === categoryFilter);
-
-    if (dBrandInput.trim()) {
-      const brands = dBrandInput.split(',').map(b => b.trim().toLowerCase()).filter(Boolean);
-      if (brands.length) result = result.filter(item => brands.some(b => item.brand.toLowerCase().includes(b)));
-    }
-
-    if (dSizeInput.trim()) {
-      const sizes = dSizeInput.split(',').map(s => s.trim()).filter(Boolean);
-      if (sizes.length) result = result.filter(item => sizes.some(sz => matchesSizeInput(item, sz)));
-    }
-
-    if (dYearInput.trim()) {
-      const years = dYearInput.split(',').map(y => parseInt(y.trim(), 10)).filter(y => !isNaN(y));
-      if (years.length) result = result.filter(item => years.includes(item.year));
-    }
-
-    if (dQtyInput.trim() && !isNaN(Number(dQtyInput))) {
-      const n = Number(dQtyInput);
-      result = result.filter(item => item.qty >= n);
-    }
-
-    const minPrice = parseFloat(dMinPriceInput);
-    const maxPrice = parseFloat(dMaxPriceInput);
-    if (!isNaN(minPrice)) result = result.filter(item => item.cost >= minPrice);
-    if (!isNaN(maxPrice)) result = result.filter(item => item.cost <= maxPrice);
-
-    // No LATEST? filter: the sync fetches `is_latest: 1` exclusively, so every
-    // row in the cache is current stock. Filtering again would be a no-op pass
-    // over the whole array on each recompute.
-
-    if (sortColumn) {
-      if (result === allProducts) result = [...result];
-      const dir = sortAsc ? 1 : -1;
-      if (sortColumn === 'date') {
-        result.sort((a, b) => (a.dateKey - b.dateKey) * dir);
-        console.timeEnd("Filtering");
-        return result;
-      }
-      result.sort((a, b) => {
-        const valA = a[sortColumn];
-        const valB = b[sortColumn];
-        if (typeof valA === 'string' && typeof valB === 'string') {
-          return collator.compare(valA, valB) * dir;
-        }
-        if (typeof valA === 'number' && typeof valB === 'number') {
-          return (valA - valB) * dir;
-        }
-        if (typeof valA === 'boolean' && typeof valB === 'boolean') {
-          return (valA === valB ? 0 : valA ? 1 : -1) * dir;
-        }
-        return 0;
-      });
-    }
-
-    console.timeEnd("Filtering");
-    return result;
-  }, [allProducts, dSearchQuery, supplierFilter, categoryFilter, dBrandInput, dSizeInput, dYearInput, dQtyInput, dMinPriceInput, dMaxPriceInput, sortColumn, sortAsc]);
+    return sortItems(filteredProductsRaw);
+  }, [filteredProductsRaw, sortItems]);
 
   // All three dropdown lists in ONE pass. Three separate useMemos each walked
   // the full 318k-row array and allocated its own intermediate — at this size
@@ -854,6 +762,10 @@ export default function SupplierProductsPage() {
   const totalPages = page.pagination.totalPages;
   const currentItems = page.items;
 
+  const hasActiveFilter = useMemo(() => {
+    return Boolean(dSearchQuery || dBrandInput || dSizeInput || dYearInput || dQtyInput || dMinPriceInput || dMaxPriceInput || categoryFilter !== 'ALL');
+  }, [dSearchQuery, dBrandInput, dSizeInput, dYearInput, dQtyInput, dMinPriceInput, dMaxPriceInput, categoryFilter]);
+
   // Skeleton only while reading the cache (isLoading) or during an in-progress
   // Sync that has no data yet. An empty cache with no sync shows the empty state.
   // The third clause covers the cold-start bootstrap: until the latest-products
@@ -881,14 +793,7 @@ export default function SupplierProductsPage() {
     else if (currentPage < 1) setCurrentPage(1);
   }, [currentPage, totalPages]);
 
-  const handleSort = (colKey: keyof Product) => {
-    if (sortColumn === colKey) {
-      setSortAsc(prev => !prev);
-    } else {
-      setSortColumn(colKey);
-      setSortAsc(true);
-    }
-  };
+
 
   const resetFilters = () => {
     setSearchQuery('');
@@ -906,9 +811,7 @@ export default function SupplierProductsPage() {
 
 
 
-  const clearSelection = () => {
-    setSelectedIds(new Set());
-  };
+
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -919,6 +822,24 @@ export default function SupplierProductsPage() {
     const rowString = buildRowString(item);
     navigator.clipboard.writeText(rowString);
     addToast(`Copied product details to clipboard!`);
+  };
+
+  const copyAllSearchResults = async () => {
+    if (!hasActiveFilter) {
+      addToast('Please enter a search query or filter first.');
+      return;
+    }
+    if (filteredProducts.length === 0) {
+      addToast('No products available to copy.');
+      return;
+    }
+    const payload = buildBulkCopyString(filteredProducts);
+    try {
+      await navigator.clipboard.writeText(payload);
+      addToast(`Successfully copied ${filteredProducts.length.toLocaleString()} search results.`);
+    } catch {
+      addToast('Copy failed. Please try again.');
+    }
   };
 
   const exportCSV = () => {
@@ -960,11 +881,15 @@ export default function SupplierProductsPage() {
       <main className="flex-1 flex flex-col min-w-0 bg-slate-50 overflow-hidden">
 
         {/* TOP NAVIGATION HEADER */}
-        <header className="sticky top-0 z-20 h-16 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-6 flex items-center justify-between shrink-0 shadow-2xs">
-
-          {/* Title & Stats */}
-          <div className="flex items-center gap-3">
-            <h1 className="text-lg font-bold text-slate-900 tracking-tight">Products</h1>
+        <Header
+          variant="sticky"
+          title="Products"
+          bookInquiry={false}
+          fullscreenTone="slate"
+          syncTask={SYNC_TASK.supplierPage}
+          syncTitle="Sync current page"
+          isOnline={isOnline}
+          badge={
             <span className="inline-flex items-center justify-center min-w-[92px] bg-emerald-50 text-emerald-700 text-xs font-semibold px-2.5 py-0.5 rounded-full border border-emerald-200/80 tabular-nums whitespace-nowrap">
               {fullSyncing ? (
                 syncProgress ? (
@@ -976,88 +901,16 @@ export default function SupplierProductsPage() {
                 `${totalItems.toLocaleString()} items`
               )}
             </span>
-          </div>
-
-          {/* Right Actions & Controls */}
-          <div className="flex items-center gap-2.5">
-
-            {/* Density Selector */}
-            <div ref={densityRef} className="relative">
-
-              {isDensityMenuOpen && (
-                <div className="absolute right-0 mt-1.5 w-48 bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-40">
-                  {[
-                    { key: 'compact', label: 'Compact (44px)' },
-                    { key: 'comfortable', label: 'Standard (54px)' },
-                    { key: 'breathable', label: 'Breathable (64px)' },
-                  ].map((item) => (
-                    <button
-                      key={item.key}
-                      onClick={() => {
-                        setDensity(item.key as 'compact' | 'comfortable' | 'breathable');
-                        setIsDensityMenuOpen(false);
-                        addToast(`Density set to ${item.key}`);
-                      }}
-                      className="w-full text-left px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center justify-between"
-                    >
-                      <span>{item.label}</span>
-                      {density === item.key && <span className="text-emerald-600 font-bold">✓</span>}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-
-            {/* Book Inquiry Button */}
-            <HeaderBookInquiry />
-
-            {/* Chat — opens the tyre guide chat. Distinct from the Tyres Guide
-                button, which is a separate control. */}
-            <Link
-              href="/tyre_guide/chat"
-              title="Chat"
-              aria-label="Chat"
-              className="h-9 flex items-center gap-1.5 px-3.5 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-xs hover:shadow-sky-600/20 transition-all active:scale-[0.98] shrink-0 cursor-pointer"
-            >
-              <ChatBubbleLeftRightIcon className="w-4 h-4 shrink-0" />
-              <span className="whitespace-nowrap">Chat</span>
-            </Link>
-
-            {/* Tyres Guide Button */}
-            <button
-              type="button"
-              title="Tyres Guide"
-              aria-label="Tyres Guide"
-              className="h-9 flex items-center gap-1.5 px-3.5 text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-lg shadow-xs hover:shadow-amber-500/20 transition-all active:scale-[0.98] shrink-0 cursor-pointer"
-            >
-              <ChatBubbleLeftRightIcon className="w-4 h-4 shrink-0" />
-              <span className="whitespace-nowrap">Tyres Guide</span>
-            </button>
-
-            {/* Export Button */}
-            <button
-              onClick={exportCSV}
-              className="h-9 flex items-center gap-2 px-3.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs transition-all hover:shadow-emerald-600/20 active:scale-[0.98]"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Export
-            </button>
-
-            <FullscreenButton tone="slate" />
-
-            {/* Shared Sync button, pointed at the PAGE-scoped task: it refreshes
-                the rows on screen (~1 request), not the 319k catalogue. The full
-                pass is the sidebar's "Sync all data". */}
-            <SyncButton task={SYNC_TASK.supplierPage} title="Sync current page" />
-
-            {/* Online Indicator */}
-            <OnlineStatusBadge isOnline={isOnline} variant="fixed" />
-
-          </div>
-        </header>
+          }
+          actions={
+            <HeaderActions
+              onCopyResult={copyAllSearchResults}
+              hasActiveFilter={hasActiveFilter}
+              onCreateQuote={() => setIsQuotationModalOpen(true)}
+              onExportCSV={exportCSV}
+            />
+          }
+        />
 
         {/* SCROLLABLE INNER DASHBOARD BODY */}
         <div className="flex-1 min-h-0 flex flex-col p-6 gap-4 w-full mx-auto overflow-hidden">
@@ -1096,357 +949,42 @@ export default function SupplierProductsPage() {
             </div>
           )}
 
-          {/* Filters Bar — Supplier · Category · Brand · Search · Size · Year · Qty · Latest */}
-          <section className="shrink-0 bg-white border border-slate-200/90 rounded-xl p-4 shadow-2xs relative z-30">
-            <div className="flex flex-wrap items-end gap-2.5">
+          {/* Filters Bar — Supplier · Category · Brand · Search · Size · Year · Qty */}
+          <Filter
+            showSupplierFilter
+            supplierFilter={supplierFilter}
+            setSupplierFilter={setSupplierFilter}
+            supplierOptions={supplierOptions}
 
-              {/* Supplier */}
-              <div ref={supplierRef} className="flex flex-col min-w-[140px] relative">
-                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Supplier</label>
-                <button
-                  onClick={() => {
-                    setIsSupplierOpen(!isSupplierOpen);
-                    setIsCategoryOpen(false);
-                    setIsBrandOpen(false);
-                    setIsPageSizeOpen(false);
-                    setIsDensityMenuOpen(false);
-                  }}
-                  className="h-10 bg-white border border-slate-200 rounded-lg px-3 flex items-center justify-between text-sm font-medium text-slate-700 hover:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs transition-all cursor-pointer"
-                >
-                  <span className="truncate">{supplierFilter === 'ALL' ? 'All' : supplierFilter}</span>
-                  <svg className={`w-4 h-4 text-slate-400 ml-2 shrink-0 transition-transform ${isSupplierOpen ? 'rotate-180 text-emerald-600' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
+            categoryFilter={categoryFilter}
+            setCategoryFilter={setCategoryFilter}
+            categoryOptions={categoryOptions}
 
-                {isSupplierOpen && (
-                  <div className="absolute left-0 top-full mt-1.5 min-w-full bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 max-h-60 overflow-y-auto animate-in fade-in zoom-in-95 duration-100">
-                    <button
-                      onClick={() => { setSupplierFilter('ALL'); setCurrentPage(1); setIsSupplierOpen(false); }}
-                      className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${supplierFilter === 'ALL' ? 'text-emerald-700 bg-emerald-50/80 font-bold' : 'text-slate-700 hover:bg-slate-50'
-                        }`}
-                    >
-                      <span>All</span>
-                      {supplierFilter === 'ALL' && <span className="text-emerald-600 font-bold">✓</span>}
-                    </button>
-                    {supplierOptions.map((s) => (
-                      <button
-                        key={s}
-                        onClick={() => { setSupplierFilter(s); setCurrentPage(1); setIsSupplierOpen(false); }}
-                        className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${supplierFilter === s ? 'text-emerald-700 bg-emerald-50/80 font-bold' : 'text-slate-700 hover:bg-slate-50'
-                          }`}
-                      >
-                        <span className="truncate">{s}</span>
-                        {supplierFilter === s && <span className="text-emerald-600 font-bold">✓</span>}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+            brandInput={brandInput}
+            setBrandInput={setBrandInput}
+            brandOptions={brandOptions}
 
-              {/* Category */}
-              <div ref={categoryRef} className="flex flex-col min-w-[140px] relative">
-                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Category</label>
-                <button
-                  onClick={() => {
-                    setIsCategoryOpen(!isCategoryOpen);
-                    setIsSupplierOpen(false);
-                    setIsBrandOpen(false);
-                    setIsPageSizeOpen(false);
-                    setIsDensityMenuOpen(false);
-                  }}
-                  className="h-10 bg-white border border-slate-200 rounded-lg px-3 flex items-center justify-between text-sm font-medium text-slate-700 hover:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs transition-all cursor-pointer"
-                >
-                  <span className="truncate">{categoryFilter === 'ALL' ? 'All' : categoryFilter}</span>
-                  <svg className={`w-4 h-4 text-slate-400 ml-2 shrink-0 transition-transform ${isCategoryOpen ? 'rotate-180 text-emerald-600' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
 
-                {isCategoryOpen && (
-                  <div className="absolute left-0 top-full mt-1.5 min-w-full bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
-                    <button
-                      onClick={() => { setCategoryFilter('ALL'); setCurrentPage(1); setIsCategoryOpen(false); }}
-                      className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${categoryFilter === 'ALL' ? 'text-emerald-700 bg-emerald-50/80 font-bold' : 'text-slate-700 hover:bg-slate-50'
-                        }`}
-                    >
-                      <span>All</span>
-                      {categoryFilter === 'ALL' && <span className="text-emerald-600 font-bold">✓</span>}
-                    </button>
-                    {categoryOptions.map((c) => (
-                      <button
-                        key={c}
-                        onClick={() => { setCategoryFilter(c); setCurrentPage(1); setIsCategoryOpen(false); }}
-                        className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${categoryFilter === c ? 'text-emerald-700 bg-emerald-50/80 font-bold' : 'text-slate-700 hover:bg-slate-50'
-                          }`}
-                      >
-                        <span className="truncate">{c}</span>
-                        {categoryFilter === c && <span className="text-emerald-600 font-bold">✓</span>}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+            sizeInput={sizeInput}
+            setSizeInput={setSizeInput}
 
-              {/* Brand */}
-              <div ref={brandRef} className="relative flex flex-col min-w-[150px] max-w-[180px]">
-                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Brand</label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={brandInput}
-                    onFocus={() => {
-                      setIsBrandOpen(true);
-                      setIsSupplierOpen(false);
-                      setIsCategoryOpen(false);
-                      setIsPageSizeOpen(false);
-                      setIsDensityMenuOpen(false);
-                    }}
-                    onChange={(e) => {
-                      setBrandInput(e.target.value);
-                      setIsBrandOpen(true);
-                      setIsSupplierOpen(false);
-                      setIsCategoryOpen(false);
-                      setIsPageSizeOpen(false);
-                      setIsDensityMenuOpen(false);
-                      setCurrentPage(1);
-                    }}
-                    placeholder="Brand"
-                    className="h-10 w-full bg-white border border-slate-200 rounded-lg pl-3 pr-9 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
-                  />
-                  {brandInput ? (
-                    <XMarkIcon
-                      onClick={() => {
-                        setBrandInput('');
-                        setCurrentPage(1);
-                      }}
-                      className="w-4 h-4 text-slate-400 hover:text-rose-600 absolute right-2.5 top-1/2 -translate-y-1/2 cursor-pointer transition-colors"
-                      title="Clear brand search"
-                    />
-                  ) : (
-                    <ChevronDownIcon
-                      onClick={() => {
-                        setIsBrandOpen(!isBrandOpen);
-                        setIsSupplierOpen(false);
-                        setIsCategoryOpen(false);
-                        setIsPageSizeOpen(false);
-                        setIsDensityMenuOpen(false);
-                      }}
-                      className="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 cursor-pointer hover:text-slate-600 transition-colors"
-                    />
-                  )}
-                </div>
+            yearInput={yearInput}
+            setYearInput={setYearInput}
 
-                {/* Selected Brand Pills with individual X remove buttons */}
-                {selectedBrandList.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1.5 max-w-[260px]">
-                    {selectedBrandList.map((b) => (
-                      <span
-                        key={b}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs"
-                      >
-                        <span>{b}</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const remaining = selectedBrandList.filter((item) => item.toLowerCase() !== b.toLowerCase());
-                            setBrandInput(remaining.length > 0 ? remaining.join(', ') + ', ' : '');
-                            setCurrentPage(1);
-                          }}
-                          className="hover:bg-emerald-200/70 rounded-full p-0.5 transition-colors text-emerald-800"
-                          title={`Remove ${b}`}
-                        >
-                          <XMarkIcon className="w-3 h-3" />
-                        </button>
-                      </span>
-                    ))}
-                    {selectedBrandList.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setBrandInput('');
-                          setCurrentPage(1);
-                        }}
-                        className="text-[10px] text-slate-400 hover:text-rose-600 font-semibold underline underline-offset-2 ml-1 self-center"
-                      >
-                        Clear all
-                      </button>
-                    )}
-                  </div>
-                )}
+            qtyInput={qtyInput}
+            setQtyInput={setQtyInput}
 
-                {isBrandOpen && (
-                  <div className="absolute left-0 top-full mt-1.5 min-w-full max-h-60 overflow-y-auto bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
-                    <button
-                      onClick={() => { setBrandInput(''); setCurrentPage(1); setIsBrandOpen(false); }}
-                      className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${!brandInput.trim() ? 'text-emerald-700 bg-emerald-50/80 font-bold' : 'text-slate-700 hover:bg-slate-50'
-                        }`}
-                    >
-                      <span>All Brands</span>
-                      {!brandInput.trim() && <span className="text-emerald-600 font-bold">✓</span>}
-                    </button>
-                    {filteredBrandOptions.map((b) => {
-                      const selectedBrands = brandInput.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-                      const isSelected = selectedBrands.includes(b.toLowerCase());
+            minPriceInput={minPriceInput}
+            setMinPriceInput={setMinPriceInput}
 
-                      return (
-                        <button
-                          key={b}
-                          onClick={() => {
-                            const currentParts = brandInput.split(',').map(s => s.trim()).filter(Boolean);
-                            const lastPart = currentParts[currentParts.length - 1] || '';
-                            const isLastPartial = lastPart && !brandOptions.some(opt => opt.toLowerCase() === lastPart.toLowerCase());
+            maxPriceInput={maxPriceInput}
+            setMaxPriceInput={setMaxPriceInput}
 
-                            let baseParts = currentParts;
-                            if (isLastPartial) {
-                              baseParts = currentParts.slice(0, -1);
-                            }
-
-                            let newParts: string[];
-                            if (baseParts.some(p => p.toLowerCase() === b.toLowerCase())) {
-                              newParts = baseParts.filter(p => p.toLowerCase() !== b.toLowerCase());
-                            } else {
-                              newParts = [...baseParts, b];
-                            }
-
-                            setBrandInput(newParts.length > 0 ? newParts.join(', ') + ', ' : '');
-                            setCurrentPage(1);
-                          }}
-                          className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${isSelected ? 'text-emerald-700 bg-emerald-50/80 font-bold' : 'text-slate-700 hover:bg-slate-50'
-                            }`}
-                        >
-                          <span className="truncate">{b}</span>
-                          {isSelected && <span className="text-emerald-600 font-bold">✓</span>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* Search */}
-              <div className="flex flex-col flex-1 min-w-[200px] max-w-[300px]">
-                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Search</label>
-                <div className="relative">
-                  <MagnifyingGlassIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    id="searchInput"
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-                    placeholder="Query..."
-                    className="search-field h-10 w-full pl-9 pr-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
-                  />
-                </div>
-              </div>
-
-              {/* Size */}
-              <div className="flex flex-col w-[105px]">
-                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Size</label>
-                <input
-                  type="text"
-                  value={sizeInput}
-                  onChange={(e) => { setSizeInput(e.target.value); setCurrentPage(1); }}
-                  placeholder="Size..."
-                  className="h-10 bg-white border border-slate-200 rounded-lg px-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
-                />
-              </div>
-
-              {/* Year */}
-              <div className="flex flex-col w-[75px]">
-                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Year</label>
-                <input
-                  type="text"
-                  value={yearInput}
-                  onChange={(e) => { setYearInput(e.target.value); setCurrentPage(1); }}
-                  placeholder="Year..."
-                  className="h-10 bg-white border border-slate-200 rounded-lg px-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
-                />
-              </div>
-
-              {/* Qty */}
-              <div className="flex flex-col w-[70px]">
-                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Qty</label>
-                <input
-                  type="text"
-                  value={qtyInput}
-                  onChange={(e) => { setQtyInput(e.target.value); setCurrentPage(1); }}
-                  placeholder="Qty..."
-                  className="h-10 bg-white border border-slate-200 rounded-lg px-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
-                />
-              </div>
-
-              {/* Price Range — Min / Max over the COST column */}
-              <div className="flex flex-col w-[180px]">
-                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Price Range</label>
-                <div className="flex items-center gap-1.5">
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    value={minPriceInput}
-                    onChange={(e) => { setMinPriceInput(e.target.value); setCurrentPage(1); }}
-                    placeholder="Min"
-                    className="h-10 w-full min-w-0 bg-white border border-slate-200 rounded-lg px-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
-                  />
-                  <span className="text-slate-400 text-xs font-semibold shrink-0">-</span>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    value={maxPriceInput}
-                    onChange={(e) => { setMaxPriceInput(e.target.value); setCurrentPage(1); }}
-                    placeholder="Max"
-                    className="h-10 w-full min-w-0 bg-white border border-slate-200 rounded-lg px-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
-                  />
-                </div>
-              </div>
-
-              {/* Search button */}
-              <button
-                onClick={() => setCurrentPage(1)}
-                title="Search"
-                className="h-10 w-10 flex items-center justify-center bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-xs transition-colors"
-              >
-                <MagnifyingGlassIcon className="w-4 h-4" />
-              </button>
-
-              {/* Reset button */}
-              <button
-                onClick={resetFilters}
-                title="Reset filters"
-                className="h-10 w-10 flex items-center justify-center bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-emerald-600 rounded-lg shadow-2xs transition-colors"
-              >
-                <ArrowPathIcon className="w-4 h-4" />
-              </button>
-            </div>
-          </section>
-
-          {/* Floating Selection Toolbar */}
-          {selectedIds.size > 0 && (
-            <div className="sticky top-20 z-20 bg-slate-900 text-white px-5 py-3 rounded-xl shadow-xl flex items-center justify-between border border-slate-700 transition-all">
-              <div className="flex items-center gap-3">
-                <span className="w-6 h-6 rounded-full bg-emerald-500 text-slate-950 font-bold text-xs flex items-center justify-center">
-                  {selectedIds.size}
-                </span>
-                <span className="text-xs font-semibold text-slate-200">items selected</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => { addToast(`Exporting ${selectedIds.size} selected products...`); exportCSV(); clearSelection(); }}
-                  className="px-3 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white rounded-lg border border-slate-700 transition-colors"
-                >
-                  Export Selected
-                </button>
-                <button
-                  onClick={clearSelection}
-                  className="px-3 py-1.5 text-xs font-semibold text-slate-400 hover:text-white transition-colors"
-                >
-                  Deselect All
-                </button>
-              </div>
-            </div>
-          )}
+            onSearch={() => setCurrentPage(1)}
+            onReset={resetFilters}
+          />
 
           {/* Data Table Container Card */}
           <section className="flex-1 min-h-0 bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col">
@@ -1456,41 +994,13 @@ export default function SupplierProductsPage() {
               <div className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 bg-white px-3 py-1.5 rounded-lg border border-slate-200/90 shadow-2xs">
                 <span className="text-slate-400 font-medium">Show</span>
 
-                <div ref={pageSizeRef} className="relative">
-                  <button
-                    onClick={() => setIsPageSizeOpen(!isPageSizeOpen)}
-                    className="h-7 px-2.5 flex items-center gap-1.5 text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-md hover:bg-slate-100 hover:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all cursor-pointer"
-                  >
-                    <span>{pageSize}</span>
-                    <svg className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isPageSizeOpen ? 'rotate-180 text-emerald-600' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </button>
-
-                  {isPageSizeOpen && (
-                    <div className="absolute right-0 top-full mt-1.5 w-14 bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
-                      {[10, 25, 50, 100].map((size) => (
-                        <button
-                          key={size}
-                          onClick={() => {
-                            setPageSize(size);
-                            setCurrentPage(1);
-                            setIsPageSizeOpen(false);
-                          }}
-                          className={`w-full text-left px-2.5 py-1.5 text-xs font-semibold flex items-center justify-between transition-colors ${pageSize === size
-                            ? 'text-emerald-700 bg-emerald-50/80 font-bold'
-                            : 'text-slate-700 hover:bg-slate-50'
-                            }`}
-                        >
-                          <span>{size}</span>
-                          {pageSize === size && (
-                            <span className="text-emerald-600 font-bold text-xs">✓</span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <PageSizeMenu
+                  pageSize={pageSize}
+                  onPageSizeChange={(size) => {
+                    setPageSize(size);
+                    setCurrentPage(1);
+                  }}
+                />
 
                 <span className="text-slate-500">entries / page</span>
               </div>
@@ -1647,9 +1157,6 @@ export default function SupplierProductsPage() {
 
                           {!hiddenColumns.has('cost') && (
                             <td className={`${cellPaddingClass} text-right whitespace-nowrap`}>
-                              {/* The value itself opens Cost History — no extra icon or button.
-                                  `stopPropagation` keeps the row's own click (the detail drawer)
-                                  from firing underneath it. */}
                               <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); setCostHistoryItem(item); }}
@@ -1698,56 +1205,18 @@ export default function SupplierProductsPage() {
                           </td>
                         </tr>
                       );
-                    }))}
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
 
             {/* Pagination Controls Bar */}
-            <div className="px-5 py-3.5 flex items-center justify-end border-t border-slate-100 bg-white">
-              <div className="flex items-center gap-1.5">
-                <button
-                  disabled={currentPage <= 1}
-                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                  className="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-                >
-                  Previous
-                </button>
-
-                <div className="flex items-center gap-1">
-                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                    let pageNum = i + 1;
-                    if (totalPages > 5) {
-                      if (currentPage > 3 && currentPage < totalPages - 1) {
-                        pageNum = currentPage - 2 + i;
-                      } else if (currentPage >= totalPages - 1) {
-                        pageNum = totalPages - 4 + i;
-                      }
-                    }
-                    return (
-                      <button
-                        key={pageNum}
-                        onClick={() => setCurrentPage(pageNum)}
-                        className={`w-7 h-7 text-xs font-semibold rounded-lg flex items-center justify-center transition-all ${currentPage === pageNum
-                          ? 'bg-emerald-600 text-white font-bold shadow-xs'
-                          : 'text-slate-600 hover:bg-slate-100'
-                          }`}
-                      >
-                        {pageNum}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <button
-                  disabled={currentPage >= totalPages}
-                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                  className="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+            />
 
           </section>
         </div>
@@ -1788,201 +1257,17 @@ export default function SupplierProductsPage() {
 
 
 
-      {/* Slide-Over Product Detail Drawer */}
-      {
-        activeDrawerItem && (
-          <>
-            <div
-              onClick={() => setActiveDrawerItem(null)}
-              className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-xs transition-opacity"
-            />
-            <aside className="fixed top-0 right-0 z-50 w-full max-w-md h-full bg-white shadow-2xl border-l border-slate-200 transition-transform duration-300 ease-in-out flex flex-col">
 
-              {/* Drawer Header */}
-              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                <div>
-                  {activeDrawerItem.category ? (
-                    <span className={`px-2.5 py-0.5 text-[10px] font-extrabold rounded-full uppercase tracking-wider ${categoryBadges[activeDrawerItem.category] || 'bg-purple-50 text-purple-700'}`}>
-                      {activeDrawerItem.category}
-                    </span>
-                  ) : null}
-                  <h2 className="text-base font-bold text-slate-900 mt-1">
-                    {activeDrawerItem.pattern}
-                  </h2>
-                  <p className="text-xs text-slate-500">
-                    Item Code: <span className="font-mono font-semibold text-slate-700">{activeDrawerItem.itemCode}</span>
-                  </p>
-                </div>
-                <button
-                  onClick={() => setActiveDrawerItem(null)}
-                  className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
 
-              {/* Drawer Content */}
-              <div className="p-6 space-y-6 flex-1 overflow-y-auto">
-
-                {/* Overview Grid */}
-                <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50 rounded-xl border border-slate-100">
-                  <div>
-                    <span className="text-[11px] font-semibold text-slate-400 uppercase">Brand</span>
-                    <p className="text-sm font-bold text-slate-900 mt-0.5">{activeDrawerItem.brand}</p>
-                  </div>
-                  <div>
-                    <span className="text-[11px] font-semibold text-slate-400 uppercase">Size Spec</span>
-                    <p className="text-sm font-bold text-slate-900 mt-0.5">{activeDrawerItem.sizeFull}</p>
-                  </div>
-                  <div>
-                    <span className="text-[11px] font-semibold text-slate-400 uppercase">Origin Country</span>
-                    <p className="text-sm font-semibold text-slate-800 mt-0.5">{activeDrawerItem.country}</p>
-                  </div>
-                  <div>
-                    <span className="text-[11px] font-semibold text-slate-400 uppercase">Production Year</span>
-                    <p className="text-sm font-semibold text-slate-800 mt-0.5">{activeDrawerItem.year}</p>
-                  </div>
-                </div>
-
-                {/* Pricing & Margin Breakdown */}
-                <div className="space-y-3">
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Pricing & Margins</h4>
-                  <div className="p-4 bg-white rounded-xl border border-slate-200 space-y-2.5">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-500">Supplier Unit Cost:</span>
-                      <span className="font-bold text-slate-900 text-sm font-mono">{activeDrawerItem.cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-500">Fitting Fee:</span>
-                      <span className="font-semibold text-slate-700 font-mono">{activeDrawerItem.fittingPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    </div>
-                    <div className="h-px bg-slate-100 my-1"></div>
-                    <div className="flex justify-between items-center text-xs font-bold">
-                      <span className="text-emerald-700">Est. Retail MSRP:</span>
-                      <span className="text-emerald-600 text-sm font-mono">{(activeDrawerItem.cost * 1.22).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Stock Availability */}
-                <div className="space-y-3">
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Inventory Allocation</h4>
-                  <div className="p-4 bg-white rounded-xl border border-slate-200 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-slate-600">Warehouse Main ({activeDrawerItem.source}):</span>
-                      {activeDrawerItem.qty === 0 ? (
-                        <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-red-50 text-red-600 border border-red-200/60 font-mono">0 Units Available</span>
-                      ) : (
-                        <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60 font-mono">{activeDrawerItem.qty} Units Available</span>
-                      )}
-                    </div>
-                    <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                      <div
-                        className="bg-emerald-500 h-2 rounded-full transition-all"
-                        style={{ width: `${Math.min(activeDrawerItem.qty * 2.5, 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-
-              {/* Drawer Footer Actions */}
-              <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex gap-2">
-                <button
-                  onClick={() => copyToClipboard(activeDrawerItem.itemCode)}
-                  className="flex-1 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-                >
-                  Copy Item Code
-                </button>
-                <button
-                  onClick={() => setActiveDrawerItem(null)}
-                  className="flex-1 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs transition-colors"
-                >
-                  Done
-                </button>
-              </div>
-            </aside>
-          </>
-        )
-      }
-
-      {/* Customize Visible Columns Modal */}
-      {
-        isColumnModalOpen && (
-          <div
-            onClick={() => setIsColumnModalOpen(false)}
-            className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4"
-          >
-            <div
-              onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-xl border border-slate-200 shadow-2xl w-full max-w-sm p-6 space-y-4"
-            >
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <h3 className="text-sm font-bold text-slate-900">Customize Visible Columns</h3>
-                <button
-                  onClick={() => setIsColumnModalOpen(false)}
-                  className="text-slate-400 hover:text-slate-600"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div className="space-y-2 max-h-64 overflow-y-auto text-xs font-medium text-slate-700">
-                {[
-                  { key: 'source', label: 'Source' },
-                  { key: 'type', label: 'Type' },
-                  { key: 'category', label: 'Category' },
-                  { key: 'brand', label: 'Brand' },
-                  { key: 'pattern', label: 'Tyre Pattern' },
-                  { key: 'size', label: 'Size' },
-                  { key: 'runflat', label: 'Runflat' },
-                  { key: 'year', label: 'Year' },
-                  { key: 'country', label: 'Country' },
-                  { key: 'qty', label: 'Qty' },
-                  { key: 'cost', label: 'Cost' },
-                  { key: 'fittingPrice', label: 'Fitting Price' },
-                  { key: 'date', label: 'Date' }
-                ].map(col => (
-                  <label key={col.key} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer">
-                    <span>{col.label}</span>
-                    <input
-                      type="checkbox"
-                      checked={!hiddenColumns.has(col.key)}
-                      onChange={() => toggleColumn(col.key)}
-                      className="w-4 h-4 rounded border-slate-300 text-emerald-600 accent-emerald-600 focus:ring-2 focus:ring-emerald-500/20 focus:ring-offset-0 focus:outline-none cursor-pointer"
-                    />
-                  </label>
-                ))}
-              </div>
-
-              <div className="pt-2">
-                <button
-                  onClick={() => { setIsColumnModalOpen(false); addToast('Column settings updated!'); }}
-                  className="w-full py-2 text-xs font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors"
-                >
-                  Apply Settings
-                </button>
-              </div>
-            </div>
-          </div>
-        )
-      }
+      {/* New Quotation Modal */}
+      <QuotationModal
+        isOpen={isQuotationModalOpen}
+        onClose={() => setIsQuotationModalOpen(false)}
+        onSave={() => addToast('Quotation saved successfully!')}
+      />
 
       {/* Toast Notification Container */}
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 pointer-events-none">
-        {toasts.map(t => (
-          <div
-            key={t.id}
-            className="bg-slate-900 text-white px-4 py-2.5 rounded-lg shadow-xl text-xs font-bold flex items-center gap-2 pointer-events-auto border border-slate-700 transition-all"
-          >
-            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-            <span>{t.msg}</span>
-          </div>
-        ))}
-      </div>
+      <ToastContainer toasts={toasts} />
 
     </div >
   );

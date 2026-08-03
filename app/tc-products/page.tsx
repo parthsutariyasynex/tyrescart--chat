@@ -18,11 +18,20 @@ import {
 } from '@heroicons/react/24/outline';
 import BookInquiryModal from "@/components/BookInquiryModal";
 import CheckSupplierModal from "@/components/CheckSupplierModal";
+import CartModal from "@/components/CartModal";
 import QuickViewModal from '@/components/QuickViewModal';
+import QuotationModal from '@/components/QuotationModal';
+import Filter from '@/components/Filter';
+import Pagination from "@/components/Pagination";
+import ToastContainer from "@/components/ToastContainer";
+type TableDensity = 'compact' | 'comfortable' | 'breathable';
+import { useProductFilter } from '@/hooks/useProductFilter';
+import { useProductSorting } from '@/hooks/useProductSorting';
+import ProductTableRow from '@/components/ProductTableRow';
 import { buildRowString, buildBulkCopyString } from "@/services/productFormatter";
-import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
+import Header from "@/components/Header";
 import HeaderBookInquiry from "@/components/HeaderBookInquiry";
-import SyncButton from "@/components/SyncButton";
+import HeaderActions from "@/components/HeaderActions";
 import { CATEGORY_BADGES_SEMANTIC, BRAND_BADGES_SEMANTIC } from "@/constants/badges";
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import {
@@ -320,12 +329,7 @@ export default function TcProductsPage() {
 
   const [pageSize, setPageSize] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
-  // Default to newest-first. Without a sort the table renders in cache order,
-  // which mirrors the API's `id ASC` — i.e. catalogue insertion order, not
-  // recency. On the live data that puts the OLDEST rows (2025-05-08) on page 1
-  // and the newest (2026-07-20) on page ~587, so the latest stock looked absent.
-  const [sortColumn, setSortColumn] = useState<keyof Product | null>('date');
-  const [sortAsc, setSortAsc] = useState(false);
+  const { sortColumn, sortAsc, handleSort, sortItems } = useProductSorting<Product>('date', false);
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   /** Rows the user has added via the Action column. Client-side only — there is
@@ -333,22 +337,18 @@ export default function TcProductsPage() {
   const [listIds, setListIds] = useState<Set<number>>(new Set());
   /** Persisted, offline-first cart — survives refresh, navigation and offline. */
   const cart = useCart();
-  const [activeDrawerItem, setActiveDrawerItem] = useState<Product | null>(null);
   /** Row whose supplier-availability panel is open, or null. */
   const [checkSupplierItem, setCheckSupplierItem] = useState<Product | null>(null);
+  /** Cart panel visibility. Opens on Add to Cart. */
+  const [isCartOpen, setIsCartOpen] = useState(false);
   const [quickViewItem, setQuickViewItem] = useState<Product | null>(null);
   const [inquiryModalItem, setInquiryModalItem] = useState<Product | null>(null);
   const [isInquiryModalOpen, setIsInquiryModalOpen] = useState(false);
-  const [isColumnModalOpen, setIsColumnModalOpen] = useState(false);
-  const [isDensityMenuOpen, setIsDensityMenuOpen] = useState(false);
-  const [isPageSizeOpen, setIsPageSizeOpen] = useState(false);
-  // isSupplierOpen removed — Supplier dropdown is not used on TC Products page.
-  const [isCategoryOpen, setIsCategoryOpen] = useState(false);
-  const [isBrandOpen, setIsBrandOpen] = useState(false);
-  const [density, setDensity] = useState<'compact' | 'comfortable' | 'breathable'>('comfortable');
+  const [isQuotationModalOpen, setIsQuotationModalOpen] = useState(false);
+  const [density, setDensity] = useState<TableDensity>('comfortable');
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const addToast = useCallback((msg: string) => {
+  const addToast = useCallback((msg: string, _type?: string) => {
     const id = Date.now() + Math.floor(Math.random() * 1000);
     setToasts(prev => [...prev, { id, msg }]);
     setTimeout(() => {
@@ -557,36 +557,6 @@ export default function TcProductsPage() {
    * The page only observes — see `useSyncTask` / `useSyncBatches` above.
    */
 
-  const categoryRef = useRef<HTMLDivElement>(null);
-  const brandRef = useRef<HTMLDivElement>(null);
-  const offerRef = useRef<HTMLDivElement>(null);
-  const pageSizeRef = useRef<HTMLDivElement>(null);
-  const densityRef = useRef<HTMLDivElement>(null);
-
-  // Close all dropdowns when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (categoryRef.current && !categoryRef.current.contains(target)) {
-        setIsCategoryOpen(false);
-      }
-      if (brandRef.current && !brandRef.current.contains(target)) {
-        setIsBrandOpen(false);
-      }
-      if (offerRef.current && !offerRef.current.contains(target)) {
-        setIsOfferOpen(false);
-      }
-      if (pageSizeRef.current && !pageSizeRef.current.contains(target)) {
-        setIsPageSizeOpen(false);
-      }
-      if (densityRef.current && !densityRef.current.contains(target)) {
-        setIsDensityMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
   // Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -594,119 +564,28 @@ export default function TcProductsPage() {
         e.preventDefault();
         document.getElementById('searchInput')?.focus();
       }
-      if (e.key === 'Escape') {
-        setActiveDrawerItem(null);
-        setIsColumnModalOpen(false);
-        setIsDensityMenuOpen(false);
-        setIsPageSizeOpen(false);
-        setIsCategoryOpen(false);
-        setIsBrandOpen(false);
-        setIsOfferOpen(false);
-      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   // Filtered & Sorted Dataset
+  const filteredProductsRaw = useProductFilter({
+    allProducts,
+    searchQuery,
+    categoryFilter,
+    brandInput,
+    sizeInput,
+    yearInput,
+    qtyInput,
+    minPriceInput,
+    maxPriceInput,
+    offerFilter,
+  });
+
   const filteredProducts = useMemo(() => {
-    // Start from the array itself, NOT a spread copy. Every filter below
-    // already returns a fresh array, so the eager `[...allProducts]` was an
-    // extra full-size allocation (318k entries) on every keystroke-triggered
-    // recompute. The only step that would mutate is `.sort()`, which copies
-    // explicitly below when nothing else has copied yet.
-    let result: Product[] = allProducts;
-
-    // Search — delegated to `services/searchFilter.ts`, the single source of
-    // truth for the search contract: tokenized on comma/whitespace, AND across
-    // tokens, OR across fields, partial and case-insensitive.
-    //
-    // This replaces an inline copy that matched numeric tokens with an
-    // UNANCHORED `sizeDigits.includes(num)` and also ran them through the text
-    // fields. That let a width query hit unrelated stock via SKU digits —
-    // measured on the live catalogue: "195" returned 326 rows of which 57 were
-    // false positives (e.g. size 33X/12.5 R22, SKU 2281953), and "55" returned
-    // 2,344 of which 1,454 were wrong. `matchesSearch` anchors a size token to
-    // a width prefix or a whole size component and never matches it against
-    // name/SKU, so short numeric searches stay precise. Full sizes are
-    // unaffected — every spelling of "205/55R16" still returns the same 61 rows.
-    // Search + the width-omitted aspect+rim fallback, both from
-    // services/searchFilter.ts — the two-step used to be inlined here and in
-    // the other product page.
-    if (searchQuery.trim()) {
-      result = searchWithAspectRimFallback(result, searchQuery.trim(), SEARCH_FIELDS, SEARCH_SIZE_FIELDS);
-    }
-
-    // Category — exact match on the selected dropdown value.
-    // Supplier filter removed: TC Products page has a single source.
-    if (categoryFilter !== 'ALL') result = result.filter(item => item.category === categoryFilter);
-
-    // Brand — comma-separated list or typed text, partial match on ANY.
-    if (brandInput.trim()) {
-      const brands = brandInput.split(',').map(b => b.trim().toLowerCase()).filter(Boolean);
-      if (brands.length) result = result.filter(item => brands.some(b => item.brand.toLowerCase().includes(b)));
-    }
-
-    // Size — comma-separated list, each normalized (plain_size) OR formatted-size match.
-    if (sizeInput.trim()) {
-      const sizes = sizeInput.split(',').map(s => s.trim()).filter(Boolean);
-      if (sizes.length) result = result.filter(item => sizes.some(sz => matchesSizeInput(item, sz)));
-    }
-
-    // Year — comma-separated exact list (matches route's $in).
-    if (yearInput.trim()) {
-      const years = yearInput.split(',').map(y => parseInt(y.trim(), 10)).filter(y => !isNaN(y));
-      if (years.length) result = result.filter(item => years.includes(item.year));
-    }
-
-    // Qty — minimum threshold (matches route's { $gte }).
-    if (qtyInput.trim() && !isNaN(Number(qtyInput))) {
-      const n = Number(qtyInput);
-      result = result.filter(item => item.qty >= n);
-    }
-
-    // Price range — inclusive Min/Max over the PRICE column. Each bound is
-    // applied only when it parses as a number, so a half-filled range still
-    // filters on the side that was entered and a blank pair is a no-op.
-    const minPrice = parseFloat(minPriceInput);
-    const maxPrice = parseFloat(maxPriceInput);
-    if (!isNaN(minPrice)) result = result.filter(item => item.price >= minPrice);
-    if (!isNaN(maxPrice)) result = result.filter(item => item.price <= maxPrice);
-
-    // Offers filter — 'ALL' shows all products, or specific offer label match.
-    if (offerFilter !== 'ALL') {
-      result = result.filter(item => item.offer === offerFilter);
-    }
-
-    if (sortColumn) {
-      // `sort` mutates in place. If no filter ran, `result` is still the
-      // `allProducts` state array — copy first so we never reorder state.
-      if (result === allProducts) result = [...result];
-      const dir = sortAsc ? 1 : -1;
-      // Date is the default sort, so it runs constantly and over the largest
-      // arrays — take the precomputed integer path instead of the collator.
-      if (sortColumn === 'date') {
-        result.sort((a, b) => (a.dateKey - b.dateKey) * dir);
-        return result;
-      }
-      result.sort((a, b) => {
-        const valA = a[sortColumn];
-        const valB = b[sortColumn];
-        if (typeof valA === 'string' && typeof valB === 'string') {
-          return collator.compare(valA, valB) * dir;
-        }
-        if (typeof valA === 'number' && typeof valB === 'number') {
-          return (valA - valB) * dir;
-        }
-        if (typeof valA === 'boolean' && typeof valB === 'boolean') {
-          return (valA === valB ? 0 : valA ? 1 : -1) * dir;
-        }
-        return 0;
-      });
-    }
-
-    return result;
-  }, [allProducts, searchQuery, categoryFilter, brandInput, sizeInput, yearInput, qtyInput, minPriceInput, maxPriceInput, offerFilter, sortColumn, sortAsc]);
+    return sortItems(filteredProductsRaw);
+  }, [filteredProductsRaw, sortItems]);
 
   // Extract category, brand, and offer dropdown lists in ONE pass.
   const { categoryOptions, brandOptions, offerOptions } = useMemo(() => {
@@ -820,14 +699,7 @@ export default function TcProductsPage() {
     else if (currentPage < 1) setCurrentPage(1);
   }, [currentPage, totalPages]);
 
-  const handleSort = (colKey: keyof Product) => {
-    if (sortColumn === colKey) {
-      setSortAsc(prev => !prev);
-    } else {
-      setSortColumn(colKey);
-      setSortAsc(true);
-    }
-  };
+
 
   const resetFilters = () => {
     setSearchQuery('');
@@ -845,9 +717,7 @@ export default function TcProductsPage() {
 
 
 
-  const clearSelection = () => {
-    setSelectedIds(new Set());
-  };
+
 
 
   //old add to list code 
@@ -911,6 +781,8 @@ export default function TcProductsPage() {
       price: item.price,
     });
     addToast(`Added "${item.pattern || item.brand}" to cart.`);
+    // Show the line-item form straight away, as requested.
+    setIsCartOpen(true);
   };
 
   /**
@@ -1016,126 +888,35 @@ export default function TcProductsPage() {
       <main className="flex-1 flex flex-col min-w-0 bg-slate-50 overflow-hidden">
 
         {/* TOP NAVIGATION HEADER */}
-        <header className="sticky top-0 z-20 h-16 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-6 flex items-center justify-between shrink-0 shadow-2xs">
-
-          {/* Title & Stats */}
-          <div className="flex items-center gap-3">
-            <h1 className="text-lg font-bold text-slate-900 tracking-tight">TC Products</h1>
+        <Header
+          variant="sticky"
+          title="TC Products"
+          bookInquiry={false}
+          fullscreenTone="slate"
+          syncTitle="Sync TC products"
+          isOnline={isOnline}
+          badge={
             <span className="inline-flex items-center justify-center min-w-[92px] bg-emerald-50 text-emerald-700 text-xs font-semibold px-2.5 py-0.5 rounded-full border border-emerald-200/80 tabular-nums whitespace-nowrap">
-              {taskRunning ? (
-                syncProgress ? (
-                  `Syncing: ${syncProgress.loaded.toLocaleString()} items`
+                {taskRunning ? (
+                  syncProgress ? (
+                    `Syncing: ${syncProgress.loaded.toLocaleString()} items`
+                  ) : (
+                    `Syncing... ${totalItems.toLocaleString()} items`
+                  )
                 ) : (
-                  `Syncing... ${totalItems.toLocaleString()} items`
-                )
-              ) : (
-                `${totalItems.toLocaleString()} items`
-              )}
-            </span>
-          </div>
-
-          {/* Right Actions & Controls */}
-          <div className="flex items-center gap-2.5">
-
-            {/* Density Selector */}
-            <div ref={densityRef} className="relative">
-
-              {isDensityMenuOpen && (
-                <div className="absolute right-0 mt-1.5 w-48 bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-40">
-                  {[
-                    { key: 'compact', label: 'Compact (44px)' },
-                    { key: 'comfortable', label: 'Standard (54px)' },
-                    { key: 'breathable', label: 'Breathable (64px)' },
-                  ].map((item) => (
-                    <button
-                      key={item.key}
-                      onClick={() => {
-                        setDensity(item.key as 'compact' | 'comfortable' | 'breathable');
-                        setIsDensityMenuOpen(false);
-                        addToast(`Density set to ${item.key}`);
-                      }}
-                      className="w-full text-left px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center justify-between"
-                    >
-                      <span>{item.label}</span>
-                      {density === item.key && <span className="text-emerald-600 font-bold">✓</span>}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-
-            {/* Copy All Search Results Button */}
-            <button
-              type="button"
-              onClick={copyAllSearchResults}
-              title={hasActiveFilter ? "Copy All Search Results" : "Copy Search Results"}
-              aria-label="Copy Result"
-              className="h-9 flex items-center gap-2 px-3 text-xs font-bold bg-white text-slate-700 border border-slate-200 hover:border-emerald-500 hover:text-emerald-600 rounded-lg shadow-2xs transition-all active:scale-[0.98] shrink-0"
-            >
-              <ClipboardDocumentIcon className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span className="whitespace-nowrap">Copy Result</span>
-            </button>
-
-            {/* Book Inquiry Button — always visible in header */}
-            <HeaderBookInquiry />
-
-            {/* Create Quote Button */}
-            <button
-              type="button"
-              title="Create Quote"
-              aria-label="Create Quote"
-              className="h-9 flex items-center gap-1.5 px-3.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs hover:shadow-indigo-600/20 transition-all active:scale-[0.98] shrink-0 cursor-pointer"
-            >
-              <DocumentTextIcon className="w-4 h-4 shrink-0" />
-              <span className="whitespace-nowrap">Create Quote</span>
-            </button>
-
-            {/* Chat — opens the tyre guide chat. Distinct from the Tyres Guide
-                button, which is a separate control. */}
-            <Link
-              href="/tyre_guide/chat"
-              title="Chat"
-              aria-label="Chat"
-              className="h-9 flex items-center gap-1.5 px-3.5 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-xs hover:shadow-sky-600/20 transition-all active:scale-[0.98] shrink-0 cursor-pointer"
-            >
-              <ChatBubbleLeftRightIcon className="w-4 h-4 shrink-0" />
-              <span className="whitespace-nowrap">Chat</span>
-            </Link>
-
-            {/* Tyres Guide Button */}
-            <button
-              type="button"
-              title="Tyres Guide"
-              aria-label="Tyres Guide"
-              className="h-9 flex items-center gap-1.5 px-3.5 text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-lg shadow-xs hover:shadow-amber-500/20 transition-all active:scale-[0.98] shrink-0 cursor-pointer"
-            >
-              <ChatBubbleLeftRightIcon className="w-4 h-4 shrink-0" />
-              <span className="whitespace-nowrap">Tyres Guide</span>
-            </button>
-
-            {/* Export Button */}
-            <button
-              onClick={exportCSV}
-              className="h-9 flex items-center gap-2 px-3.5 text-xs font-bold text-white bg-slate-700 hover:bg-slate-800 rounded-lg shadow-xs transition-all active:scale-[0.98]"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Export
-            </button>
-
-            <FullscreenButton tone="slate" />
-
-            {/* The app's shared Sync button — resolves this route to its
-                registered task and runs it through the manager. */}
-            <SyncButton title="Sync TC products" />
-
-            {/* Online Indicator */}
-            <OnlineStatusBadge isOnline={isOnline} variant="fixed" />
-
-          </div>
-        </header>
+                  `${totalItems.toLocaleString()} items`
+                )}
+              </span>
+          }
+          actions={
+            <HeaderActions
+              onCopyResult={copyAllSearchResults}
+              hasActiveFilter={hasActiveFilter}
+              onCreateQuote={() => setIsQuotationModalOpen(true)}
+              onExportCSV={exportCSV}
+            />
+          }
+        />
 
         {/* SCROLLABLE INNER DASHBOARD BODY */}
         <div className="flex-1 min-h-0 flex flex-col p-6 gap-4 w-full mx-auto overflow-hidden">
@@ -1174,371 +955,41 @@ export default function TcProductsPage() {
             </div>
           )}
 
-          {/* Filters Bar — Category · Brand · Search · Size · Year · Qty · RunFlat */}
-          <section className="shrink-0 bg-white border border-slate-200/90 rounded-xl p-4 shadow-2xs relative z-30">
-            <div className="flex flex-wrap items-end gap-2.5">
+          <Filter
+            categoryFilter={categoryFilter}
+            setCategoryFilter={setCategoryFilter}
+            categoryOptions={categoryOptions}
 
-              {/* Category */}
-              <div ref={categoryRef} className="flex flex-col min-w-[140px] relative">
-                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Category</label>
-                <button
-                  onClick={() => {
-                    setIsCategoryOpen(!isCategoryOpen);
-                    setIsBrandOpen(false);
-                    setIsPageSizeOpen(false);
-                    setIsDensityMenuOpen(false);
-                  }}
-                  className="h-10 bg-white border border-slate-200 rounded-lg px-3 flex items-center justify-between text-sm font-medium text-slate-700 hover:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs transition-all cursor-pointer"
-                >
-                  <span className="truncate">{categoryFilter === 'ALL' ? 'All' : categoryFilter}</span>
-                  <svg className={`w-4 h-4 text-slate-400 ml-2 shrink-0 transition-transform ${isCategoryOpen ? 'rotate-180 text-emerald-600' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
+            brandInput={brandInput}
+            setBrandInput={setBrandInput}
+            brandOptions={brandOptions}
 
-                {isCategoryOpen && (
-                  <div className="absolute left-0 top-full mt-1.5 min-w-full bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
-                    <button
-                      onClick={() => { setCategoryFilter('ALL'); setCurrentPage(1); setIsCategoryOpen(false); }}
-                      className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${categoryFilter === 'ALL' ? 'text-emerald-700 bg-emerald-50/80 font-bold' : 'text-slate-700 hover:bg-slate-50'
-                        }`}
-                    >
-                      <span>All</span>
-                      {categoryFilter === 'ALL' && <span className="text-emerald-600 font-bold">✓</span>}
-                    </button>
-                    {categoryOptions.map((c) => (
-                      <button
-                        key={c}
-                        onClick={() => { setCategoryFilter(c); setCurrentPage(1); setIsCategoryOpen(false); }}
-                        className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${categoryFilter === c ? 'text-emerald-700 bg-emerald-50/80 font-bold' : 'text-slate-700 hover:bg-slate-50'
-                          }`}
-                      >
-                        <span className="truncate">{c}</span>
-                        {categoryFilter === c && <span className="text-emerald-600 font-bold">✓</span>}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
 
-              {/* Brand */}
-              <div ref={brandRef} className="relative flex flex-col min-w-[150px] max-w-[180px]">
-                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Brand</label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={brandInput}
-                    onFocus={() => {
-                      setIsBrandOpen(true);
-                      setIsCategoryOpen(false);
-                      setIsPageSizeOpen(false);
-                      setIsDensityMenuOpen(false);
-                    }}
-                    onChange={(e) => {
-                      setBrandInput(e.target.value);
-                      setIsBrandOpen(true);
-                      setIsCategoryOpen(false);
-                      setIsPageSizeOpen(false);
-                      setIsDensityMenuOpen(false);
-                      setCurrentPage(1);
-                    }}
-                    placeholder="Brand"
-                    className="h-10 w-full bg-white border border-slate-200 rounded-lg pl-3 pr-9 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
-                  />
-                  {brandInput ? (
-                    <XMarkIcon
-                      onClick={() => {
-                        setBrandInput('');
-                        setCurrentPage(1);
-                      }}
-                      className="w-4 h-4 text-slate-400 hover:text-rose-600 absolute right-2.5 top-1/2 -translate-y-1/2 cursor-pointer transition-colors"
-                      title="Clear brand search"
-                    />
-                  ) : (
-                    <ChevronDownIcon
-                      onClick={() => {
-                        setIsBrandOpen(!isBrandOpen);
-                        setIsCategoryOpen(false);
-                        setIsPageSizeOpen(false);
-                        setIsDensityMenuOpen(false);
-                      }}
-                      className="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 cursor-pointer hover:text-slate-600 transition-colors"
-                    />
-                  )}
-                </div>
+            sizeInput={sizeInput}
+            setSizeInput={setSizeInput}
 
-                {/* Selected Brand Pills with individual X remove buttons */}
-                {selectedBrandList.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1.5 max-w-[260px]">
-                    {selectedBrandList.map((b) => (
-                      <span
-                        key={b}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs"
-                      >
-                        <span>{b}</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const remaining = selectedBrandList.filter((item) => item.toLowerCase() !== b.toLowerCase());
-                            setBrandInput(remaining.length > 0 ? remaining.join(', ') + ', ' : '');
-                            setCurrentPage(1);
-                          }}
-                          className="hover:bg-emerald-200/70 rounded-full p-0.5 transition-colors text-emerald-800"
-                          title={`Remove ${b}`}
-                        >
-                          <XMarkIcon className="w-3 h-3" />
-                        </button>
-                      </span>
-                    ))}
-                    {selectedBrandList.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setBrandInput('');
-                          setCurrentPage(1);
-                        }}
-                        className="text-[10px] text-slate-400 hover:text-rose-600 font-semibold underline underline-offset-2 ml-1 self-center"
-                      >
-                        Clear all
-                      </button>
-                    )}
-                  </div>
-                )}
+            yearInput={yearInput}
+            setYearInput={setYearInput}
 
-                {isBrandOpen && (
-                  <div className="absolute left-0 top-full mt-1.5 min-w-full max-h-60 overflow-y-auto bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
-                    <button
-                      onClick={() => { setBrandInput(''); setCurrentPage(1); setIsBrandOpen(false); }}
-                      className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${!brandInput.trim() ? 'text-emerald-700 bg-emerald-50/80 font-bold' : 'text-slate-700 hover:bg-slate-50'
-                        }`}
-                    >
-                      <span>All Brands</span>
-                      {!brandInput.trim() && <span className="text-emerald-600 font-bold">✓</span>}
-                    </button>
-                    {filteredBrandOptions.map((b) => {
-                      const selectedBrands = brandInput.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-                      const isSelected = selectedBrands.includes(b.toLowerCase());
+            qtyInput={qtyInput}
+            setQtyInput={setQtyInput}
 
-                      return (
-                        <button
-                          key={b}
-                          onClick={() => {
-                            const currentParts = brandInput.split(',').map(s => s.trim()).filter(Boolean);
-                            const lastPart = currentParts[currentParts.length - 1] || '';
-                            const isLastPartial = lastPart && !brandOptions.some(opt => opt.toLowerCase() === lastPart.toLowerCase());
+            minPriceInput={minPriceInput}
+            setMinPriceInput={setMinPriceInput}
 
-                            let baseParts = currentParts;
-                            if (isLastPartial) {
-                              baseParts = currentParts.slice(0, -1);
-                            }
+            maxPriceInput={maxPriceInput}
+            setMaxPriceInput={setMaxPriceInput}
 
-                            let newParts: string[];
-                            if (baseParts.some(p => p.toLowerCase() === b.toLowerCase())) {
-                              newParts = baseParts.filter(p => p.toLowerCase() !== b.toLowerCase());
-                            } else {
-                              newParts = [...baseParts, b];
-                            }
+            showOfferFilter
+            offerFilter={offerFilter}
+            setOfferFilter={setOfferFilter}
+            offerOptions={offerOptions}
 
-                            setBrandInput(newParts.length > 0 ? newParts.join(', ') + ', ' : '');
-                            setCurrentPage(1);
-                          }}
-                          className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${isSelected ? 'text-emerald-700 bg-emerald-50/80 font-bold' : 'text-slate-700 hover:bg-slate-50'
-                            }`}
-                        >
-                          <span className="truncate">{b}</span>
-                          {isSelected && <span className="text-emerald-600 font-bold">✓</span>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* Search */}
-              <div className="flex flex-col flex-1 min-w-[200px] max-w-[300px]">
-                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Search</label>
-                <div className="relative">
-                  <MagnifyingGlassIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    id="searchInput"
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-                    placeholder="Query..."
-                    className="search-field h-10 w-full pl-9 pr-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
-                  />
-                </div>
-              </div>
-
-              {/* Size */}
-              <div className="flex flex-col w-[105px]">
-                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Size</label>
-                <input
-                  type="text"
-                  value={sizeInput}
-                  onChange={(e) => { setSizeInput(e.target.value); setCurrentPage(1); }}
-                  placeholder="Size..."
-                  className="h-10 bg-white border border-slate-200 rounded-lg px-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
-                />
-              </div>
-
-              {/* Year */}
-              <div className="flex flex-col w-[75px]">
-                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Year</label>
-                <input
-                  type="text"
-                  value={yearInput}
-                  onChange={(e) => { setYearInput(e.target.value); setCurrentPage(1); }}
-                  placeholder="Year..."
-                  className="h-10 bg-white border border-slate-200 rounded-lg px-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
-                />
-              </div>
-
-              {/* Qty */}
-              <div className="flex flex-col w-[70px]">
-                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Qty</label>
-                <input
-                  type="text"
-                  value={qtyInput}
-                  onChange={(e) => { setQtyInput(e.target.value); setCurrentPage(1); }}
-                  placeholder="Qty..."
-                  className="h-10 bg-white border border-slate-200 rounded-lg px-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
-                />
-              </div>
-
-              {/* Price Range — Min / Max over the PRICE column */}
-              <div className="flex flex-col w-[180px]">
-                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Price Range</label>
-                <div className="flex items-center gap-1.5">
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    value={minPriceInput}
-                    onChange={(e) => { setMinPriceInput(e.target.value); setCurrentPage(1); }}
-                    placeholder="Min"
-                    className="h-10 w-full min-w-0 bg-white border border-slate-200 rounded-lg px-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
-                  />
-                  <span className="text-slate-400 text-xs font-semibold shrink-0">-</span>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    value={maxPriceInput}
-                    onChange={(e) => { setMaxPriceInput(e.target.value); setCurrentPage(1); }}
-                    placeholder="Max"
-                    className="h-10 w-full min-w-0 bg-white border border-slate-200 rounded-lg px-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
-                  />
-                </div>
-              </div>
-
-              {/* Offers Dropdown */}
-              <div ref={offerRef} className="flex flex-col min-w-[160px] relative">
-                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
-                  Offers
-                </label>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsOfferOpen(!isOfferOpen);
-                    setIsCategoryOpen(false);
-                    setIsBrandOpen(false);
-                    setIsPageSizeOpen(false);
-                    setIsDensityMenuOpen(false);
-                  }}
-                  className="h-10 bg-white border border-slate-200 rounded-lg px-3 flex items-center justify-between text-sm font-medium text-slate-700 hover:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs transition-all cursor-pointer"
-                >
-                  <div className="flex items-center gap-2 truncate">
-                    {offerFilter !== 'ALL' && (
-                      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${getOfferBadgeStyle(offerFilter, offerOptions).dot}`} />
-                    )}
-                    <span className="truncate">
-                      {offerFilter === 'ALL' ? 'All Offers' : offerFilter}
-                    </span>
-                  </div>
-                  <ChevronDownIcon className={`w-4 h-4 text-slate-400 ml-2 shrink-0 transition-transform ${isOfferOpen ? 'rotate-180 text-emerald-600' : ''}`} />
-                </button>
-
-                {isOfferOpen && (
-                  <div className="absolute left-0 top-full mt-1.5 min-w-full bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 max-h-60 overflow-y-auto animate-in fade-in zoom-in-95 duration-100">
-                    <button
-                      type="button"
-                      onClick={() => { setOfferFilter('ALL'); setCurrentPage(1); setIsOfferOpen(false); }}
-                      className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${offerFilter === 'ALL' ? 'text-emerald-700 bg-emerald-50/80 font-bold' : 'text-slate-700 hover:bg-slate-50'}`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-slate-300" />
-                        <span>All Offers</span>
-                      </div>
-                      {offerFilter === 'ALL' && <span className="text-emerald-600 font-bold">✓</span>}
-                    </button>
-
-                    {offerOptions.map((off) => {
-                      const style = getOfferBadgeStyle(off, offerOptions);
-                      return (
-                        <button
-                          key={off}
-                          type="button"
-                          onClick={() => { setOfferFilter(off); setCurrentPage(1); setIsOfferOpen(false); }}
-                          className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${offerFilter === off ? 'text-emerald-700 bg-emerald-50/80 font-bold' : 'text-slate-700 hover:bg-slate-50'}`}
-                        >
-                          <div className="flex items-center gap-2 truncate">
-                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${style.dot}`} />
-                            <span className="truncate">{off}</span>
-                          </div>
-                          {offerFilter === off && <span className="text-emerald-600 font-bold ml-2">✓</span>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* Search button */}
-              <button
-                onClick={() => setCurrentPage(1)}
-                title="Search"
-                className="h-10 w-10 flex items-center justify-center bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-xs transition-colors"
-              >
-                <MagnifyingGlassIcon className="w-4 h-4" />
-              </button>
-
-              {/* Reset button */}
-              <button
-                onClick={resetFilters}
-                title="Reset filters"
-                className="h-10 w-10 flex items-center justify-center bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-emerald-600 rounded-lg shadow-2xs transition-colors"
-              >
-                <ArrowPathIcon className="w-4 h-4" />
-              </button>
-            </div>
-          </section>
-
-          {/* Floating Selection Toolbar */}
-          {selectedIds.size > 0 && (
-            <div className="sticky top-20 z-20 bg-slate-900 text-white px-5 py-3 rounded-xl shadow-xl flex items-center justify-between border border-slate-700 transition-all">
-              <div className="flex items-center gap-3">
-                <span className="w-6 h-6 rounded-full bg-emerald-500 text-slate-950 font-bold text-xs flex items-center justify-center">
-                  {selectedIds.size}
-                </span>
-                <span className="text-xs font-semibold text-slate-200">items selected</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => { addToast(`Exporting ${selectedIds.size} selected products...`); exportCSV(); clearSelection(); }}
-                  className="px-3 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white rounded-lg border border-slate-700 transition-colors"
-                >
-                  Export Selected
-                </button>
-                <button
-                  onClick={clearSelection}
-                  className="px-3 py-1.5 text-xs font-semibold text-slate-400 hover:text-white transition-colors"
-                >
-                  Deselect All
-                </button>
-              </div>
-            </div>
-          )}
+            onSearch={() => setCurrentPage(1)}
+            onReset={resetFilters}
+          />
 
           {/* Data Table Container Card */}
           <section className="flex-1 min-h-0 bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col">
@@ -1608,274 +1059,53 @@ export default function TcProductsPage() {
                       </td>
                     </tr>
                   ) : (
-                    currentItems.map((item) => {
-                      const isSelected = selectedIds.has(item.id);
-
-                      return (
-                        <tr
-                          key={item.id}
-                          onClick={() => copyRowData(item)}
-                          title="Click to copy entire row data"
-                          className={`transition-all hover:bg-emerald-50/50 cursor-pointer group ${isSelected ? 'bg-emerald-50/70' : ''}`}
-                        >
-
-                          {!hiddenColumns.has('brand') && (
-                            <td className={`${cellPaddingClass} whitespace-nowrap`}>
-                              {/* Brand stays the primary text; the category sits under it
-                                  as a smaller, quieter chip. Same column — no new one.
-                                  Colours come from the shared map in constants/badges.ts,
-                                  keyed on the API's own category value. */}
-                              {/* The category line is ALWAYS reserved, even when a
-                                  product has no category. Rendering it only when
-                                  present made those rows 16px shorter than the rest
-                                  (measured 53px vs 69px), so the table looked ragged. */}
-                              <div className="flex flex-col items-start gap-0.5">
-                                <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border uppercase tracking-tight whitespace-nowrap inline-block ${brandBadges[item.brand] || 'badge-brand-default'}`}>
-                                  {item.brand || '-'}
-                                </span>
-                                <span className="h-[15px] flex items-center">
-                                  {item.category ? (
-                                    <span className={`px-1.5 text-[9px] leading-[13px] font-bold rounded uppercase tracking-wide whitespace-nowrap inline-block ${categoryBadges[item.category] || 'badge-cat-default'}`}>
-                                      {item.category}
-                                    </span>
-                                  ) : null}
-                                </span>
-                              </div>
-                            </td>
-                          )}
-
-                          {!hiddenColumns.has('size') && (
-                            <td className={cellPaddingClass}>
-                              <span className="px-2 py-0.5 text-[11px] font-semibold rounded-md bg-slate-50 text-slate-700 border border-slate-200/70 font-mono whitespace-nowrap">
-                                {item.sizeFull || item.size || '-'}
-                              </span>
-                            </td>
-                          )}
-
-                          {!hiddenColumns.has('name') && (
-                            <td className={`${cellPaddingClass} text-xs font-bold text-slate-800`}>
-                              <span className="line-clamp-2">{item.pattern || '-'}</span>
-                            </td>
-                          )}
-
-                          {!hiddenColumns.has('oem') && (
-                            <td className={`${cellPaddingClass} text-center text-xs text-slate-400 font-medium`}>{item.oem}</td>
-                          )}
-
-                          {!hiddenColumns.has('runflat') && (
-                            <td className={`${cellPaddingClass} text-center whitespace-nowrap`}>
-                              {item.runflat ? (
-                                <span className="px-2.5 py-0.5 text-[11px] font-bold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60 whitespace-nowrap inline-block">Runflat</span>
-                              ) : (
-                                <span className="text-slate-400 font-medium">-</span>
-                              )}
-                            </td>
-                          )}
-
-                          {!hiddenColumns.has('origin') && (
-                            <td className={`${cellPaddingClass} whitespace-nowrap`}>
-                              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 whitespace-nowrap">
-                                {item.country && item.country.trim() ? item.country : <span className="text-slate-400 font-medium">-</span>}
-                              </div>
-                            </td>
-                          )}
-
-                          {!hiddenColumns.has('year') && (
-                            <td className={`${cellPaddingClass} text-center text-xs font-semibold text-slate-700`}>
-                              {item.year && item.year > 0 ? item.year : <span className="text-slate-400 font-medium">-</span>}
-                            </td>
-                          )}
-
-                          {!hiddenColumns.has('qty') && (
-                            <td className={`${cellPaddingClass} text-center`}>
-                              {item.qty === 0 ? (
-                                <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-red-50 text-red-600 text-[11px] font-extrabold border border-red-200/60 font-mono">0</span>
-                              ) : (
-                                <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-extrabold border border-emerald-200/60 font-mono">{item.qty}</span>
-                              )}
-                            </td>
-                          )}
-
-                          {!hiddenColumns.has('price') && (
-                            <td className={`${cellPaddingClass} text-right whitespace-nowrap`}>
-                              <div className="inline-flex items-center justify-end text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap" dir="ltr">
-                                <span className="whitespace-nowrap">{item.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                              </div>
-                            </td>
-                          )}
-
-                          {!hiddenColumns.has('setOf4Price') && (
-                            <td className={`${cellPaddingClass} text-right whitespace-nowrap`}>
-                              <div className="inline-flex items-center justify-end text-xs font-semibold text-slate-600 font-mono whitespace-nowrap" dir="ltr">
-                                <span className="whitespace-nowrap">{item.setOf4Price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                              </div>
-                            </td>
-                          )}
-
-                          {!hiddenColumns.has('offer') && (
-                            <td className={`${cellPaddingClass} text-center`}>
-                              {item.offer === NO_API_FIELD ? (
-                                <span className="text-xs text-slate-400 font-medium">{NO_API_FIELD}</span>
-                              ) : (() => {
-                                const style = getOfferBadgeStyle(item.offer, offerOptions);
-                                return (
-                                  <span
-                                    title={item.offer}
-                                    className={`inline-block max-w-full truncate px-2.5 py-0.5 rounded-md text-[10px] font-extrabold border shadow-2xs ${style.bg} ${style.text} ${style.border}`}
-                                  >
-                                    {item.offer}
-                                  </span>
-                                );
-                              })()}
-                            </td>
-                          )}
-
-                          <td className={`${cellPaddingClass} text-center`}>
-                            <div className="flex items-center justify-center gap-1.5">
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setQuickViewItem(item); }}
-                                title="View Details"
-                                aria-label="View Details"
-                                className="w-7 h-7 aspect-square shrink-0 flex items-center justify-center rounded-lg border transition-all active:scale-95 bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-emerald-600 hover:border-emerald-300"
-                              >
-                                <EyeIcon className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); toggleList(item); }}
-                                title={listIds.has(item.id) ? 'Remove from List' : 'Add to List'}
-                                className={`w-7 h-7 aspect-square shrink-0 flex items-center justify-center rounded-lg border transition-all active:scale-95 ${listIds.has(item.id)
-                                  ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700 shadow-2xs'
-                                  : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50'
-                                  }`}
-                              >
-                                <BookmarkIcon className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); addToCart(item); }}
-                                title="Add to Cart"
-                                className={`w-7 h-7 aspect-square shrink-0 flex items-center justify-center rounded-lg border transition-all active:scale-95 ${cart.has(item.id)
-                                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
-                                  : 'bg-white text-emerald-600 border-emerald-200 hover:bg-emerald-50'
-                                  }`}
-                              >
-                                <ShoppingCartIcon className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); shareOnWhatsApp(item); }}
-                                title="Copy details for WhatsApp"
-                                aria-label="Copy details for WhatsApp"
-                                className="w-7 h-7 aspect-square shrink-0 flex items-center justify-center rounded-lg border transition-all active:scale-95 bg-white text-[#25D366] border-[#25D366]/40 hover:bg-[#25D366]/10"
-                              >
-                                <WhatsAppIcon className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setCheckSupplierItem(item); }}
-                                title="Check Supplier"
-                                aria-label="Check Supplier"
-                                className="w-7 h-7 aspect-square shrink-0 flex items-center justify-center rounded-lg border transition-all active:scale-95 bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-900"
-                              >
-                                <TruckIcon className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    }))}
+                    currentItems.map((item) => (
+                      <ProductTableRow
+                        key={item.id}
+                        item={item}
+                        type="tc"
+                        hiddenColumns={hiddenColumns}
+                        cellPaddingClass={cellPaddingClass}
+                        isSelected={selectedIds.has(item.id)}
+                        brandBadges={brandBadges}
+                        categoryBadges={categoryBadges}
+                        onCopyRow={copyRowData}
+                        onQuickView={setQuickViewItem}
+                        onAddToCart={addToCart}
+                        onToggleList={toggleList}
+                        onShareWhatsApp={shareOnWhatsApp}
+                        onCheckSupplier={setCheckSupplierItem}
+                        inCart={cart.has(item.id)}
+                        inList={listIds.has(item.id)}
+                        offerOptions={offerOptions}
+                      />
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
 
             {/* Pagination Controls Bar */}
-            <div className="px-5 py-3 flex items-center justify-between border-t border-slate-100 bg-white">
-
-              {/* Left: Show N entries/page */}
-              <div ref={pageSizeRef} className="relative inline-flex items-center gap-2 text-xs font-semibold text-slate-600 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200/90 shadow-2xs">
-                <span className="text-slate-400 font-medium">Show</span>
-                <button
-                  onClick={() => setIsPageSizeOpen(!isPageSizeOpen)}
-                  className="h-6 px-2 flex items-center gap-1 text-xs font-bold text-slate-800 bg-white border border-slate-200 rounded-md hover:bg-slate-100 hover:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all cursor-pointer"
-                >
-                  <span>{pageSize}</span>
-                  <svg className={`w-3 h-3 text-slate-400 transition-transform ${isPageSizeOpen ? 'rotate-180 text-emerald-600' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                <span className="text-slate-500">entries</span>
-
-                {isPageSizeOpen && (
-                  <div className="absolute left-0 bottom-full mb-1.5 w-16 bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
-                    {[10, 25, 50, 100].map((size) => (
-                      <button
-                        key={size}
-                        onClick={() => {
-                          setPageSize(size);
-                          setCurrentPage(1);
-                          setIsPageSizeOpen(false);
-                        }}
-                        className={`w-full text-left px-3 py-1.5 text-xs font-semibold flex items-center justify-between transition-colors ${
-                          pageSize === size
-                            ? 'text-emerald-700 bg-emerald-50/80 font-bold'
-                            : 'text-slate-700 hover:bg-slate-50'
-                        }`}
-                      >
-                        <span>{size}</span>
-                        {pageSize === size && <span className="text-emerald-600 font-bold">✓</span>}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Right: Previous / page numbers / Next */}
-              <div className="flex items-center gap-1.5">
-                <button
-                  disabled={currentPage <= 1}
-                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                  className="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-                >
-                  Previous
-                </button>
-
-                <div className="flex items-center gap-1">
-                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                    let pageNum = i + 1;
-                    if (totalPages > 5) {
-                      if (currentPage > 3 && currentPage < totalPages - 1) {
-                        pageNum = currentPage - 2 + i;
-                      } else if (currentPage >= totalPages - 1) {
-                        pageNum = totalPages - 4 + i;
-                      }
-                    }
-                    return (
-                      <button
-                        key={pageNum}
-                        onClick={() => setCurrentPage(pageNum)}
-                        className={`w-7 h-7 text-xs font-semibold rounded-lg flex items-center justify-center transition-all ${
-                          currentPage === pageNum
-                            ? 'bg-emerald-600 text-white font-bold shadow-xs'
-                            : 'text-slate-600 hover:bg-slate-100'
-                        }`}
-                      >
-                        {pageNum}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <button
-                  disabled={currentPage >= totalPages}
-                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                  className="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-                >
-                  Next
-                </button>
-              </div>
-
-            </div>
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+              pageSize={pageSize}
+              setPageSize={setPageSize}
+            />
 
           </section>
         </div>
       </main>
+
+      {isCartOpen && (
+        <CartModal
+          onCloseAction={() => setIsCartOpen(false)}
+          onCheckoutAction={(total) =>
+            addToast(`Checkout: AED ${total.toLocaleString("en-US", { minimumFractionDigits: 2 })} — no order API is wired yet.`)
+          }
+        />
+      )}
 
       {checkSupplierItem && (
         <CheckSupplierModal
@@ -1891,186 +1121,7 @@ export default function TcProductsPage() {
         />
       )}
 
-      {/* Slide-Over Product Detail Drawer */}
-      {
-        activeDrawerItem && (
-          <>
-            <div
-              onClick={() => setActiveDrawerItem(null)}
-              className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-xs transition-opacity"
-            />
-            <aside className="fixed top-0 right-0 z-50 w-full max-w-md h-full bg-white shadow-2xl border-l border-slate-200 transition-transform duration-300 ease-in-out flex flex-col">
 
-              {/* Drawer Header */}
-              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                <div>
-                  {activeDrawerItem.category ? (
-                    <span className={`px-2.5 py-0.5 text-[10px] font-extrabold rounded-full uppercase tracking-wider ${categoryBadges[activeDrawerItem.category] || 'bg-purple-50 text-purple-700'}`}>
-                      {activeDrawerItem.category}
-                    </span>
-                  ) : null}
-                  <h2 className="text-base font-bold text-slate-900 mt-1">
-                    {activeDrawerItem.pattern}
-                  </h2>
-                  <p className="text-xs text-slate-500">
-                    Item Code: <span className="font-mono font-semibold text-slate-700">{activeDrawerItem.itemCode}</span>
-                  </p>
-                </div>
-                <button
-                  onClick={() => setActiveDrawerItem(null)}
-                  className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-
-              {/* Drawer Content */}
-              <div className="p-6 space-y-6 flex-1 overflow-y-auto">
-
-                {/* Overview Grid */}
-                <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50 rounded-xl border border-slate-100">
-                  <div>
-                    <span className="text-[11px] font-semibold text-slate-400 uppercase">Brand</span>
-                    <p className="text-sm font-bold text-slate-900 mt-0.5">{activeDrawerItem.brand}</p>
-                  </div>
-                  <div>
-                    <span className="text-[11px] font-semibold text-slate-400 uppercase">Size Spec</span>
-                    <p className="text-sm font-bold text-slate-900 mt-0.5">{activeDrawerItem.sizeFull}</p>
-                  </div>
-                  <div>
-                    <span className="text-[11px] font-semibold text-slate-400 uppercase">Origin Country</span>
-                    <p className="text-sm font-semibold text-slate-800 mt-0.5">{activeDrawerItem.country}</p>
-                  </div>
-                  <div>
-                    <span className="text-[11px] font-semibold text-slate-400 uppercase">Production Year</span>
-                    <p className="text-sm font-semibold text-slate-800 mt-0.5">{activeDrawerItem.year}</p>
-                  </div>
-                </div>
-
-                {/* Pricing & Margin Breakdown */}
-                <div className="space-y-3">
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Pricing & Margins</h4>
-                  <div className="p-4 bg-white rounded-xl border border-slate-200 space-y-2.5">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-500">Supplier Unit Cost:</span>
-                      <span className="font-bold text-slate-900 text-sm font-mono">{activeDrawerItem.cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-500">Fitting Fee:</span>
-                      <span className="font-semibold text-slate-700 font-mono">{activeDrawerItem.fittingPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    </div>
-                    <div className="h-px bg-slate-100 my-1"></div>
-                    <div className="flex justify-between items-center text-xs font-bold">
-                      <span className="text-emerald-700">Est. Retail MSRP:</span>
-                      <span className="text-emerald-600 text-sm font-mono">{(activeDrawerItem.cost * 1.22).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Stock Availability */}
-                <div className="space-y-3">
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Inventory Allocation</h4>
-                  <div className="p-4 bg-white rounded-xl border border-slate-200 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-slate-600">Warehouse Main ({activeDrawerItem.source}):</span>
-                      {activeDrawerItem.qty === 0 ? (
-                        <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-red-50 text-red-600 border border-red-200/60 font-mono">0 Units Available</span>
-                      ) : (
-                        <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60 font-mono">{activeDrawerItem.qty} Units Available</span>
-                      )}
-                    </div>
-                    <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                      <div
-                        className="bg-emerald-500 h-2 rounded-full transition-all"
-                        style={{ width: `${Math.min(activeDrawerItem.qty * 2.5, 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-
-              {/* Drawer Footer Actions */}
-              <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex gap-2">
-                <button
-                  onClick={() => copyToClipboard(activeDrawerItem.itemCode)}
-                  className="flex-1 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-                >
-                  Copy Item Code
-                </button>
-                <button
-                  onClick={() => setActiveDrawerItem(null)}
-                  className="flex-1 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs transition-colors"
-                >
-                  Done
-                </button>
-              </div>
-            </aside>
-          </>
-        )
-      }
-
-      {/* Customize Visible Columns Modal */}
-      {
-        isColumnModalOpen && (
-          <div
-            onClick={() => setIsColumnModalOpen(false)}
-            className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4"
-          >
-            <div
-              onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-xl border border-slate-200 shadow-2xl w-full max-w-sm p-6 space-y-4"
-            >
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <h3 className="text-sm font-bold text-slate-900">Customize Visible Columns</h3>
-                <button
-                  onClick={() => setIsColumnModalOpen(false)}
-                  className="text-slate-400 hover:text-slate-600"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div className="space-y-2 max-h-64 overflow-y-auto text-xs font-medium text-slate-700">
-                {[
-                  { key: 'brand', label: 'Brand' },
-                  { key: 'size', label: 'Tyre Size' },
-                  { key: 'name', label: 'Name' },
-                  { key: 'oem', label: 'OEM' },
-                  { key: 'runflat', label: 'RunFlat' },
-                  { key: 'origin', label: 'Origin' },
-                  { key: 'year', label: 'Year' },
-                  { key: 'qty', label: 'Qty' },
-                  { key: 'price', label: 'Price' },
-                  { key: 'setOf4Price', label: 'Set of 4 Price' },
-                  { key: 'offer', label: 'Offer' }
-                ].map(col => (
-                  <label key={col.key} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer">
-                    <span>{col.label}</span>
-                    <input
-                      type="checkbox"
-                      checked={!hiddenColumns.has(col.key)}
-                      onChange={() => toggleColumn(col.key)}
-                      className="w-4 h-4 rounded border-slate-300 text-emerald-600 accent-emerald-600 focus:ring-2 focus:ring-emerald-500/20 focus:ring-offset-0 focus:outline-none cursor-pointer"
-                    />
-                  </label>
-                ))}
-              </div>
-
-              <div className="pt-2">
-                <button
-                  onClick={() => { setIsColumnModalOpen(false); addToast('Column settings updated!'); }}
-                  className="w-full py-2 text-xs font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors"
-                >
-                  Apply Settings
-                </button>
-              </div>
-            </div>
-          </div>
-        )
-      }
 
       {/* Book Inquiry Modal Component */}
       <BookInquiryModal
@@ -2108,18 +1159,15 @@ export default function TcProductsPage() {
         />
       )}
 
+      {/* New Quotation Modal */}
+      <QuotationModal
+        isOpen={isQuotationModalOpen}
+        onClose={() => setIsQuotationModalOpen(false)}
+        onSave={() => addToast('Quotation saved successfully!')}
+      />
+
       {/* Toast Notification Container */}
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 pointer-events-none">
-        {toasts.map(t => (
-          <div
-            key={t.id}
-            className="bg-slate-900 text-white px-4 py-2.5 rounded-lg shadow-xl text-xs font-bold flex items-center gap-2 pointer-events-auto border border-slate-700 transition-all"
-          >
-            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-            <span>{t.msg}</span>
-          </div>
-        ))}
-      </div>
+      <ToastContainer toasts={toasts} />
 
     </div >
   );

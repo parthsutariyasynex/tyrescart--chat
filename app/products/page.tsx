@@ -9,8 +9,9 @@ import {
   XMarkIcon,
   ChatBubbleLeftRightIcon,
 } from "@heroicons/react/24/outline";
-import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
-import HeaderBookInquiry from "@/components/HeaderBookInquiry";
+import Header from "@/components/Header";
+import HeaderActions from "@/components/HeaderActions";
+import QuotationModal from "@/components/QuotationModal";
 import {
   fetchStorefrontBatch,
   fetchStorefrontBatchWithRetry,
@@ -34,7 +35,6 @@ import type {
 const brandOf = (name?: string) => (name || "").trim().split(/\s+/)[0] || "";
 import { ProductGridSkeleton, Skeleton } from "@/components/Skeletons";
 import Image from "next/image";
-import SyncButton from "@/components/SyncButton";
 import { registerModuleSync } from "@/services/syncService";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
@@ -76,6 +76,7 @@ export default function PosProductsPage() {
   // Online status via useSyncExternalStore (no hydration mismatch, no
   // setState-in-effect).
   const isOnline = useOnlineStatus();
+  const [isQuotationModalOpen, setIsQuotationModalOpen] = useState<boolean>(false);
 
   // A new client-side search always resets the visible window to the first page.
   useEffect(() => {
@@ -320,62 +321,49 @@ export default function PosProductsPage() {
       <main className="flex-1 flex flex-col min-w-0 bg-[#f8fafc] overflow-hidden">
 
         {/* TOP HEADER BAR */}
-        <header className="h-16 flex-none bg-white border-b border-gray-200 px-6 flex items-center justify-between gap-4 shadow-xs">
-
-          {/* Search Box */}
-          <div className="flex items-center gap-3 flex-1 max-w-2xl">
-            <div className="relative flex-1">
-              <MagnifyingGlassIcon className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Search product, brand, size..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="search-field w-full h-10 pl-10 pr-4 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all shadow-inner"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  <XMarkIcon className="w-4 h-4" />
-                </button>
-              )}
+        <Header
+          bookInquiry={false}
+          syncTitle="Sync products"
+          syncTone="orange"
+          isOnline={isOnline}
+          left={
+            <div className="flex items-center gap-3 flex-1 max-w-2xl">
+              <div className="relative flex-1">
+                <MagnifyingGlassIcon className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search product, brand, size..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="search-field w-full h-10 pl-10 pr-4 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all shadow-inner"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    <XMarkIcon className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-
-          {/* Right Header Actions */}
-          <div className="flex items-center gap-3">
-            {/* Total Count Badge — shows current count matching active filters */}
-            {loading && products.length === 0 ? (
-              <Skeleton className="h-7 w-[105px] rounded-lg" />
-            ) : (
-              <span className="text-xs font-semibold h-7 min-w-[105px] inline-flex items-center justify-center px-2.5 bg-gray-100 border border-gray-200 text-gray-600 rounded-lg text-center whitespace-nowrap">
-                Total: {view.total}
-              </span>
-            )}
-
-            {/* Chat — opens the tyre guide chat. Distinct from the Tyres Guide
-                button, which is a separate control. */}
-            <Link
-              href="/tyre_guide/chat"
-              title="Chat"
-              aria-label="Chat"
-              className="h-9 flex items-center gap-1.5 px-3.5 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-xs hover:shadow-sky-600/20 transition-all active:scale-[0.98] shrink-0 cursor-pointer"
-            >
-              <ChatBubbleLeftRightIcon className="w-4 h-4 shrink-0" />
-              <span className="whitespace-nowrap">Chat</span>
-            </Link>
-
-            <HeaderBookInquiry variant="emerald" />
-            <FullscreenButton tone="gray" />
-
-            {/* Header Sync — current-page-only sync (shared useSync hook) */}
-            <SyncButton title="Sync products" tone="orange" />
-
-            <OnlineStatusBadge isOnline={isOnline} variant="fixed" />
-          </div>
-        </header>
+          }
+          actions={
+            <div className="flex items-center gap-2.5">
+              {loading && products.length === 0 ? (
+                <Skeleton className="h-7 w-[105px] rounded-lg" />
+              ) : (
+                <span className="text-xs font-semibold h-7 min-w-[105px] inline-flex items-center justify-center px-2.5 bg-gray-100 border border-gray-200 text-gray-600 rounded-lg text-center whitespace-nowrap">
+                  Total: {view.total}
+                </span>
+              )}
+              <HeaderActions
+                showTyresGuide={false}
+                onCreateQuote={() => setIsQuotationModalOpen(true)}
+              />
+            </div>
+          }
+        />
 
         {/* MAIN CONTENT CONTAINER */}
         <div className="flex-1 flex flex-col p-6 overflow-hidden">
@@ -572,6 +560,10 @@ export default function PosProductsPage() {
         </div>
       </main>
 
+      <QuotationModal
+        isOpen={isQuotationModalOpen}
+        onClose={() => setIsQuotationModalOpen(false)}
+      />
     </div>
   );
 }

@@ -9,15 +9,16 @@ import {
   ChartBarIcon,
   CircleStackIcon,
 } from "@heroicons/react/24/outline";
-import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
-import HeaderBookInquiry from "@/components/HeaderBookInquiry";
-import SyncButton from "@/components/SyncButton";
+import Header from "@/components/Header";
+import HeaderActions from "@/components/HeaderActions";
+import QuotationModal from "@/components/QuotationModal";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { countCachedSupplierProducts } from "@/services/cache";
 
 export default function DashboardPage() {
   const isOnline = useOnlineStatus();
   const [supplierCount, setSupplierCount] = useState<number | null>(null);
+  const [isQuotationModalOpen, setIsQuotationModalOpen] = useState<boolean>(false);
 
   useEffect(() => {
     countCachedSupplierProducts().then(setSupplierCount).catch(() => setSupplierCount(0));
@@ -29,32 +30,19 @@ export default function DashboardPage() {
       {/* 2. MAIN DASHBOARD CONTENT AREA */}
       <main className="flex-1 flex flex-col min-w-0 bg-[#f8fafc] overflow-hidden">
         {/* TOP HEADER BAR */}
-        <header className="h-16 flex-none bg-white border-b border-gray-200 px-6 flex items-center justify-between gap-4 shadow-xs">
-          <div>
-            <h1 className="text-lg font-bold text-gray-800 tracking-tight">Dashboard</h1>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* Chat — opens the tyre guide chat. Distinct from the Tyres Guide
-                button, which is a separate control. */}
-            <Link
-              href="/tyre_guide/chat"
-              title="Chat"
-              aria-label="Chat"
-              className="h-9 flex items-center gap-1.5 px-3.5 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-xs hover:shadow-sky-600/20 transition-all active:scale-[0.98] shrink-0 cursor-pointer"
-            >
-              <ChatBubbleLeftRightIcon className="w-4 h-4 shrink-0" />
-              <span className="whitespace-nowrap">Chat</span>
-            </Link>
-
-            <HeaderBookInquiry />
-            <FullscreenButton tone="gray" />
-
-            <SyncButton title="Sync Dashboard" tone="orange" />
-
-            <OnlineStatusBadge isOnline={isOnline} variant="fixed" />
-          </div>
-        </header>
+        <Header
+          title="Dashboard"
+          bookInquiry={false}
+          syncTitle="Sync Dashboard"
+          syncTone="orange"
+          isOnline={isOnline}
+          actions={
+            <HeaderActions
+              showBookInquiry={false}
+              showTyresGuide={false}
+            />
+          }
+        />
 
         {/* DASHBOARD BODY */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -162,6 +150,11 @@ export default function DashboardPage() {
           </div>
         </div>
       </main>
+
+      <QuotationModal
+        isOpen={isQuotationModalOpen}
+        onClose={() => setIsQuotationModalOpen(false)}
+      />
     </div>
   );
 }

@@ -379,3 +379,87 @@ export interface CrmCustomer {
   vehicles: CrmVehicle[];
   bookings: CrmBooking[];
 }
+
+/* ── Klever Quotation ── */
+
+/** A history row recorded together with a new quote. */
+export interface KleverQuoteHistoryEntryInput {
+  /** Short action key, e.g. "payment_request", "payment_response". */
+  action?: string;
+  status?: string;
+  /** Free text / JSON payload for this activity. */
+  comment?: string;
+  changed_by?: string;
+}
+
+export interface KleverQuoteInput {
+  customer_name?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  city?: string;
+  country?: string;
+  car_plate?: string;
+  car_make?: string;
+  car_model?: string;
+  /** Int upstream, not a string. */
+  car_year?: number;
+  /** The ONLY required field. */
+  amount: number;
+  notes?: string;
+  /** Defaults to "draft" server-side. */
+  status?: string;
+  /** "payment_link" | "manual" — defaults to "manual" server-side. */
+  quote_mode?: string;
+  /** Gateway, e.g. "tabby", "tamara". */
+  payment_method?: string;
+  created_by?: string;
+  history?: KleverQuoteHistoryEntryInput[];
+}
+
+/** Standalone history row appended to an EXISTING quote. */
+export interface KleverQuoteHistoryInput {
+  /** Rejected with "Quote N does not exist." if unknown. */
+  quote_id: number;
+  action?: string;
+  status?: string;
+  comment?: string;
+  changed_by?: string;
+}
+
+export interface KleverQuote {
+  quote_id: number | null;
+  /** Server-generated, e.g. "TC-Q-030820260002". Never supplied by the caller. */
+  quote_number: string | null;
+  /** Server-set, e.g. "2026-08-03". Not an input field. */
+  date: string | null;
+  customer_name: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  city: string | null;
+  country: string | null;
+  car_plate: string | null;
+  car_make: string | null;
+  car_model: string | null;
+  car_year: number | null;
+  amount: number | null;
+  /** Server-computed (observed 5). Output only — cannot be sent. */
+  vat_percent: number | null;
+  notes: string | null;
+  status: string | null;
+  quote_mode: string | null;
+  payment_method: string | null;
+  /** Observed to return null on create, despite being in the schema. */
+  created_at: string | null;
+}
+
+export interface KleverQuoteHistory {
+  history_id: number | null;
+  klever_quote_id: number | null;
+  action: string | null;
+  status: string | null;
+  comment: string | null;
+  changed_by: string | null;
+  created_at: string | null;
+}

@@ -120,6 +120,24 @@
   box-sizing: border-box;
 }
 
+/* ──────── Global Selection & Select Option Styling ──────── */
+::selection {
+  background-color: #d1fae5 !important;
+  color: #065f46 !important;
+}
+
+::-moz-selection {
+  background-color: #d1fae5 !important;
+  color: #065f46 !important;
+}
+
+option:checked,
+option:hover,
+option:focus {
+  background-color: #d1fae5 !important;
+  color: #065f46 !important;
+}
+
 body {
   background: var(--page-bg);
   color: var(--text-800);
