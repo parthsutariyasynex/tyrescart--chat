@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   ShoppingBagIcon,
@@ -8,7 +9,6 @@ import {
   XMarkIcon,
   ChatBubbleLeftRightIcon,
 } from "@heroicons/react/24/outline";
-import Link from "next/link";
 import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
 import HeaderBookInquiry from "@/components/HeaderBookInquiry";
 import {
@@ -355,15 +355,16 @@ export default function PosProductsPage() {
               </span>
             )}
 
-            {/* Tyres Guide — opens the chat page. Same control on every header. */}
+            {/* Chat — opens the tyre guide chat. Distinct from the Tyres Guide
+                button, which is a separate control. */}
             <Link
               href="/tyre_guide/chat"
-              title="Tyres Guide"
-              aria-label="Tyres Guide"
-              className="h-9 flex items-center gap-1.5 px-3.5 text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-lg shadow-xs hover:shadow-amber-500/20 transition-all active:scale-[0.98] shrink-0 cursor-pointer"
+              title="Chat"
+              aria-label="Chat"
+              className="h-9 flex items-center gap-1.5 px-3.5 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-xs hover:shadow-sky-600/20 transition-all active:scale-[0.98] shrink-0 cursor-pointer"
             >
               <ChatBubbleLeftRightIcon className="w-4 h-4 shrink-0" />
-              <span className="whitespace-nowrap">Tyres Guide</span>
+              <span className="whitespace-nowrap">Chat</span>
             </Link>
 
             <HeaderBookInquiry variant="emerald" />

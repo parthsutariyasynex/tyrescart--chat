@@ -1091,17 +1091,28 @@ export default function TcProductsPage() {
               <span className="whitespace-nowrap">Create Quote</span>
             </button>
 
-            {/* Tyres Guide Button */}
-            {/* Was a <button> with no handler, so it went nowhere. */}
+            {/* Chat — opens the tyre guide chat. Distinct from the Tyres Guide
+                button, which is a separate control. */}
             <Link
               href="/tyre_guide/chat"
+              title="Chat"
+              aria-label="Chat"
+              className="h-9 flex items-center gap-1.5 px-3.5 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-xs hover:shadow-sky-600/20 transition-all active:scale-[0.98] shrink-0 cursor-pointer"
+            >
+              <ChatBubbleLeftRightIcon className="w-4 h-4 shrink-0" />
+              <span className="whitespace-nowrap">Chat</span>
+            </Link>
+
+            {/* Tyres Guide Button */}
+            <button
+              type="button"
               title="Tyres Guide"
               aria-label="Tyres Guide"
               className="h-9 flex items-center gap-1.5 px-3.5 text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-lg shadow-xs hover:shadow-amber-500/20 transition-all active:scale-[0.98] shrink-0 cursor-pointer"
             >
               <ChatBubbleLeftRightIcon className="w-4 h-4 shrink-0" />
               <span className="whitespace-nowrap">Tyres Guide</span>
-            </Link>
+            </button>
 
             {/* Export Button */}
             <button
