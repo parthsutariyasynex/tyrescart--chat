@@ -1013,15 +1013,16 @@ export default function SupplierProductsPage() {
             <HeaderBookInquiry />
 
             {/* Tyres Guide Button */}
-            <button
-              type="button"
+            {/* Was a <button> with no handler, so it went nowhere. */}
+            <Link
+              href="/tyre_guide/chat"
               title="Tyres Guide"
               aria-label="Tyres Guide"
               className="h-9 flex items-center gap-1.5 px-3.5 text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-lg shadow-xs hover:shadow-amber-500/20 transition-all active:scale-[0.98] shrink-0 cursor-pointer"
             >
               <ChatBubbleLeftRightIcon className="w-4 h-4 shrink-0" />
               <span className="whitespace-nowrap">Tyres Guide</span>
-            </button>
+            </Link>
 
             {/* Export Button */}
             <button
