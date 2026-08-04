@@ -61,7 +61,7 @@ export const ProductTableRow = React.memo(function ProductTableRow({
     <tr
       onClick={() => onCopyRow(item)}
       title="Click row to view details"
-      className={`transition-all hover:bg-emerald-50/50 cursor-pointer group ${
+      className={`transition-colors duration-150 hover:bg-emerald-50/50 cursor-pointer group ${
         isSelected ? "bg-emerald-50/70" : ""
       }`}
     >
@@ -126,7 +126,7 @@ export const ProductTableRow = React.memo(function ProductTableRow({
               }}
               title="View Details"
               aria-label="View Details"
-              className="w-5 h-5 aspect-square shrink-0 inline-flex items-center justify-center rounded-full border transition-all active:scale-95 bg-slate-50 text-slate-500 border-slate-200 hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-300 ml-1"
+              className="w-5 h-5 aspect-square shrink-0 inline-flex items-center justify-center rounded-full border transition-colors active:opacity-80 bg-slate-50 text-slate-500 border-slate-200 hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-300 ml-1"
             >
               <EyeIcon className="w-3 h-3" />
             </button>
@@ -257,7 +257,7 @@ export const ProductTableRow = React.memo(function ProductTableRow({
               }}
               title="Cost History"
               aria-label="Cost History"
-              className="w-6 h-6 aspect-square shrink-0 flex items-center justify-center rounded-md border transition-all active:scale-95 bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-blue-600 hover:border-blue-300"
+              className="w-6 h-6 aspect-square shrink-0 flex items-center justify-center rounded-md border transition-colors active:opacity-80 bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-blue-600 hover:border-blue-300"
             >
               <ClockIcon className="w-3 h-3" />
             </button>
@@ -270,7 +270,7 @@ export const ProductTableRow = React.memo(function ProductTableRow({
                 onToggleList(item);
               }}
               title={inList ? "Remove from List" : "Add to List"}
-              className={`w-6 h-6 aspect-square shrink-0 flex items-center justify-center rounded-md border transition-all active:scale-95 ${
+              className={`w-6 h-6 aspect-square shrink-0 flex items-center justify-center rounded-md border transition-colors active:opacity-80 ${
                 inList
                   ? "bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700 shadow-2xs"
                   : "bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50"
@@ -287,7 +287,7 @@ export const ProductTableRow = React.memo(function ProductTableRow({
                 onAddToCart(item);
               }}
               title="Add to Cart"
-              className={`w-6 h-6 aspect-square shrink-0 flex items-center justify-center rounded-md border transition-all active:scale-95 ${
+              className={`w-6 h-6 aspect-square shrink-0 flex items-center justify-center rounded-md border transition-colors active:opacity-80 ${
                 inCart
                   ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs"
                   : "bg-white text-emerald-600 border-emerald-200 hover:bg-emerald-50"
@@ -305,7 +305,7 @@ export const ProductTableRow = React.memo(function ProductTableRow({
               }}
               title="Copy details for WhatsApp"
               aria-label="Copy details for WhatsApp"
-              className="w-6 h-6 aspect-square shrink-0 flex items-center justify-center rounded-md border transition-all active:scale-95 bg-white text-[#25D366] border-[#25D366]/40 hover:bg-[#25D366]/10"
+              className="w-6 h-6 aspect-square shrink-0 flex items-center justify-center rounded-md border transition-colors active:opacity-80 bg-white text-[#25D366] border-[#25D366]/40 hover:bg-[#25D366]/10"
             >
               <WhatsAppIcon className="w-3 h-3" />
             </button>
@@ -319,7 +319,7 @@ export const ProductTableRow = React.memo(function ProductTableRow({
               }}
               title="Check Supplier"
               aria-label="Check Supplier"
-              className="w-6 h-6 aspect-square shrink-0 flex items-center justify-center rounded-md border transition-all active:scale-95 bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-900"
+              className="w-6 h-6 aspect-square shrink-0 flex items-center justify-center rounded-md border transition-colors active:opacity-80 bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-900"
             >
               <TruckIcon className="w-3 h-3" />
             </button>

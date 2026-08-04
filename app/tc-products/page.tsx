@@ -883,9 +883,9 @@ export default function TcProductsPage() {
 
   // Cell padding class based on Density mode
   const cellPaddingClass = useMemo(() => {
-    if (density === 'compact') return 'py-0.5 px-2';
-    if (density === 'comfortable') return 'py-1 px-2.5';
-    return 'py-1.5 px-3'; // breathable
+    if (density === 'compact') return 'py-1 px-2';
+    if (density === 'comfortable') return 'py-1.5 px-3';
+    return 'py-2.5 px-3.5'; // breathable
   }, [density]);
 
   return (
@@ -928,7 +928,7 @@ export default function TcProductsPage() {
         />
 
         {/* SCROLLABLE INNER DASHBOARD BODY */}
-        <div className="flex-1 min-h-0 flex flex-col p-4 sm:p-5 pb-4 gap-3.5 w-full mx-auto overflow-y-auto">
+        <div className="flex-1 min-h-0 flex flex-col p-4 sm:p-5 pb-4 gap-3.5 w-full mx-auto overflow-hidden">
 
           {/* Width-omitted (aspect+rim) fallback notice banner */}
           {partialSizeInfo && (
@@ -1001,13 +1001,13 @@ export default function TcProductsPage() {
           />
 
           {/* Data Table Container Card */}
-          <section className="bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col">
+          <section className="bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col flex-1 min-h-0">
 
 
 
             {/* Scrollable Table — fills the card and scrolls INTERNALLY so row
                 count / page size never changes the card height (no layout shift). */}
-            <div className="flex-1 min-h-0 overflow-auto [scrollbar-gutter:stable]">
+            <div className={`flex-1 min-h-0 [scrollbar-gutter:stable] ${pageSize > 15 ? "overflow-y-auto" : "overflow-hidden"}`}>
               <table className="w-full min-w-[1280px] xl:min-w-0 text-left border-collapse table-fixed">
                 <thead className="bg-slate-50/90 backdrop-blur sticky top-0 z-10 border-b border-slate-200">
                   <tr className="text-[11px] font-bold text-slate-500 uppercase tracking-wider select-none">
