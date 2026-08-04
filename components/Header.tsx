@@ -25,16 +25,16 @@ import SyncButton from "@/components/SyncButton";
 import HeaderBookInquiry from "@/components/HeaderBookInquiry";
 import type { SyncTaskId } from "@/services/syncManager";
 
-/** The two header shells that exist today. See the note above. */
+/** Standard unified header shell across all pages to prevent navigation layout shift. */
 const SHELL = {
   plain:
-    "h-16 flex-none bg-white border-b border-gray-200 px-3 sm:px-6 flex items-center justify-between gap-4 shadow-xs",
+    "sticky top-0 z-20 h-16 bg-white border-b border-gray-200 px-3 sm:px-6 flex items-center justify-between shrink-0 shadow-2xs",
   sticky:
-    "sticky top-0 z-20 h-16 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-3 sm:px-6 flex items-center justify-between shrink-0 shadow-2xs",
+    "sticky top-0 z-20 h-16 bg-white border-b border-gray-200 px-3 sm:px-6 flex items-center justify-between shrink-0 shadow-2xs",
 } as const;
 
-/** Right-hand cluster spacing, per shell — preserved as it was on each page. */
-const ACTION_GAP = { plain: "gap-3", sticky: "gap-2.5" } as const;
+/** Unified Right-hand cluster spacing across all header variants. */
+const ACTION_GAP = { plain: "gap-3", sticky: "gap-3" } as const;
 
 export interface HeaderProps {
   variant?: keyof typeof SHELL;

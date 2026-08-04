@@ -23,8 +23,8 @@ import {
   Inquiry,
   updateInquiry,
 } from "@/services/inquiryStorage";
-import { createCrmBookingGraphQL, fetchCrmCustomerByPhoneGraphQL } from "@/services/graphql";
-import type { CrmCustomer } from "@/services/types";
+import { createCrmBookingGraphQL, fetchCrmCustomerByPhoneGraphQL, fetchCrmRecentBookingsGraphQL } from "@/services/graphql";
+import type { CrmCustomer, CrmRecentBooking } from "@/services/types";
 
 interface BookInquiryModalProps {
   isOpen: boolean;
@@ -43,6 +43,8 @@ export default function BookInquiryModal({
 }: BookInquiryModalProps) {
   // Inquiry list state
   const [inquiries, setInquiries] = useState<Inquiry[]>([]);
+  /** The CRM's recent enquiries — `crmRecentBookings`. `null` = still loading. */
+  const [recentBookings, setRecentBookings] = useState<CrmRecentBooking[] | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [viewingInquiry, setViewingInquiry] = useState<Inquiry | null>(null);
 
@@ -91,6 +93,39 @@ export default function BookInquiryModal({
   // Animation states matching QuickViewModal / CostHistoryModal
   const [isAnimatedOpen, setIsAnimatedOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
+
+  // Animation states for inner viewingInquiry detail modal
+  const [viewingInquiryAnimated, setViewingInquiryAnimated] = useState(false);
+  const [viewingInquiryClosing, setViewingInquiryClosing] = useState(false);
+
+  useEffect(() => {
+    let raf1: number;
+    let raf2: number;
+    if (viewingInquiry) {
+      setViewingInquiryClosing(false);
+      raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(() => {
+          setViewingInquiryAnimated(true);
+        });
+      });
+    } else {
+      setViewingInquiryAnimated(false);
+      setViewingInquiryClosing(false);
+    }
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [viewingInquiry]);
+
+  const handleCloseViewingInquiry = () => {
+    setViewingInquiryClosing(true);
+    setTimeout(() => {
+      setViewingInquiry(null);
+      setViewingInquiryClosing(false);
+      setViewingInquiryAnimated(false);
+    }, 250);
+  };
 
   useEffect(() => {
     let raf1: number;
@@ -383,6 +418,55 @@ export default function BookInquiryModal({
    * These rows are read-only: edit and delete act on the local store, and there
    * is no update or delete mutation to push such a change back.
    */
+  /* Load the CRM's recent enquiries once when the modal opens. One request, not
+     cached: an enquiry log is only useful current. A failure leaves the list
+     empty rather than blocking the form, which is the modal's real job. */
+  useEffect(() => {
+    let alive = true;
+    void fetchCrmRecentBookingsGraphQL()
+      .then((rows) => { if (alive) setRecentBookings(rows); })
+      .catch(() => { if (alive) setRecentBookings([]); });
+    return () => { alive = false; };
+  }, []);
+
+  /**
+   * `crmRecentBookings` shaped as list rows.
+   *
+   * This is what makes the table open POPULATED. Previously it could only ever
+   * show enquiries belonging to a phone number someone had searched, because the
+   * schema had no list query at all; `crmRecentBookings` now provides one, so an
+   * enquiry filed by another member of staff, from another device, or straight
+   * through the API is finally visible here.
+   *
+   * Read-only, like the phone-lookup rows: there is still no update or delete
+   * mutation to push a change back.
+   */
+  const recentRows: (Inquiry & { fromCrm: true })[] = useMemo(() => {
+    if (!recentBookings?.length) return [];
+    return recentBookings.map((b, i) => ({
+      id: `CRM-${String(b.entity_id ?? i)}`,
+      fromCrm: true as const,
+      name: b.customer?.name ?? "",
+      phone: b.customer?.phone ?? "",
+      email: b.customer?.email ?? "",
+      tireSize1: b.tire_size_1 ?? "",
+      tireSize2: "",
+      vehiclePlateNumber: b.vehicle?.plant_number ?? "",
+      make: b.vehicle?.make ?? "",
+      model: b.vehicle?.model ?? "",
+      year: b.vehicle?.year ?? "",
+      note: b.detail ?? "",
+      // The CRM's status is a numeric code with no published mapping, so it is
+      // not forced into the local Pending/Contacted/Closed vocabulary.
+      status: "Pending" as Inquiry["status"],
+      createdAt: b.enquiry_date ?? b.created_at ?? "",
+      crmBookingId: b.entity_id ?? undefined,
+      crmStatus: b.status == null ? null : String(b.status),
+      crmPriority: b.priority == null ? null : String(b.priority),
+      crmEnquiryDate: b.enquiry_date ?? null,
+    }));
+  }, [recentBookings]);
+
   const crmRows: (Inquiry & { fromCrm: true })[] = useMemo(() => {
     if (!crmCustomer?.bookings?.length) return [];
     return crmCustomer.bookings.map((b, i) => ({
@@ -414,7 +498,13 @@ export default function BookInquiryModal({
     // CRM rows first, then local ones — with anything already mirrored locally
     // dropped so a booking filed from this browser is not listed twice.
     // CRM rows only. Nothing from localStorage reaches the table.
-    return crmRows.filter((item) => {
+    // A phone lookup narrows the table to that customer; with no lookup active
+    // the CRM's recent enquiries are shown. Deduped by row id so a booking that
+    // appears in both windows is listed once.
+    const source = crmRows.length
+      ? [...new Map([...crmRows, ...recentRows].map((r) => [r.id, r])).values()]
+      : recentRows;
+    return source.filter((item) => {
       const q = searchQuery.toLowerCase().trim();
       const matchesSearch =
         !q ||
@@ -425,11 +515,29 @@ export default function BookInquiryModal({
         (item.tireSize1 && item.tireSize1.toLowerCase().includes(q));
 
       const matchesStatus =
-        statusFilter === "ALL" || item.status === statusFilter;
+        statusFilter === "ALL" ||
+        item.status === statusFilter ||
+        String(item.status || "Pending").toLowerCase() === statusFilter.toLowerCase();
 
       return matchesSearch && matchesStatus;
     });
-  }, [crmRows, searchQuery, statusFilter]);
+  }, [crmRows, recentRows, searchQuery, statusFilter]);
+
+  // Count items by status for tab badges
+  const statusCounts = useMemo(() => {
+    const source = crmRows.length
+      ? [...new Map([...crmRows, ...recentRows].map((r) => [r.id, r])).values()]
+      : recentRows;
+    const counts = { ALL: source.length, Pending: 0, Contacted: 0, Closed: 0 };
+    for (const item of source) {
+      const st = String(item.status || "Pending").toLowerCase();
+      if (st === "pending") counts.Pending++;
+      else if (st === "contacted") counts.Contacted++;
+      else if (st === "closed") counts.Closed++;
+      else counts.Pending++;
+    }
+    return counts;
+  }, [crmRows, recentRows]);
 
   // Pagination logic
   const totalPages = Math.ceil(filteredInquiries.length / pageSize) || 1;
@@ -837,23 +945,41 @@ export default function BookInquiryModal({
                 </div>
 
                 {/* Filter Status Pills */}
-                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
-                  {["ALL", "Pending", "Contacted", "Closed"].map((st) => (
-                    <button
-                      key={st}
-                      onClick={() => {
-                        setStatusFilter(st);
-                        setCurrentPage(1);
-                      }}
-                      className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all ${
-                        statusFilter === st
-                          ? "bg-white text-slate-900 shadow-2xs"
-                          : "text-slate-600 hover:text-slate-900"
-                      }`}
-                    >
-                      {st}
-                    </button>
-                  ))}
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                  {[
+                    { key: "ALL", label: "ALL", activeBg: "bg-slate-900 text-white shadow-2xs" },
+                    { key: "Pending", label: "Pending", activeBg: "bg-amber-500 text-white shadow-2xs" },
+                    { key: "Contacted", label: "Contacted", activeBg: "bg-blue-600 text-white shadow-2xs" },
+                    { key: "Closed", label: "Closed", activeBg: "bg-emerald-600 text-white shadow-2xs" },
+                  ].map((tab) => {
+                    const isSelected = statusFilter === tab.key;
+                    const count = statusCounts[tab.key as keyof typeof statusCounts] ?? 0;
+                    return (
+                      <button
+                        key={tab.key}
+                        onClick={() => {
+                          setStatusFilter(tab.key);
+                          setCurrentPage(1);
+                        }}
+                        className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                          isSelected
+                            ? tab.activeBg
+                            : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/70"
+                        }`}
+                      >
+                        <span>{tab.label}</span>
+                        <span
+                          className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                            isSelected
+                              ? "bg-white/25 text-white"
+                              : "bg-slate-200 text-slate-600"
+                          }`}
+                        >
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -948,21 +1074,32 @@ export default function BookInquiryModal({
                             )}
                           </td>
 
-                          {/* Status. CRM rows show a read-only badge: the schema has
-                              no updateCrmBookingStatus, so an editable control here
-                              could not persist anything. */}
+                          {/* Status */}
                           <td className="px-3 py-2.5 text-center whitespace-nowrap">
-                            {/* Read-only: every row comes from the CRM, and the
-                                schema has no updateCrmBookingStatus to persist a
-                                change. The editable dropdown is gone rather than
-                                left to silently do nothing. */}
-                            <span
-                              title="Status is managed in the CRM — no update mutation is available"
-                              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-500 text-[11px] font-bold cursor-default"
-                            >
-                              <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-                              {item.crmStatus ? `Status ${item.crmStatus}` : "—"}
-                            </span>
+                            {(() => {
+                              const st = item.status || "Pending";
+                              const stLower = String(st).toLowerCase();
+                              const badgeStyle =
+                                stLower === "pending"
+                                  ? "bg-amber-50 text-amber-700 border-amber-200/80"
+                                  : stLower === "contacted"
+                                  ? "bg-blue-50 text-blue-700 border-blue-200/80"
+                                  : "bg-emerald-50 text-emerald-700 border-emerald-200/80";
+                              const dotStyle =
+                                stLower === "pending"
+                                  ? "bg-amber-500"
+                                  : stLower === "contacted"
+                                  ? "bg-blue-500"
+                                  : "bg-emerald-500";
+                              return (
+                                <span
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-bold shadow-2xs ${badgeStyle}`}
+                                >
+                                  <span className={`w-1.5 h-1.5 rounded-full ${dotStyle}`} />
+                                  {st}
+                                </span>
+                              );
+                            })()}
                           </td>
 
                           {/* Actions */}
@@ -1027,98 +1164,147 @@ export default function BookInquiryModal({
           </div>
         </div>
 
-        {/* View Details Inner Modal */}
+        {/* View Details Inner Modal with smooth entrance animation */}
         {viewingInquiry && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-xs">
-            <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md p-5 space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  Inquiry Detail <span className="font-mono text-emerald-600">({viewingInquiry.id})</span>
-                </h4>
+          <div
+            className={`fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs transition-opacity duration-300 ease-out ${
+              viewingInquiryAnimated && !viewingInquiryClosing
+                ? "opacity-100"
+                : "opacity-0 pointer-events-none"
+            }`}
+          >
+            {/* Backdrop click */}
+            <div className="absolute inset-0" onClick={handleCloseViewingInquiry} />
+
+            <div
+              className={`relative bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden z-10 transition-all duration-300 ease-out transform ${
+                viewingInquiryAnimated && !viewingInquiryClosing
+                  ? "scale-100 opacity-100 translate-y-0"
+                  : "scale-95 opacity-0 translate-y-4"
+              }`}
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/80">
+                <div className="flex items-center gap-2.5">
+                  <h4 className="text-base font-bold text-slate-900">
+                    Inquiry Detail
+                  </h4>
+                  <span className="px-2.5 py-0.5 text-xs font-mono font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/80 rounded-md">
+                    {viewingInquiry.id}
+                  </span>
+                  {viewingInquiry.status && (
+                    <span
+                      className={`px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-md border ${
+                        String(viewingInquiry.status).toLowerCase() === "pending"
+                          ? "bg-amber-50 text-amber-700 border-amber-200"
+                          : String(viewingInquiry.status).toLowerCase() === "contacted"
+                          ? "bg-blue-50 text-blue-700 border-blue-200"
+                          : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                      }`}
+                    >
+                      {viewingInquiry.status}
+                    </span>
+                  )}
+                </div>
                 <button
-                  onClick={() => setViewingInquiry(null)}
-                  className="text-slate-400 hover:text-slate-700"
+                  onClick={handleCloseViewingInquiry}
+                  className="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors"
                 >
                   <XMarkIcon className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="space-y-2.5 text-xs">
-                <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                  <div>
-                    <span className="text-slate-400 font-semibold block text-[10px]">NAME</span>
-                    <span className="font-bold text-slate-800">{viewingInquiry.name}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 font-semibold block text-[10px]">PHONE</span>
-                    <span className="font-mono font-bold text-slate-800">{viewingInquiry.phone}</span>
-                  </div>
-                </div>
-
-                {(viewingInquiry.email || viewingInquiry.city) && (
-                  <div className="grid grid-cols-2 gap-2">
+              {/* Modal Body */}
+              <div className="p-6 space-y-4 text-xs max-h-[75vh] overflow-y-auto">
+                {/* Customer Information Block */}
+                <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200/70 space-y-2.5">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Customer Information</span>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <span className="text-slate-500 text-[11px] block">Name</span>
+                      <span className="font-bold text-slate-900 text-sm">{viewingInquiry.name}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-[11px] block">Phone Number</span>
+                      <span className="font-mono font-bold text-slate-900 text-sm">{viewingInquiry.phone}</span>
+                    </div>
                     {viewingInquiry.email && (
                       <div>
-                        <span className="text-slate-400 font-semibold block text-[10px]">EMAIL</span>
+                        <span className="text-slate-500 text-[11px] block">Email</span>
                         <span className="text-slate-700 font-medium">{viewingInquiry.email}</span>
                       </div>
                     )}
                     {viewingInquiry.city && (
                       <div>
-                        <span className="text-slate-400 font-semibold block text-[10px]">CITY</span>
+                        <span className="text-slate-500 text-[11px] block">City</span>
                         <span className="text-slate-700 font-medium">{viewingInquiry.city}</span>
                       </div>
                     )}
                   </div>
-                )}
+                </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <span className="text-slate-400 font-semibold block text-[10px]">TIRE SIZE 1</span>
-                    <span className="font-mono font-bold text-slate-800">{viewingInquiry.tireSize1 || "-"}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 font-semibold block text-[10px]">TIRE SIZE 2</span>
-                    <span className="font-mono font-bold text-slate-800">{viewingInquiry.tireSize2 || "-"}</span>
+                {/* Tire Specs Block */}
+                <div className="bg-emerald-50/40 p-4 rounded-xl border border-emerald-200/60 space-y-2.5">
+                  <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">Tire Specifications</span>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <span className="text-slate-500 text-[11px] block">Tire Size 1 (Front)</span>
+                      <span className="font-mono font-bold text-slate-900 bg-white px-2.5 py-1 rounded-lg border border-emerald-200/80 inline-block mt-0.5 shadow-2xs">
+                        {viewingInquiry.tireSize1 || "-"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-[11px] block">Tire Size 2 (Rear)</span>
+                      <span className="font-mono font-bold text-slate-900 bg-white px-2.5 py-1 rounded-lg border border-emerald-200/80 inline-block mt-0.5 shadow-2xs">
+                        {viewingInquiry.tireSize2 || "-"}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                  <div>
-                    <span className="text-slate-400 font-semibold block text-[10px]">MAKE</span>
-                    <span className="font-medium text-slate-800">{viewingInquiry.make || "-"}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 font-semibold block text-[10px]">MODEL</span>
-                    <span className="font-medium text-slate-800">{viewingInquiry.model || "-"}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 font-semibold block text-[10px]">YEAR</span>
-                    <span className="font-medium text-slate-800">{viewingInquiry.year || "-"}</span>
+                {/* Vehicle Details Block */}
+                <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200/70 space-y-2.5">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Vehicle Details</span>
+                  <div className="grid grid-cols-4 gap-2">
+                    <div>
+                      <span className="text-slate-500 text-[11px] block">Make</span>
+                      <span className="font-semibold text-slate-800">{viewingInquiry.make || "-"}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-[11px] block">Model</span>
+                      <span className="font-semibold text-slate-800">{viewingInquiry.model || "-"}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-[11px] block">Year</span>
+                      <span className="font-semibold text-slate-800">{viewingInquiry.year || "-"}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-[11px] block">Plate</span>
+                      {viewingInquiry.vehiclePlateNumber ? (
+                        <span className="font-mono font-bold text-slate-900 bg-amber-100/90 text-amber-900 px-2 py-0.5 rounded border border-amber-300/80 inline-block text-[11px]">
+                          {viewingInquiry.vehiclePlateNumber}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">-</span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                {viewingInquiry.vehiclePlateNumber && (
-                  <div>
-                    <span className="text-slate-400 font-semibold block text-[10px]">PLATE NUMBER</span>
-                    <span className="font-mono font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 inline-block">
-                      {viewingInquiry.vehiclePlateNumber}
-                    </span>
-                  </div>
-                )}
-
+                {/* Inquiry Note */}
                 {viewingInquiry.note && (
-                  <div className="bg-amber-50/50 p-2.5 rounded-lg border border-amber-200/60">
-                    <span className="text-amber-800 font-bold block text-[10px]">INQUIRY NOTE</span>
-                    <p className="text-slate-700 text-xs mt-0.5 whitespace-pre-wrap">{viewingInquiry.note}</p>
+                  <div className="bg-amber-50/70 p-4 rounded-xl border border-amber-200/80 space-y-1">
+                    <span className="text-[10px] font-bold text-amber-900 uppercase tracking-wider block">Inquiry Note</span>
+                    <p className="text-slate-800 text-xs leading-relaxed whitespace-pre-wrap">{viewingInquiry.note}</p>
                   </div>
                 )}
               </div>
 
-              <div className="pt-2 flex justify-end">
+              {/* Modal Footer */}
+              <div className="flex items-center justify-end px-6 py-3.5 bg-slate-50/80 border-t border-slate-100">
                 <button
-                  onClick={() => setViewingInquiry(null)}
-                  className="px-4 py-1.5 bg-slate-900 text-white font-semibold text-xs rounded-lg hover:bg-slate-800"
+                  onClick={handleCloseViewingInquiry}
+                  className="px-5 py-2 bg-slate-900 text-white font-bold text-xs rounded-xl hover:bg-slate-800 transition-all active:scale-95 shadow-sm"
                 >
                   Close
                 </button>

@@ -1,6 +1,7 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   ChatBubbleLeftRightIcon,
   XMarkIcon,
@@ -34,14 +35,49 @@ const breakpointColumnsObj = {
 };
 
 export default function ChatModal({ isOpen, onClose }: ChatModalProps) {
-  const [shortcuts, setShortcuts] = React.useState<FormattedShortcutItem[]>([]);
-  const [loading, setLoading] = React.useState<boolean>(true);
-  const [error, setError] = React.useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = React.useState<string>("");
-  const [copiedId, setCopiedId] = React.useState<number | string | null>(null);
+  const [shortcuts, setShortcuts] = useState<FormattedShortcutItem[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [copiedId, setCopiedId] = useState<number | string | null>(null);
   const { toast } = useToast();
 
-  const mapApiItems = React.useCallback((items: TyresChatItem[]): FormattedShortcutItem[] => {
+  // Animation states matching BookInquiryModal
+  const [isAnimatedOpen, setIsAnimatedOpen] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    let raf1: number;
+    let raf2: number;
+    if (isOpen) {
+      setIsClosing(false);
+      raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(() => {
+          setIsAnimatedOpen(true);
+        });
+      });
+    } else {
+      setIsAnimatedOpen(false);
+    }
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [isOpen]);
+
+  const handleClose = () => {
+    setIsClosing(true);
+    setTimeout(() => {
+      onClose();
+    }, 500);
+  };
+
+  const mapApiItems = useCallback((items: TyresChatItem[]): FormattedShortcutItem[] => {
     const decodeHtml = (str: string) => {
       if (!str) return "";
       let decoded = str
@@ -73,7 +109,7 @@ export default function ChatModal({ isOpen, onClose }: ChatModalProps) {
     });
   }, []);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!isOpen) return;
 
     let isMounted = true;
@@ -143,30 +179,35 @@ export default function ChatModal({ isOpen, onClose }: ChatModalProps) {
     );
   });
 
-  if (!isOpen) return null;
+  if (!isOpen && !isClosing) return null;
+  if (!mounted) return null;
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-[9999] flex items-end justify-center transition-all duration-500 ease-out opacity-100 bg-black/50 backdrop-blur-sm"
-      onClick={onClose}
+      className={`fixed inset-0 z-[9999] flex items-end justify-center bg-black/60 backdrop-blur-xs transition-opacity duration-500 ease-out ${
+        isAnimatedOpen && !isClosing ? "opacity-100" : "opacity-0 pointer-events-none"
+      }`}
+      onClick={handleClose}
       role="dialog"
       aria-modal="true"
     >
       <div
-        className="bg-slate-50 w-full max-w-full shadow-2xl flex flex-col overflow-hidden transition-all duration-500 ease-out max-h-[90vh] rounded-t-2xl border-t border-slate-200 translate-y-0 opacity-100"
+        className={`relative bg-slate-50 w-full max-w-full border-t border-slate-200 shadow-2xl flex flex-col overflow-hidden transition-transform duration-500 ease-out max-h-[90vh] rounded-none ${
+          isAnimatedOpen && !isClosing ? "translate-y-0" : "translate-y-full"
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Top Header Toolbar */}
-        <div className="bg-white px-6 py-3.5 border-b border-slate-200 flex items-center justify-between gap-4 shrink-0">
+        <div className="bg-white px-6 py-4 border-b border-slate-200 flex items-center justify-between gap-4 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 flex items-center justify-center text-sky-600 bg-sky-50 rounded-lg border border-sky-100">
+            <div className="p-2 rounded-lg bg-sky-50 text-sky-600 border border-sky-200/60">
               <ChatBubbleLeftRightIcon className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="text-base font-bold text-slate-900 tracking-tight">
+              <h2 className="text-lg font-extrabold tracking-tight text-slate-900 flex items-center gap-2">
                 Tyre Chat Shortcuts
-              </h1>
-              <p className="text-xs text-slate-500">
+              </h2>
+              <p className="text-xs text-slate-500 font-medium">
                 1-Click copy responses & customer templates ({shortcuts.length} shortcuts)
               </p>
             </div>
@@ -194,16 +235,16 @@ export default function ChatModal({ isOpen, onClose }: ChatModalProps) {
 
           <button
             type="button"
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
+            onClick={handleClose}
+            className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
             title="Close"
           >
-            <XMarkIcon className="w-4 h-4" />
+            <XMarkIcon className="w-5 h-5" />
           </button>
         </div>
 
         {/* Scrollable Content Body */}
-        <div className="flex-1 min-h-0 overflow-y-auto p-5">
+        <div className="flex-1 min-h-0 overflow-y-auto p-5 sm:p-6">
           {loading && shortcuts.length === 0 ? (
             <ChatGridSkeleton count={6} />
           ) : error && shortcuts.length === 0 ? (
@@ -271,6 +312,7 @@ export default function ChatModal({ isOpen, onClose }: ChatModalProps) {
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -138,6 +138,10 @@ option:focus {
   color: #065f46 !important;
 }
 
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   background: var(--page-bg);
   color: var(--text-800);

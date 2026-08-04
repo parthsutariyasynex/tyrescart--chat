@@ -177,23 +177,38 @@ export default function QuickViewModal({
       const size = (product.size || "").trim();
       if (!brand && !pattern) return null;
 
-      // Query storefront by Brand + Pattern + Size or Brand + Size
-      const queryStr = [brand, pattern, size].filter(Boolean).join(" ");
-      const candidates = await fetchTcQuickViewMatchesCached(queryStr).catch(
-        () => [] as TcQuickViewProduct[],
-      );
+      let candidates: TcQuickViewProduct[] = [];
+
+      // 1. Query storefront by Brand + Size first (e.g., "Accelera 205/50 R16")
+      if (brand && size) {
+        const brandSizeQuery = `${brand} ${size}`.trim();
+        candidates = await fetchTcQuickViewMatchesCached(brandSizeQuery).catch(() => []);
+      }
+
+      // 2. If no candidates, try pattern
+      if (candidates.length === 0 && pattern) {
+        const patternClean = Array.from(new Set(pattern.split(/\s+/).filter(Boolean))).join(" ");
+        candidates = await fetchTcQuickViewMatchesCached(patternClean).catch(() => []);
+      }
+
+      // 3. Fallback to full deduplicated words
+      if (candidates.length === 0) {
+        const rawQuery = [brand, pattern, size].filter(Boolean).join(" ");
+        const uniqueWords = Array.from(new Set(rawQuery.split(/\s+/).filter(Boolean))).join(" ");
+        candidates = await fetchTcQuickViewMatchesCached(uniqueWords).catch(() => []);
+      }
 
       if (candidates.length === 0) return null;
 
-      // Filter exact matches by brand and pattern
-      const exact = candidates.filter((c) => {
-        const items = c.custom_attributesV2?.items;
-        const b = readAttr(items, "brand");
-        const p = readAttr(items, "pattern");
-        return (!brand || sameValue(b, brand)) && (!pattern || sameValue(p, pattern));
+      // Match best candidate by pattern or return first
+      const bestMatch = candidates.find((c) => {
+        const cPattern = readAttr(c.custom_attributesV2?.items, "pattern").toLowerCase();
+        const cBrand = readAttr(c.custom_attributesV2?.items, "brand").toLowerCase();
+        const pLower = pattern.toLowerCase();
+        return (cBrand && pLower.includes(cBrand)) || (cPattern && pLower.includes(cPattern));
       });
 
-      return exact[0] ?? candidates[0] ?? null;
+      return bestMatch ?? candidates[0] ?? null;
     }
 
     void resolve()
@@ -274,10 +289,23 @@ export default function QuickViewModal({
   const splitPayment = readAttr(attrs, "tabby_payment") === "1";
   const inStock = detail?.stock_status === "IN_STOCK";
 
+  useEffect(() => {
+    setSelectedImgIndex(0);
+  }, [product.itemCode, detail]);
+
   const gallery = useMemo(() => {
-    const urls = [detail?.image?.url, ...((detail?.media_gallery ?? []).map((g) => g?.url))]
+    const rawUrls = [detail?.image?.url, ...((detail?.media_gallery ?? []).map((g) => g?.url))]
       .filter((u): u is string => typeof u === "string" && u.length > 0 && !u.includes("/placeholder/"));
-    return [...new Set(urls)];
+    
+    // Deduplicate by filename to prevent Magento cache paths from showing 2 identical thumbnails
+    const uniqueMap = new Map<string, string>();
+    for (const url of rawUrls) {
+      const fileName = url.split("?")[0].split("/").pop()?.toLowerCase();
+      if (fileName && !uniqueMap.has(fileName)) {
+        uniqueMap.set(fileName, url);
+      }
+    }
+    return Array.from(uniqueMap.values());
   }, [detail]);
 
   const tyreImgSrc = gallery[selectedImgIndex] ?? gallery[0] ?? (product.image && !product.image.includes("/placeholder/") ? product.image : "");

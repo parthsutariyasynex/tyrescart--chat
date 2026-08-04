@@ -928,7 +928,7 @@ export default function TcProductsPage() {
         />
 
         {/* SCROLLABLE INNER DASHBOARD BODY */}
-        <div className="flex-1 min-h-0 flex flex-col p-6 gap-4 w-full mx-auto overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col p-4 sm:p-5 pb-4 gap-3.5 w-full mx-auto overflow-y-auto">
 
           {/* Width-omitted (aspect+rim) fallback notice banner */}
           {partialSizeInfo && (
@@ -1001,7 +1001,7 @@ export default function TcProductsPage() {
           />
 
           {/* Data Table Container Card */}
-          <section className="flex-1 min-h-0 bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col">
+          <section className="bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col">
 
 
 

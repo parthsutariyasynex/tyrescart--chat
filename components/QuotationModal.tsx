@@ -334,10 +334,29 @@ export default function QuotationModal({
                               <input
                                 type="number"
                                 min={1}
-                                value={l.qty}
+                                value={l.qty === 0 ? "" : l.qty}
                                 onChange={(e) => {
-                                  const n = parseInt(e.target.value, 10);
-                                  cart.setQty(l.id, Number.isFinite(n) && n > 0 ? n : 1);
+                                  const val = e.target.value;
+                                  if (val === "") {
+                                    cart.setQty(l.id, 0);
+                                  } else {
+                                    const n = parseInt(val, 10);
+                                    if (!isNaN(n)) {
+                                      const newQty = Math.max(0, n);
+                                      cart.setQty(l.id, newQty);
+                                      const baseUnit = l.unitPrice && l.unitPrice > 0 ? l.unitPrice : (l.qty > 0 ? l.price / l.qty : l.price);
+                                      if (baseUnit > 0) {
+                                        cart.setPrice(l.id, baseUnit * newQty);
+                                      }
+                                    }
+                                  }
+                                }}
+                                onBlur={() => {
+                                  if (!l.qty || l.qty < 1) {
+                                    cart.setQty(l.id, 1);
+                                    const baseUnit = l.unitPrice || l.price || 0;
+                                    if (baseUnit > 0) cart.setPrice(l.id, baseUnit);
+                                  }
                                 }}
                                 className="w-full h-8 text-xs font-bold text-slate-800 bg-white border border-slate-200 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                               />
@@ -345,12 +364,37 @@ export default function QuotationModal({
                             <td className="py-2 px-2">
                               <input
                                 type="number"
-                                step="0.01"
+                                step="any"
                                 min={0}
-                                value={l.price}
+                                value={l.price === 0 ? "" : l.price}
                                 onChange={(e) => {
-                                  const p = parseFloat(e.target.value);
-                                  cart.setPrice(l.id, Number.isFinite(p) && p >= 0 ? p : 0);
+                                  const val = e.target.value;
+                                  if (val === "") {
+                                    cart.setPrice(l.id, 0);
+                                  } else {
+                                    const inputVal = parseFloat(val);
+                                    if (!isNaN(inputVal)) {
+                                      cart.setPrice(l.id, Math.max(0, inputVal));
+                                    }
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    const val = (e.target as HTMLInputElement).value;
+                                    const inputVal = parseFloat(val);
+                                    if (!isNaN(inputVal) && inputVal > 0) {
+                                      const baseUnit = l.unitPrice || (l.qty > 0 && l.price > 0 ? l.price / l.qty : inputVal);
+                                      if (baseUnit > 0) {
+                                        const newQty = Math.round(inputVal / baseUnit);
+                                        if (newQty >= 1) {
+                                          cart.setQty(l.id, newQty);
+                                          cart.setPrice(l.id, baseUnit * newQty);
+                                        }
+                                      }
+                                    }
+                                    (e.target as HTMLInputElement).blur();
+                                  }
                                 }}
                                 className="w-full h-8 text-xs font-semibold text-slate-800 bg-white border border-slate-200 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                               />

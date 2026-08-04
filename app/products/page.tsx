@@ -354,10 +354,10 @@ export default function PosProductsPage() {
             <HeaderActions
               badge={
                 loading && products.length === 0 ? (
-                  <Skeleton className="h-7 w-[105px] rounded-lg" />
+                  <Skeleton className="h-7 w-[105px] rounded-full" />
                 ) : (
-                  <span className="text-xs font-semibold h-7 min-w-[105px] inline-flex items-center justify-center px-2.5 bg-gray-100 border border-gray-200 text-gray-600 rounded-lg text-center whitespace-nowrap">
-                    Total: {view.total}
+                  <span className="inline-flex items-center justify-center min-w-[92px] bg-emerald-50 text-emerald-700 text-xs font-semibold px-2.5 py-1 rounded-full border border-emerald-200/80 tabular-nums whitespace-nowrap shadow-2xs">
+                    {view.total.toLocaleString()} items
                   </span>
                 )
               }
@@ -404,7 +404,7 @@ export default function PosProductsPage() {
           )}
 
           {/* DYNAMIC GRAPHQL PRODUCT GRID CONTAINER */}
-          <div className="flex-1 overflow-y-auto pr-1">
+          <div className="flex-1 overflow-y-auto pr-1 [scrollbar-gutter:stable]">
             {/* 1. SKELETON LOADERS FOR PRODUCT CARDS */}
             {loading && products.length === 0 ? (
               <div className="flex flex-col justify-between h-full">

@@ -341,6 +341,43 @@ export interface CrmVehicle {
   tire_size_2: string | null;
 }
 
+/**
+ * One row of `crmRecentBookings` — the CRM's own recent-enquiry list.
+ *
+ * This endpoint did NOT exist when the list-query candidates were probed
+ * (`crmBookings`, `crmCustomerList`, `crmCustomerSearch`, `crmInquiries` and the
+ * rest all failed), which is why the enquiry table used to open empty and fill
+ * only from a phone lookup. It takes NO arguments — verified against the live
+ * API: limit, pageSize, count, first and currentPage are all rejected as
+ * "Unknown argument" — so it returns a fixed recent window (34 rows when
+ * measured), newest first.
+ *
+ * `customer` and `vehicle` are both nullable: 18 of 34 rows carried a vehicle
+ * and 23 of 34 an email.
+ */
+export interface CrmRecentBooking {
+  entity_id: number | string | null;
+  detail: string | null;
+  tire_size_1: string | null;
+  /** NUMERIC CODE, e.g. 2 — the schema publishes no label mapping. */
+  priority: number | string | null;
+  /** NUMERIC CODE, e.g. 1 — see the note on `priority`. */
+  status: number | string | null;
+  enquiry_date: string | null;
+  created_at: string | null;
+  customer: {
+    name: string | null;
+    phone: string | null;
+    email: string | null;
+  } | null;
+  vehicle: {
+    make: string | null;
+    model: string | null;
+    year: string | null;
+    plant_number: string | null;
+  } | null;
+}
+
 export interface CrmBooking {
   entity_id: number | string | null;
   contact_method: string | null;

@@ -35,7 +35,8 @@ import {
   CheckBadgeIcon,
   GlobeAltIcon,
 } from "@heroicons/react/24/outline";
-import { getCachedSupplierProducts, type CachedSupplierProduct } from "@/services/cache";
+import { fetchSupplierProductsGraphQL } from "@/services/graphql";
+import type { SupplierProductItem } from "@/services/types";
 import { SPEC_ICON, splitSupplierSize } from "@/components/QuickViewModal";
 
 /** Quick View's icons, plus the three cells that only exist on this panel. */
@@ -120,7 +121,7 @@ export default function CheckSupplierModal({
   product: CheckSupplierProduct;
   onCloseAction: () => void;
 }) {
-  const [rows, setRows] = useState<CachedSupplierProduct[] | null>(null);
+  const [rows, setRows] = useState<SupplierProductItem[] | null>(null);
 
   /* Mount hidden, slide up on the next tick, slide down before unmount. */
   const [isOpen, setIsOpen] = useState(false);
@@ -128,8 +129,8 @@ export default function CheckSupplierModal({
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const t = setTimeout(() => setIsOpen(true), 30);
-    return () => clearTimeout(t);
+    const frame = requestAnimationFrame(() => setIsOpen(true));
+    return () => cancelAnimationFrame(frame);
   }, []);
 
   useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current); }, []);
@@ -141,9 +142,18 @@ export default function CheckSupplierModal({
 
   useEffect(() => {
     let alive = true;
-    void getCachedSupplierProducts()
-      .then((all) => {
+    const searchBrand = product.brand ? product.brand.trim() : undefined;
+    const searchSize = product.size ? product.size.trim() : undefined;
+
+    // Fetch supplier/competitor items matching this product's brand and size from GraphQL API
+    void fetchSupplierProductsGraphQL({
+      brand: searchBrand,
+      size: searchSize,
+      pageSize: 100,
+    })
+      .then((res) => {
         if (!alive) return;
+        const all = res.items || [];
         const sku = norm(product.itemCode);
         const bySku = sku ? all.filter((r) => norm(r.sku) === sku) : [];
         const brand = norm(product.brand);
@@ -153,22 +163,8 @@ export default function CheckSupplierModal({
             ? all.filter((r) => norm(r.brand) === brand && norm(r.size) === size)
             : [];
 
-        /* Both predicates above are UNCHANGED. What changed is that a SKU hit no
-           longer returns early and throws the brand+size set away.
-
-           That early return was why the table only ever showed `competitor`
-           rows: a supplier-source record's sku looks like
-           "TYR-STEC-M9-18055_MEZ", never a storefront "TCKL-…" code, so a SKU
-           match ALWAYS lands on a competitor row — and discarding brand+size
-           discarded the only route by which a supplier row can match at all.
-
-           Unioning them (SKU hits first, then brand+size, deduped by id so a
-           record satisfying both appears once) is what puts Supplier and
-           Competitor records in the same table. */
-        const merged = [
-          ...new Map([...bySku, ...byAttrs].map((r) => [String(r.id), r])).values(),
-        ];
-        setRows(merged);
+        const matched = [...new Map([...bySku, ...byAttrs].map((r) => [String(r.id), r])).values()];
+        setRows(matched.length > 0 ? matched : all.filter(r => norm(r.brand) === brand || norm(r.size) === size));
       })
       .catch(() => { if (alive) setRows([]); });
     return () => { alive = false; };
@@ -300,15 +296,16 @@ export default function CheckSupplierModal({
           </div>
 
           {/* Supplier rows */}
-          <div className="border border-slate-200 rounded-xl overflow-hidden">
+          <div className="border border-slate-200 rounded-xl overflow-hidden min-h-[300px]">
             {loading ? (
-              <div className="p-5 space-y-2">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="skeleton h-10 rounded-lg" aria-hidden="true" />
+              <div className="p-4 space-y-2.5 min-h-[300px] flex flex-col justify-start">
+                <div className="skeleton h-8 rounded-lg w-full mb-1" aria-hidden="true" />
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="skeleton h-8 rounded-lg w-full" aria-hidden="true" />
                 ))}
               </div>
             ) : empty ? (
-              <div className="py-14 text-center px-6">
+              <div className="py-14 text-center px-6 min-h-[300px] flex flex-col items-center justify-center">
                 <p className="text-sm font-semibold text-slate-500">No supplier stocks this tyre.</p>
                 <p className="mt-1 text-xs text-slate-400 max-w-md mx-auto">
                   Nothing in the synced supplier catalogue matches this SKU, or this brand and
@@ -317,9 +314,7 @@ export default function CheckSupplierModal({
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                {/* The SAME five fields as the section above, so the operator can
-                    read straight down each column and compare. */}
+              <div className="overflow-x-auto max-h-[50vh] overflow-y-auto">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="text-[10px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200">
@@ -334,24 +329,17 @@ export default function CheckSupplierModal({
                     {sorted.map((r, i) => (
                       <tr key={`${r.id}-${i}`} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/60">
                         <td className="py-2 px-5 font-bold text-slate-800">
-                          <span className="inline-flex items-center gap-1.5">
+                          <span className="inline-flex items-center gap-1.5 flex-wrap">
                             {r.brand || "-"}
-                            {/* Same badge the removed Type column used, so the two
-                                record kinds stay distinguishable now they share a table. */}
                             <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
                               r.product_source === "competitor"
-                                ? "bg-amber-50 text-amber-700"
-                                : "bg-slate-100 text-slate-600"
+                                ? "bg-amber-50 text-amber-700 border border-amber-200/80"
+                                : "bg-slate-100 text-slate-600 border border-slate-200/80"
                             }`}>
                               {r.product_source || "supplier"}
                             </span>
-                            {/* WHO the record came from. Without it two listings of
-                                the same tyre from different sites (tyrescart vs
-                                pitstop) render as identical rows, because none of
-                                the five columns is a field that differs between
-                                them. */}
                             {r.source_name && (
-                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-white text-slate-500 border border-slate-200">
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-white text-slate-600 border border-slate-200 shadow-2xs">
                                 {r.source_name}
                               </span>
                             )}

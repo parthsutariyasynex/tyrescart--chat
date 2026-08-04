@@ -15,6 +15,7 @@ import {
   supplierPriceHistoryQuery,
   createCrmBookingMutation,
   crmCustomerByPhoneQuery,
+  crmRecentBookingsQuery,
   CREATE_KLEVER_QUOTE,
   ADD_QUOTE_HISTORY,
   type TcProductsQueryVars,
@@ -36,6 +37,7 @@ import type {
   ProductsResponse,
   SupplierProductsResponse,
   TyresChatResponse,
+  CrmRecentBooking,
 } from "./types";
 
 /**
@@ -46,11 +48,24 @@ import type {
  */
 export class GraphQLRequestError extends Error {
   readonly status: number;
+  /**
+   * The `data` GraphQL returned ALONGSIDE the errors, when it returned any.
+   *
+   * A field-level failure is a partial success in GraphQL: the server reports
+   * the error AND fills in every field it could resolve. Throwing discards that,
+   * which is why Quick View showed "No image available" for a product whose
+   * image had in fact come back — only `custom_attributesV2` had failed.
+   *
+   * Still thrown, so nothing that relies on failing fast changes; a caller that
+   * can use a partial answer opts in by reading this.
+   */
+  readonly partialData?: unknown;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, partialData?: unknown) {
     super(message);
     this.name = "GraphQLRequestError";
     this.status = status;
+    this.partialData = partialData;
   }
 
   /** 429 and 5xx are transient; a bare network failure (0) is too. 4xx is not. */
@@ -135,14 +150,14 @@ export async function executeGraphQLQuery(
       if (!/no customer found/i.test(firstMsg)) {
         console.warn("GraphQL API error response:", data.errors);
       }
-      throw new GraphQLRequestError(firstMsg, res.status);
+      throw new GraphQLRequestError(firstMsg, res.status, data?.data);
     }
 
     return data?.data;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (!/no customer found/i.test(msg)) {
-      console.error("GraphQL execution failed:", err);
+      console.warn("GraphQL execution failed:", err);
     }
     throw err;
   }
@@ -255,15 +270,41 @@ export async function fetchTcAttributeLabelsGraphQL(): Promise<TcAttributeLabels
  * half-populated panel.
  */
 export async function fetchTcQuickViewGraphQL(sku: string): Promise<TcQuickViewProduct | null> {
-  const data = await executeGraphQLQuery(tcQuickViewQuery(sku));
-  return (data?.products?.items?.[0] as TcQuickViewProduct | undefined) ?? null;
+  try {
+    const data = await executeGraphQLQuery(tcQuickViewQuery(sku));
+    return (data?.products?.items?.[0] as TcQuickViewProduct | undefined) ?? null;
+  } catch (err) {
+    /* Fall back to whatever DID resolve.
+       `custom_attributesV2` returns "Internal server error" on products that
+       carry none of the tyre attributes — a battery, for instance — while the
+       same response still contains the image, gallery, name and price. Verified
+       against TYCT-BT1001: image and 2 gallery entries present, only
+       `custom_attributesV2` null. Discarding that left the panel blank when it
+       had everything it needed to show a picture and a price.
+       The spec cells stay "-" because those genuinely did not resolve. */
+    if (err instanceof GraphQLRequestError && err.partialData) {
+      const partial = (err.partialData as { products?: { items?: TcQuickViewProduct[] } })
+        ?.products?.items?.[0];
+      if (partial) {
+        console.warn(`[QuickView] partial response used for SKU "${sku}":`, err.message);
+        return partial;
+      }
+    }
+    console.warn(`[QuickView] GraphQL query failed for SKU "${sku}":`, err);
+    return null;
+  }
 }
 
 /** Candidate products for the Quick View attribute fallback. Never used raw — the
  *  caller must confirm a single exact attribute match before showing one. */
 export async function fetchTcQuickViewMatchesGraphQL(terms: string): Promise<TcQuickViewProduct[]> {
-  const data = await executeGraphQLQuery(tcQuickViewMatchQuery(terms));
-  return (data?.products?.items as TcQuickViewProduct[] | undefined) ?? [];
+  try {
+    const data = await executeGraphQLQuery(tcQuickViewMatchQuery(terms));
+    return (data?.products?.items as TcQuickViewProduct[] | undefined) ?? [];
+  } catch (err) {
+    console.warn(`[QuickView] GraphQL matches query failed for terms "${terms}":`, err);
+    return [];
+  }
 }
 
 /** Price history for one supplier product. Empty array when none is recorded. */
@@ -295,6 +336,18 @@ export async function createCrmBookingGraphQL(input: CrmBookingInput): Promise<C
  * one message is translated into `null`; every other failure still throws, so a
  * network or WAF problem is never mistaken for "not on file".
  */
+/**
+ * The CRM's recent enquiry list.
+ *
+ * Read-only and uncached: an enquiry log is only useful current, and the call is
+ * a single request. Returns [] rather than throwing when the field answers with
+ * nothing, so the table renders its empty state instead of an error.
+ */
+export async function fetchCrmRecentBookingsGraphQL(): Promise<CrmRecentBooking[]> {
+  const data = await executeGraphQLQuery(crmRecentBookingsQuery());
+  return (data?.crmRecentBookings as CrmRecentBooking[] | undefined) ?? [];
+}
+
 export async function fetchCrmCustomerByPhoneGraphQL(phone: string): Promise<CrmCustomer | null> {
   const trimmed = (phone ?? "").trim();
   if (!trimmed) return null; // the API answers "Phone number is required."

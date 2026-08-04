@@ -15,10 +15,13 @@ import QuotationModal from "@/components/QuotationModal";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { countCachedSupplierProducts } from "@/services/cache";
 
+import ChatModal from "@/components/ChatModal";
+
 export default function DashboardPage() {
   const isOnline = useOnlineStatus();
   const [supplierCount, setSupplierCount] = useState<number | null>(null);
   const [isQuotationModalOpen, setIsQuotationModalOpen] = useState<boolean>(false);
+  const [isChatModalOpen, setIsChatModalOpen] = useState<boolean>(false);
 
   useEffect(() => {
     countCachedSupplierProducts().then(setSupplierCount).catch(() => setSupplierCount(0));
@@ -38,6 +41,8 @@ export default function DashboardPage() {
           isOnline={isOnline}
           actions={
             <HeaderActions
+              onCreateQuote={() => setIsQuotationModalOpen(true)}
+              onChat={() => setIsChatModalOpen(true)}
             />
           }
         />
@@ -152,6 +157,11 @@ export default function DashboardPage() {
       <QuotationModal
         isOpen={isQuotationModalOpen}
         onClose={() => setIsQuotationModalOpen(false)}
+      />
+
+      <ChatModal
+        isOpen={isChatModalOpen}
+        onClose={() => setIsChatModalOpen(false)}
       />
     </div>
   );

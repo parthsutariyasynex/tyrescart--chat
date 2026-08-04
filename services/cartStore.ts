@@ -32,9 +32,10 @@ export interface CartLine {
   name: string;
   brand: string;
   size: string;
-  /** Unit price at the time it was added — NOT re-read later, so a price change
-   *  upstream can't silently alter a cart the operator already quoted. */
+  /** Unit price at the time it was added — NOT re-read later. */
   price: number;
+  /** Base single item price when added to cart. */
+  unitPrice?: number;
   qty: number;
   /** When the line was first added (ms epoch). */
   addedAt: number;
@@ -113,9 +114,10 @@ class CartStore {
   /** Add a product, or bump its quantity if already present. */
   add = (line: Omit<CartLine, "qty" | "addedAt">, qty = 1): void => {
     const existing = this.lines.find((l) => l.id === line.id);
+    const unitPrice = line.unitPrice || line.price;
     const next: CartLine = existing
       ? { ...existing, qty: existing.qty + qty }
-      : { ...line, qty, addedAt: Date.now() };
+      : { ...line, unitPrice, qty, addedAt: Date.now() };
 
     this.setLines(
       existing ? this.lines.map((l) => (l.id === next.id ? next : l)) : [...this.lines, next],

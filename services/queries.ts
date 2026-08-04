@@ -469,6 +469,37 @@ export function createCrmBookingMutation(input: CrmBookingInput): string {
  * `data.crmCustomerByPhone: null`, not as a plain null — see
  * `fetchCrmCustomerByPhoneGraphQL`, which turns that into an empty result.
  */
+/**
+ * The CRM's recent enquiries. Takes no arguments (verified: limit / pageSize /
+ * count / first / currentPage are all rejected), so there is nothing to page or
+ * filter with server-side — the modal filters the returned window client-side,
+ * exactly as it already does for a looked-up customer's bookings.
+ */
+export function crmRecentBookingsQuery(): string {
+  return `query {
+    crmRecentBookings {
+      entity_id
+      detail
+      tire_size_1
+      priority
+      status
+      enquiry_date
+      created_at
+      customer {
+        name
+        phone
+        email
+      }
+      vehicle {
+        make
+        model
+        year
+        plant_number
+      }
+    }
+  }`;
+}
+
 export function crmCustomerByPhoneQuery(phone: string): string {
   const esc = (v: string) => String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   return `query {

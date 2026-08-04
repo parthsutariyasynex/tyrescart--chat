@@ -541,6 +541,38 @@ export default function SupplierProductsPage() {
    * swapped in a single state update, so a finished sync never triggers a burst of
    * renders over a 319k-row array.
    */
+  /**
+   * Merge a freshly re-read catalogue into the rows already on screen.
+   *
+   * `reReadCatalogue` re-maps every record, so handing its result straight to
+   * `setAllProducts` replaced all ~8,251 row objects even when nothing about
+   * them had changed — React then rebuilt the table (measured: 38 rows removed
+   * and 38 added at the end of a sync). tc-products never does this; its
+   * completion handler touches no data at all.
+   *
+   * So rows already displayed keep BOTH their position and their object
+   * identity unless a field genuinely changed, which is what lets React reuse
+   * the existing DOM nodes. Changed rows update in place, new rows append, and
+   * rows the re-read no longer contains drop out.
+   */
+  const mergeCatalogue = useCallback((prev: Product[], next: Product[]): Product[] => {
+    if (!prev.length) return next;
+    const incoming = new Map(next.map((p) => [p.id, p]));
+    const merged: Product[] = [];
+    for (const old of prev) {
+      const fresh = incoming.get(old.id);
+      if (!fresh) continue; // retired by the sync — genuinely gone
+      incoming.delete(old.id);
+      let changed = false;
+      for (const k of Object.keys(fresh) as (keyof Product)[]) {
+        if (old[k] !== fresh[k]) { changed = true; break; }
+      }
+      merged.push(changed ? fresh : old); // reuse the SAME object when identical
+    }
+    for (const p of incoming.values()) merged.push(p); // newly synced rows append
+    return merged;
+  }, []);
+
   const reReadCatalogue = useCallback(async (): Promise<Product[]> => {
     const acc: Product[] = [];
     const seqs: number[] = [];
@@ -596,7 +628,7 @@ export default function SupplierProductsPage() {
     // match the catalogue's. React 18+ ignores setState on an unmounted
     // component, so a late resolve after navigation is harmless.
     void reReadCatalogue().then((rows) => {
-      setAllProducts(rows);
+      setAllProducts((prev) => mergeCatalogue(prev, rows));
       seenIds.current.clear();
       committedOnce.current = false;
     });
@@ -615,7 +647,7 @@ export default function SupplierProductsPage() {
      the old inline handler did with this function's return value. */
   useOnSyncComplete(SYNC_TASK.supplierPage, () => {
     void reReadCatalogue().then((rows) => {
-      setAllProducts(rows);
+      setAllProducts((prev) => mergeCatalogue(prev, rows));
       addToast('Current page refreshed.');
     });
   });
@@ -663,9 +695,53 @@ export default function SupplierProductsPage() {
     maxPriceInput: dMaxPriceInput,
   });
 
+  /* ── Freeze the visible order for the duration of a sync ──
+     `sortItems` ran on every arriving batch, so rows already on screen were
+     re-slotted among the new ones and moved up and down.
+
+     The freeze records the rank each row ALREADY has and reuses it, rather than
+     skipping the sort outright: skipping it swaps the list from sorted order to
+     append order in one step, which changes every row key at once and makes
+     React rebuild the whole table (measured: 15 removed + 15 added the instant
+     a sync starts). Holding the existing ranks keeps rows in their exact
+     positions instead.
+
+     `sortItems` is called ONCE per run to capture that order — never per batch.
+     When the run ends the freeze lifts and the normal sort applies once, which
+     is the single final ordering. An explicit header click mid-sync also lifts
+     it, so sorting on demand still works. The comparator is untouched. */
+  const sortSignature = `${String(sortColumn)}|${sortAsc}`;
+  const sortAtSyncStart = useRef<string | null>(null);
+  // Captured during render rather than in an effect: an effect lands one render
+  // late, and that one unfrozen render is exactly the jump this prevents.
+  if (!fullSyncing) sortAtSyncStart.current = null;
+  else if (sortAtSyncStart.current === null) sortAtSyncStart.current = sortSignature;
+
+  const holdSortDuringSync = fullSyncing && sortAtSyncStart.current === sortSignature;
+
+  const rankAtSyncStart = useRef<Map<number, number> | null>(null);
+  if (!fullSyncing) rankAtSyncStart.current = null;
+
   const filteredProducts = useMemo(() => {
-    return sortItems(filteredProductsRaw);
-  }, [filteredProductsRaw, sortItems]);
+    if (!holdSortDuringSync) return sortItems(filteredProductsRaw);
+
+    // Ranked over ALL products, not the filtered subset, so changing a filter
+    // mid-sync still yields correctly ordered rows instead of dumping the newly
+    // matched ones at the end.
+    let rank = rankAtSyncStart.current;
+    if (!rank) {
+      rank = new Map(sortItems(allProducts).map((p, i) => [p.id, i]));
+      rankAtSyncStart.current = rank;
+    }
+
+    // Rows present when the run started hold their positions; rows the sync has
+    // delivered since follow, in arrival order.
+    const held: Product[] = [];
+    const arrived: Product[] = [];
+    for (const p of filteredProductsRaw) (rank.has(p.id) ? held : arrived).push(p);
+    held.sort((a, b) => rank!.get(a.id)! - rank!.get(b.id)!);
+    return arrived.length ? held.concat(arrived) : held;
+  }, [filteredProductsRaw, sortItems, holdSortDuringSync, allProducts]);
 
   // All three dropdown lists in ONE pass. Three separate useMemos each walked
   // the full 318k-row array and allocated its own intermediate — at this size
@@ -917,7 +993,7 @@ export default function SupplierProductsPage() {
         />
 
         {/* SCROLLABLE INNER DASHBOARD BODY */}
-        <div className="flex-1 min-h-0 flex flex-col p-6 gap-4 w-full mx-auto overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col p-4 sm:p-5 pb-4 gap-3.5 w-full mx-auto overflow-y-auto">
 
           {/* Width-omitted (aspect+rim) fallback notice banner */}
           {partialSizeInfo && (
@@ -991,7 +1067,7 @@ export default function SupplierProductsPage() {
           />
 
           {/* Data Table Container Card */}
-          <section className="flex-1 min-h-0 bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col">
+          <section className="bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col">
 
             {/* Scrollable Table — fills the card and scrolls INTERNALLY so row
                 count / page size never changes the card height (no layout shift). */}
@@ -1060,8 +1136,8 @@ export default function SupplierProductsPage() {
                       return (
                         <tr
                           key={item.id}
-                          onClick={() => setQuickViewItem(item)}
-                          title="Click row to view details"
+                          onClick={() => copyRowData(item)}
+                          title="Click row to copy details"
                           className="hover:bg-slate-50/70 transition-colors cursor-pointer group"
                         >
                           {!hiddenColumns.has('source') && (

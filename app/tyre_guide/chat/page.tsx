@@ -214,8 +214,8 @@ export default function TyreGuideChatPage() {
           actions={
             <HeaderActions
               badge={
-                <span className="text-xs font-semibold px-2.5 py-1 bg-gray-100 border border-gray-200 text-gray-600 rounded-lg">
-                  Total: {shortcuts.length}
+                <span className="inline-flex items-center justify-center min-w-[92px] bg-emerald-50 text-emerald-700 text-xs font-semibold px-2.5 py-1 rounded-full border border-emerald-200/80 tabular-nums whitespace-nowrap shadow-2xs">
+                  {shortcuts.length.toLocaleString()} items
                 </span>
               }
             />
