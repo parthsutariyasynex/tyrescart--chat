@@ -26,7 +26,7 @@ import { fetchSupplierPriceHistoryCached } from "@/services/cache";
 const CostLineChart = dynamic(() => import("./CostLineChart"), {
   ssr: false,
   loading: () => (
-    <div className="h-[300px] flex items-center justify-center bg-slate-50/60 rounded-xl">
+    <div className="h-[280px] lg:h-full flex items-center justify-center bg-slate-50/60 rounded-xl">
       <div className="skeleton h-full w-full rounded-xl" aria-hidden="true" />
     </div>
   ),
@@ -39,6 +39,7 @@ export interface CostHistoryProduct {
   sizeFull?: string;
   pattern?: string;
   itemCode?: string;
+  source?: string;
   cost: number;
   productType?: string;
 }
@@ -181,7 +182,7 @@ export default function CostHistoryModal({
       aria-label="Cost history"
     >
       <div
-        className={`bg-white w-full max-w-full shadow-2xl flex flex-col overflow-hidden transition-all duration-700 ease-out max-h-[90vh] rounded-t-2xl ${
+        className={`bg-slate-50 w-full max-w-full shadow-2xl flex flex-col overflow-hidden transition-all duration-700 ease-out h-[90vh] max-h-[90vh] rounded-t-2xl border-t border-slate-200 ${
           isOpen && !isClosing ? "translate-y-0 opacity-100" : "translate-y-full opacity-0"
         }`}
         onClick={(e) => e.stopPropagation()}
@@ -193,36 +194,41 @@ export default function CostHistoryModal({
           <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400" />
 
           <div className="flex items-center justify-between gap-4 px-6 py-4 bg-white border-b border-slate-100">
-            <div className="flex items-center gap-3 min-w-0">
+            {/* Left: icon + title */}
+            <div className="flex items-center gap-3 shrink-0">
               {/* Icon */}
               <div className="shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center shadow-sm">
-                <svg className="w-4.5 h-4.5 text-white w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
                 </svg>
               </div>
+              <h2 className="text-base font-extrabold text-slate-900 tracking-tight leading-tight whitespace-nowrap">
+                Cost History
+              </h2>
+            </div>
 
-              <div className="min-w-0">
-                <h2 className="text-base font-extrabold text-slate-900 tracking-tight leading-tight">
-                  Cost History
-                </h2>
-                <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
-                  {product.brand && (
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-[10px] font-bold uppercase tracking-wider">
-                      {product.brand}
-                    </span>
-                  )}
-                  {(product.sizeFull || product.size) && (
-                    <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-mono font-semibold border border-slate-200/80">
-                      {product.sizeFull || product.size}
-                    </span>
-                  )}
-                  {product.pattern && (
-                    <span className="text-[10px] text-slate-400 truncate max-w-[24rem] font-medium">
-                      {product.pattern}
-                    </span>
-                  )}
-                </div>
-              </div>
+            {/* Center: product pills — all on one line */}
+            <div className="flex-1 flex flex-nowrap items-center gap-1.5 overflow-x-auto mx-4">
+              {product.source && (
+                <span className="shrink-0 px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200/80 text-[10px] font-bold uppercase tracking-wider">
+                  {product.source}
+                </span>
+              )}
+              {product.brand && (
+                <span className="shrink-0 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-[10px] font-bold uppercase tracking-wider">
+                  {product.brand}
+                </span>
+              )}
+              {(product.sizeFull || product.size) && (
+                <span className="shrink-0 px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-mono font-semibold border border-slate-200/80">
+                  {product.sizeFull || product.size}
+                </span>
+              )}
+              {product.pattern && (
+                <span className="shrink-0 text-[10px] text-slate-500 font-semibold whitespace-nowrap">
+                  {product.pattern}
+                </span>
+              )}
             </div>
 
             <button
@@ -240,8 +246,8 @@ export default function CostHistoryModal({
         {/* ── Stat Cards ── */}
         <div className="shrink-0 grid grid-cols-2 sm:grid-cols-5 gap-px bg-slate-100 border-b border-slate-100">
           {STAT_CARDS.map((s) => (
-            <div key={s.label} className={`${s.bg} px-4 py-3 flex items-start gap-2.5 border-l-2 ${s.color}`}>
-              <div className="mt-0.5 shrink-0">{s.icon}</div>
+            <div key={s.label} className={`${s.bg} px-4 py-2.5 flex items-center gap-2.5 border-l-2 ${s.color}`}>
+              <div className="shrink-0">{s.icon}</div>
               <div className="min-w-0">
                 <div className="text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">{s.label}</div>
                 <div className={`text-sm font-extrabold font-mono leading-none ${s.textColor}`}>{s.value}</div>
@@ -251,12 +257,12 @@ export default function CostHistoryModal({
         </div>
 
         {/* ── Body: Chart + Price History ── */}
-        <div className="flex-1 overflow-y-auto bg-slate-50/50">
-          <div className="px-5 py-5 max-w-7xl mx-auto w-full flex flex-col lg:flex-row gap-4 h-full">
+        <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden bg-slate-50/50">
+          <div className="p-4 max-w-full mx-auto w-full flex flex-col lg:flex-row gap-4 lg:h-full lg:min-h-0">
 
-            {/* ── Left: Line Chart (70%) ── */}
-            <div className="flex-1 min-w-0 bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
-              <div className="px-4 pt-4 pb-1 border-b border-slate-100 flex items-center justify-between">
+            {/* ── Left: Line Chart — exactly 50% ── */}
+            <div className="lg:w-1/2 min-w-0 bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden flex flex-col lg:min-h-0">
+              <div className="shrink-0 min-h-[60px] px-4 py-2.5 border-b border-slate-100 flex items-center justify-between">
                 <div>
                   <p className="text-xs font-bold text-slate-700">Price Trend</p>
                   <p className="text-[10px] text-slate-400 mt-0.5">
@@ -271,13 +277,13 @@ export default function CostHistoryModal({
                 )}
               </div>
 
-              <div className="px-2 py-3">
+              <div className="p-1.5 lg:flex-1 lg:min-h-0">
                 {loading ? (
-                  <div className="h-[280px] flex items-center justify-center">
+                  <div className="h-[280px] lg:h-full flex items-center justify-center">
                     <div className="skeleton h-full w-full rounded-lg" aria-hidden="true" />
                   </div>
                 ) : empty ? (
-                  <div className="h-[280px] flex flex-col items-center justify-center text-center px-6">
+                  <div className="h-[280px] lg:h-full flex flex-col items-center justify-center text-center px-6">
                     <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center mb-3">
                       <svg className="w-7 h-7 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"
@@ -296,12 +302,11 @@ export default function CostHistoryModal({
               </div>
             </div>
 
-            {/* ── Right: Price History panel (30%) ── */}
-            <div className="lg:w-[30%] shrink-0 flex flex-col">
-              <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm flex flex-col overflow-hidden flex-1">
+            {/* ── Right: Price History panel — exactly 50% ── */}
+            <div className="lg:w-1/2 min-w-0 bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden flex flex-col lg:min-h-0">
 
                 {/* Panel header */}
-                <div className="px-4 py-3 border-b border-slate-100 bg-white shrink-0">
+                <div className="shrink-0 min-h-[60px] px-4 py-2.5 border-b border-slate-100 bg-white flex flex-col justify-center">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <div className="w-1.5 h-4 rounded-full bg-gradient-to-b from-emerald-400 to-teal-500" />
@@ -316,13 +321,13 @@ export default function CostHistoryModal({
                     )}
                   </div>
                   {!loading && !empty && (
-                    <p className="text-[10px] text-slate-400 mt-1 ml-3.5">Newest first</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5 ml-3.5">Newest first</p>
                   )}
                 </div>
 
                 {/* Panel body */}
                 {loading ? (
-                  <div className="flex-1 p-3 space-y-2">
+                  <div className="flex-1 min-h-0 overflow-hidden p-3 space-y-2">
                     {[...Array(6)].map((_, i) => (
                       <div
                         key={i}
@@ -342,7 +347,7 @@ export default function CostHistoryModal({
                     <p className="text-xs font-semibold text-slate-500">No records yet</p>
                   </div>
                 ) : (
-                  <div className="overflow-y-auto" style={{ maxHeight: 340 }}>
+                  <div className="flex-1 min-h-0 overflow-y-auto">
                     {priceHistoryList.map((rec, idx) => {
                       const isLatest = idx === 0;
                       const hasSpread = stats.highest !== stats.lowest;
@@ -352,7 +357,7 @@ export default function CostHistoryModal({
                       return (
                         <div
                           key={rec.id ?? `${rec.productId}:${rec.syncTimestamp}`}
-                          className={`group relative flex items-center justify-between gap-2 px-4 py-3 border-b border-slate-50 last:border-0 transition-all duration-150 cursor-default ${
+                          className={`group relative flex items-center justify-between gap-2 whitespace-nowrap px-4 py-2.5 border-b border-slate-50 last:border-0 transition-all duration-150 cursor-default ${
                             isLatest
                               ? "bg-gradient-to-r from-emerald-50/80 to-white hover:from-emerald-50"
                               : "hover:bg-slate-50/80"
@@ -363,22 +368,22 @@ export default function CostHistoryModal({
                             isHighest ? "bg-rose-400" : isLowest ? "bg-emerald-400" : isLatest ? "bg-teal-400" : "bg-transparent group-hover:bg-slate-200"
                           }`} />
 
-                          {/* Date + badges */}
-                          <div className="min-w-0 pl-1">
-                            <span className="text-xs font-semibold text-slate-700 tabular-nums">
+                          {/* Date + badges — single line */}
+                          <div className="min-w-0 pl-1 flex items-center gap-2 whitespace-nowrap">
+                            <span className="shrink-0 text-xs font-semibold text-slate-700 tabular-nums">
                               {new Date(rec.syncTimestamp).toLocaleDateString("en-GB", {
                                 day: "2-digit", month: "short", year: "numeric",
                               })}
                             </span>
-                            <div className="mt-1 flex flex-wrap gap-1 items-center">
+                            <div className="flex items-center gap-2 whitespace-nowrap">
                               {isLatest && (
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wide bg-emerald-100 text-emerald-700 border border-emerald-200">
+                                <span className="shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wide bg-emerald-100 text-emerald-700 border border-emerald-200">
                                   <span className="w-1 h-1 rounded-full bg-emerald-500 inline-block" />
                                   Current
                                 </span>
                               )}
                               {isHighest && (
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wide bg-rose-50 text-rose-600 border border-rose-200">
+                                <span className="shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wide bg-rose-50 text-rose-600 border border-rose-200">
                                   <svg className="w-2 h-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 15l7-7 7 7" />
                                   </svg>
@@ -386,7 +391,7 @@ export default function CostHistoryModal({
                                 </span>
                               )}
                               {isLowest && (
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wide bg-sky-50 text-sky-600 border border-sky-200">
+                                <span className="shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wide bg-sky-50 text-sky-600 border border-sky-200">
                                   <svg className="w-2 h-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7" />
                                   </svg>
@@ -397,7 +402,7 @@ export default function CostHistoryModal({
                           </div>
 
                           {/* Price + trend dot */}
-                          <div className="shrink-0 text-right">
+                          <div className="shrink-0 flex items-center gap-2 whitespace-nowrap">
                             <div className={`text-sm font-extrabold font-mono tabular-nums ${
                               isHighest ? "text-rose-600"
                                 : isLowest ? "text-sky-600"
@@ -413,7 +418,7 @@ export default function CostHistoryModal({
                               if (diff === 0) return null;
                               const up = diff > 0;
                               return (
-                                <div className={`flex items-center justify-end gap-0.5 mt-0.5 text-[9px] font-bold ${up ? "text-rose-500" : "text-emerald-500"}`}>
+                                <div className={`flex items-center gap-0.5 text-[9px] font-bold ${up ? "text-rose-500" : "text-emerald-500"}`}>
                                   <svg className="w-2 h-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3"
                                       d={up ? "M5 15l7-7 7 7" : "M19 9l-7 7-7-7"} />
@@ -428,7 +433,6 @@ export default function CostHistoryModal({
                     })}
                   </div>
                 )}
-              </div>
             </div>
 
           </div>

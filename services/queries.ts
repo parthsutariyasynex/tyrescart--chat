@@ -615,3 +615,35 @@ export function tcAttributeLabelsQuery(): string {
     }
   }`;
 }
+
+/* ─────────────────────────────────────────────────────────────
+   Klever Vehicle Search (wheel fitment lookup)
+
+   Query builder only — NOT wired to a fetcher and not called anywhere yet.
+   `width` / `height` / `rim` are the tyre size's own numbers (e.g. 215/55 R17),
+   and the API returns the vehicles that size fits: make, model, the year range
+   it applies to, both axles' fitment (front/rear can differ), and whether that
+   fitment is the vehicle's stock (factory) size.
+
+   All three args are plain numbers, so they are interpolated directly — no
+   string escaping is needed the way the filter-string queries above need it.
+───────────────────────────────────────────────────────────── */
+export function kleverVehicleSearchQuery(width: number, height: number, rim: number): string {
+  return `query {
+    kleverVehicleSearch(width: ${width}, height: ${height}, rim: ${rim}) {
+      status
+      data {
+        make_name
+        model_name
+        year_ranges
+        front_width
+        front_height
+        front_rim
+        rear_width
+        rear_height
+        rear_rim
+        is_stock
+      }
+    }
+  }`;
+}

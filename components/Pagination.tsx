@@ -62,7 +62,7 @@ export default function Pagination({
           <span className="text-slate-500">entries</span>
 
           {isPageSizeOpen && (
-            <div className="absolute left-0 bottom-full mb-1.5 w-16 bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-16 bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
               {pageSizeOptions.map((size) => (
                 <button
                   key={size}
@@ -87,8 +87,17 @@ export default function Pagination({
         </div>
       )}
 
-      {/* Right: Previous / page numbers / Next */}
+      {/* Right: First / Previous / page numbers / Next / Last */}
       <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          disabled={currentPage <= 1}
+          onClick={() => onPageChange(1)}
+          className="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+        >
+          First
+        </button>
+
         <button
           type="button"
           disabled={currentPage <= 1}
@@ -132,6 +141,15 @@ export default function Pagination({
           className="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
         >
           Next
+        </button>
+
+        <button
+          type="button"
+          disabled={currentPage >= totalPages}
+          onClick={() => onPageChange(totalPages)}
+          className="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+        >
+          Last
         </button>
       </div>
     </div>

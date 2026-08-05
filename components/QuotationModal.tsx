@@ -50,17 +50,61 @@ function CustomSelect({
   placeholder?: string;
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [coords, setCoords] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
+  const [mounted, setMounted] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const updateCoords = () => {
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      setCoords({
+        top: rect.bottom + 4,
+        left: rect.left,
+        width: rect.width,
+      });
+    }
+  };
+
+  const handleToggle = () => {
+    if (!isOpen) {
+      updateCoords();
+    }
+    setIsOpen(!isOpen);
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+
     function handleClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node) &&
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target as Node)
+      ) {
         setIsOpen(false);
       }
     }
+
+    function handleScrollOrResize() {
+      updateCoords();
+    }
+
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+    window.addEventListener("scroll", handleScrollOrResize, true);
+    window.addEventListener("resize", handleScrollOrResize);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      window.removeEventListener("scroll", handleScrollOrResize, true);
+      window.removeEventListener("resize", handleScrollOrResize);
+    };
+  }, [isOpen]);
 
   const selectedOption = options.find((o) => o.value === value);
 
@@ -68,8 +112,8 @@ function CustomSelect({
     <div ref={containerRef} className="relative w-full">
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className={`w-full h-9 px-3 text-xs bg-white border rounded-lg flex items-center justify-between transition-all cursor-pointer ${
+        onClick={handleToggle}
+        className={`w-full h-8 px-2.5 text-xs bg-white border rounded-lg flex items-center justify-between transition-all cursor-pointer ${
           isOpen
             ? "border-emerald-500 bg-emerald-50/50 ring-2 ring-emerald-500/20 text-slate-800 font-medium"
             : "border-slate-300 hover:border-slate-400 text-slate-700"
@@ -85,30 +129,43 @@ function CustomSelect({
         />
       </button>
 
-      {isOpen && (
-        <div className="absolute z-50 left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-white border border-emerald-200/90 rounded-lg shadow-lg py-1 animate-in fade-in zoom-in-95 duration-100">
-          {options.map((opt) => {
-            const isSelected = opt.value === value;
-            return (
-              <div
-                key={opt.value}
-                onClick={() => {
-                  onChange({ target: { name, value: opt.value } });
-                  setIsOpen(false);
-                }}
-                className={`px-3 py-2 text-xs cursor-pointer flex items-center justify-between transition-colors ${
-                  isSelected
-                    ? "bg-emerald-100/90 text-emerald-900 font-semibold border-l-3 border-emerald-500"
-                    : "text-slate-700 hover:bg-emerald-50/80 hover:text-emerald-800 font-normal"
-                }`}
-              >
-                <span>{opt.label}</span>
-                {isSelected && <CheckIcon className="w-3.5 h-3.5 text-emerald-700 stroke-2" />}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {isOpen &&
+        mounted &&
+        createPortal(
+          <div
+            ref={dropdownRef}
+            style={{
+              position: "fixed",
+              top: `${coords.top}px`,
+              left: `${coords.left}px`,
+              width: `${coords.width}px`,
+              zIndex: 99999,
+            }}
+            className="max-h-44 overflow-y-auto bg-white border border-emerald-200/90 rounded-lg shadow-xl py-1 animate-in fade-in zoom-in-95 duration-100"
+          >
+            {options.map((opt) => {
+              const isSelected = opt.value === value;
+              return (
+                <div
+                  key={opt.value}
+                  onClick={() => {
+                    onChange({ target: { name, value: opt.value } });
+                    setIsOpen(false);
+                  }}
+                  className={`px-3 py-2 text-xs cursor-pointer flex items-center justify-between transition-colors ${
+                    isSelected
+                      ? "bg-emerald-100/90 text-emerald-900 font-semibold border-l-3 border-emerald-500"
+                      : "text-slate-700 hover:bg-emerald-50/80 hover:text-emerald-800 font-normal"
+                  }`}
+                >
+                  <span>{opt.label}</span>
+                  {isSelected && <CheckIcon className="w-3.5 h-3.5 text-emerald-700 stroke-2" />}
+                </div>
+              );
+            })}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
@@ -151,12 +208,12 @@ export default function QuotationModal({
     year: "",
     paidAmount: "",
     installer: "",
-    orderFrom: "Manual",
     status: "Draft",
-    orderNumber: "",
     address: "",
     notes: "",
     convertedToOrder: "No",
+    orderFrom: "POS",
+    orderNumber: "",
   });
 
   useEffect(() => {
@@ -206,12 +263,19 @@ export default function QuotationModal({
   };
 
   const handleCheckout = () => {
+    const generatedOrderNumber = formData.orderNumber || `ORD-${Date.now()}`;
+    const payload = {
+      ...formData,
+      orderFrom: formData.orderFrom || "POS",
+      orderNumber: generatedOrderNumber,
+      items: cart.lines,
+      totalPrice: cart.totalPrice,
+    };
+
+    console.log("=== CREATE QUOTATION SUBMIT PAYLOAD ===", payload);
+
     if (onSave) {
-      onSave({
-        ...formData,
-        items: cart.lines,
-        totalPrice: cart.totalPrice,
-      });
+      onSave(payload);
     }
 
     // Reset Form Fields to Initial State
@@ -229,12 +293,12 @@ export default function QuotationModal({
       year: "",
       paidAmount: "",
       installer: "",
-      orderFrom: "Manual",
       status: "Draft",
-      orderNumber: "",
       address: "",
       notes: "",
       convertedToOrder: "No",
+      orderFrom: "POS",
+      orderNumber: "",
     });
 
     // Clear Cart Items
@@ -256,7 +320,7 @@ export default function QuotationModal({
       aria-labelledby="quotation-title"
     >
       <div
-        className={`bg-slate-50 w-full max-w-full shadow-2xl flex flex-col overflow-hidden transition-all duration-500 ease-out max-h-[90vh] rounded-t-2xl border-t border-slate-200 ${
+        className={`bg-slate-50 w-full max-w-full shadow-2xl flex flex-col overflow-hidden transition-all duration-500 ease-out h-[90vh] max-h-[90vh] rounded-t-2xl border-t border-slate-200 ${
           isSlideOpen && !isClosing ? "translate-y-0 opacity-100" : "translate-y-full opacity-0"
         }`}
         onClick={(e) => e.stopPropagation()}
@@ -288,7 +352,7 @@ export default function QuotationModal({
         </div>
 
         {/* Content Body with Side-by-Side Dual Pane Layout */}
-        <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-5">
+        <div className="flex-1 min-h-0 overflow-y-auto p-3.5 sm:p-4">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
             
             {/* Left Column: Cart Line Items Table Panel */}
@@ -478,7 +542,7 @@ export default function QuotationModal({
               </h2>
 
               {/* Form Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 flex-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 flex-1">
                 {/* Row 1 */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -666,18 +730,6 @@ export default function QuotationModal({
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Order From
-                  </label>
-                  <CustomSelect
-                    name="orderFrom"
-                    value={formData.orderFrom}
-                    onChange={handleChange}
-                    options={ORDER_FROM_OPTIONS}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Status
                   </label>
                   <CustomSelect
@@ -688,23 +740,8 @@ export default function QuotationModal({
                   />
                 </div>
 
+                {/* Row 5: Textareas side-by-side in single row */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Order Number
-                  </label>
-                  <input
-                    type="text"
-                    name="orderNumber"
-                    value={formData.orderNumber}
-                    onChange={handleChange}
-                    placeholder="Order Number"
-                    className="w-full h-9 px-3 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-500 focus:outline-none cursor-not-allowed"
-                    readOnly
-                  />
-                </div>
-
-                {/* Row 5: Textareas */}
-                <div className="sm:col-span-2">
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Address
                   </label>
@@ -718,7 +755,7 @@ export default function QuotationModal({
                   />
                 </div>
 
-                <div className="sm:col-span-2">
+                <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Notes / Terms
                   </label>

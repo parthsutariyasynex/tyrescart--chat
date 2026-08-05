@@ -234,7 +234,7 @@ export default function Filter({
       <div className="flex flex-wrap items-end gap-2.5">
         {/* Supplier (Optional) */}
         {showSupplierFilter && setSupplierFilter && (
-          <div ref={supplierRef} className="flex flex-col flex-1 min-w-[130px] relative">
+          <div ref={supplierRef} className="flex flex-col w-[110px] shrink-0 relative">
             <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
               Supplier
             </label>
@@ -301,7 +301,7 @@ export default function Filter({
         )}
 
         {/* Category */}
-        <div ref={categoryRef} className="flex flex-col flex-1 min-w-[130px] relative">
+        <div ref={categoryRef} className="flex flex-col w-[120px] shrink-0 relative">
           <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
             Category
           </label>
@@ -367,7 +367,7 @@ export default function Filter({
         </div>
 
         {/* Brand */}
-        <div ref={brandRef} className="relative flex flex-col flex-1 min-w-[140px]">
+        <div ref={brandRef} className="relative flex flex-col w-[150px] shrink-0">
           <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
             Brand
           </label>
@@ -507,8 +507,12 @@ export default function Filter({
           )}
         </div>
 
-        {/* Search */}
-        <div className="flex flex-col flex-[2] min-w-[200px]">
+        {/* Search — the only flex-grow field, so it absorbs the row's slack.
+            Widening Size therefore narrows Search by exactly that much. Its
+            min-width is the wrap trigger: the row breaks the moment Search
+            can no longer hold it, so this floor drops alongside Size's gain to
+            keep the existing single-line range. */}
+        <div className="flex flex-col flex-1 min-w-[120px]">
           <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
             Search
           </label>
@@ -528,8 +532,9 @@ export default function Filter({
           </div>
         </div>
 
-        {/* Size */}
-        <div className="flex flex-col w-[115px] shrink-0">
+        {/* Size — full sizes ("215/55 R18 99H") need more room than Search's
+            short queries, so it takes 60px from Search. */}
+        <div className="flex flex-col w-[300px] shrink-0">
           <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
             Size
           </label>
@@ -580,7 +585,7 @@ export default function Filter({
         </div>
 
         {/* Price Range */}
-        <div className="flex flex-col w-[175px] shrink-0">
+        <div className="flex flex-col w-[240px] shrink-0">
           <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
             Price Range
           </label>
@@ -615,7 +620,7 @@ export default function Filter({
 
         {/* Offers Dropdown (Optional) */}
         {showOfferFilter && setOfferFilter && (
-          <div ref={offerRef} className="flex flex-col flex-1 min-w-[140px] relative">
+          <div ref={offerRef} className="flex flex-col w-[170px] shrink-0 relative">
             <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
               Offers
             </label>

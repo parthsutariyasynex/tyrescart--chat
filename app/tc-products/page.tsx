@@ -75,6 +75,36 @@ const SEARCH_FIELDS = ['pattern', 'itemCode', 'brand', 'category', 'country', 's
 /** Numeric tokens are matched against the size ONLY — never name or SKU. */
 const SEARCH_SIZE_FIELDS = ['size'] as const;
 
+/**
+ * Every column the Search box should match as a plain substring, UNIONed with
+ * the tokenized search above (see `globalSearchFields` in useProductFilter).
+ *
+ * Needed because `SEARCH_FIELDS` alone cannot cover these. Two gaps it closes:
+ *   - Columns absent from `SEARCH_FIELDS` entirely — oem, offer, qty, price,
+ *     setOf4Price, sizeFull.
+ *   - NUMERIC values. The tokenizer routes any all-digit token to the size
+ *     fields, so a price ("469"), a qty ("1") or a year ("2026") could never
+ *     reach its own column no matter which fields were listed.
+ *
+ * `oem` is listed for completeness but is always NO_API_FIELD ("—") — the
+ * schema has no OEM field (see the NO_API_FIELD note), so it can only ever
+ * match someone typing the dash itself.
+ */
+const GLOBAL_SEARCH_FIELDS = [
+  'brand',
+  'category',
+  'pattern',
+  'size',
+  'sizeFull',
+  'oem',
+  'country',
+  'year',
+  'qty',
+  'price',
+  'setOf4Price',
+  'offer',
+] as const;
+
 /** Size-box predicate: full/normalized size, with width-omitted aspect+rim fallback (e.g. "55R16"). */
 function matchesSizeInput(item: { size: string }, s: string): boolean {
   const ar = parseAspectRim(s);
@@ -147,6 +177,32 @@ const NO_API_FIELD = '—';
 
 /** Units in a "set" — a full set of tyres for one car. */
 const SET_OF_4_UNITS = 4;
+
+/**
+ * How many units a customer actually PAYS for to drive away with four tyres,
+ * given the row's promotion. Used only to derive the Set of 4 figure — the
+ * per-unit Price column is untouched.
+ *
+ * Keyed off the `offer` LABEL because that is the only offer information the
+ * row carries (`offers` itself is an option id, resolved to text via
+ * `tcAttributeLabelsQuery`). Compared case- and whitespace-insensitively so a
+ * label edited in the Magento admin ("Buy 3 Get 1 free", double space) still
+ * matches rather than silently reverting to full price.
+ *
+ * Anything unrecognised — no offer, `NO_API_FIELD`, or a promo that is not a
+ * free-tyre deal ("Free Wheel Alignment", "Top Savings", "Price Slashed"…) —
+ * falls back to the full four units. That fallback is deliberate: a promo whose
+ * mechanics we cannot read must never quietly discount the displayed price.
+ *
+ * NOTE: of the 8 promotions configured on this store, only "Buy 3 Get 1 Free"
+ * exists today; "Buy 2 Get 2 Free" is handled in advance for when it is added.
+ */
+function setOfFourPaidUnits(offerLabel: string): number {
+  const o = (offerLabel || "").trim().toLowerCase().replace(/\s+/g, " ");
+  if (o === "buy 2 get 2 free") return 2;
+  if (o === "buy 3 get 1 free") return 3;
+  return SET_OF_4_UNITS;
+}
 
 interface Toast {
   id: number;
@@ -227,6 +283,10 @@ function mapTcProduct(p: TcApiProduct, maps: TcLabelMaps): Product {
   const li = (p.load_index ?? '').trim();
   const regular = p.price_range?.minimum_price?.regular_price?.value ?? 0;
   const tyresCategoryLabel = lbl(maps.tyresCategory, p.tyres_category ?? null);
+  // Resolved once and reused by BOTH the Offer column and the Set of 4
+  // derivation below, so the price can never disagree with the badge shown
+  // next to it. Identical value to what `offer` rendered before.
+  const offerLabel = lbl(maps.offers, p.offers) || NO_API_FIELD;
 
   return {
     id: Number(p.uid ? parseInt(atob(p.uid), 10) : 0) || 0,
@@ -256,16 +316,21 @@ function mapTcProduct(p: TcApiProduct, maps: TcLabelMaps): Product {
     is_latest: 1,
     price: regular,
     // Set of 4 Price is DERIVED, never fetched: the API's `price` is the
-    // per-unit figure, so a set of four is simply 4x it. Computed here at map
-    // time, which means it re-derives automatically whenever the API returns a
-    // new price — there is nothing cached or stored to go stale.
-    setOf4Price: regular * SET_OF_4_UNITS,
+    // per-unit figure. Computed here at map time, which means it re-derives
+    // automatically whenever the API returns a new price — there is nothing
+    // cached or stored to go stale.
+    //
+    // No longer a flat 4x: a free-tyre promotion means the customer pays for
+    // fewer than four. "Buy 3 Get 1 Free" -> 3x, "Buy 2 Get 2 Free" -> 2x,
+    // everything else -> 4x. See `setOfFourPaidUnits`. The per-unit `price`
+    // above is deliberately left exactly as the API sent it.
+    setOf4Price: regular * setOfFourPaidUnits(offerLabel),
     oem: NO_API_FIELD,
     // The promo attribute's own label, e.g. "Free Wheel Alignment". This was a
     // regular-vs-final price percentage, which rendered as an em-dash on every
     // row: measured across all 8,526 products, none has final < regular, so the
     // spread was always zero. `offers` is the field that actually carries this.
-    offer: lbl(maps.offers, p.offers) || NO_API_FIELD,
+    offer: offerLabel,
   };
 }
 
@@ -330,7 +395,13 @@ export default function TcProductsPage() {
 
   const [pageSize, setPageSize] = useState(15);
   const [currentPage, setCurrentPage] = useState(1);
-  const { sortColumn, sortAsc, handleSort, sortItems } = useProductSorting<Product>('date', false);
+  // Default sort is Year, descending (latest year first) — matches
+  // /supplier-products. UNLIKE that page, this is still an in-memory sort:
+  // TC caches whole API PAGES as blobs (services/cache.ts's
+  // `productQueries` store), not one record per product, so there is no
+  // per-record `year` field to build a real IndexedDB index on without a much
+  // larger structural change to how this page caches and syncs data.
+  const { sortColumn, sortAsc, handleSort, sortItems } = useProductSorting<Product>('year', false);
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   /** Rows the user has added via the Action column. Client-side only — there is
@@ -589,6 +660,9 @@ export default function TcProductsPage() {
     // only brand/country/size and could never match a name, SKU or category.
     searchFields: SEARCH_FIELDS,
     searchSizeFields: SEARCH_SIZE_FIELDS,
+    // Makes the Search box a single global search across every listed column
+    // — additive, so existing size-aware queries keep working unchanged.
+    globalSearchFields: GLOBAL_SEARCH_FIELDS,
   });
 
   const filteredProducts = useMemo(() => {
@@ -883,9 +957,9 @@ export default function TcProductsPage() {
 
   // Cell padding class based on Density mode
   const cellPaddingClass = useMemo(() => {
-    if (density === 'compact') return 'py-1 px-2';
-    if (density === 'comfortable') return 'py-1.5 px-3';
-    return 'py-2.5 px-3.5'; // breathable
+    if (density === 'compact') return 'py-1 px-1.5';
+    if (density === 'comfortable') return 'py-1.5 px-2';
+    return 'py-2 px-2'; // breathable
   }, [density]);
 
   return (
@@ -1009,21 +1083,43 @@ export default function TcProductsPage() {
                 count / page size never changes the card height (no layout shift). */}
             <div className={`flex-1 min-h-0 [scrollbar-gutter:stable] ${pageSize > 15 ? "overflow-y-auto" : "overflow-hidden"}`}>
               <table className="w-full min-w-[1280px] xl:min-w-0 text-left border-collapse table-fixed">
+                {/* Column widths, summing to exactly 100% with every column
+                    visible. Hiding a column leaves the remainder under 100%,
+                    which the browser redistributes proportionally. */}
+                <colgroup>
+                  {!hiddenColumns.has('brand') && <col className="w-[8%]" />}
+                  {!hiddenColumns.has('category') && <col className="w-[7%]" />}
+                  {!hiddenColumns.has('size') && <col className="w-[10%]" />}
+                  {/* Name gives up 3.5% to Offer — see the Offer col below. */}
+                  {!hiddenColumns.has('name') && <col className="w-[17.5%]" />}
+                  {!hiddenColumns.has('oem') && <col className="w-[4%]" />}
+                  {!hiddenColumns.has('runflat') && <col className="w-[5%]" />}
+                  {!hiddenColumns.has('origin') && <col className="w-[5%]" />}
+                  {!hiddenColumns.has('year') && <col className="w-[5%]" />}
+                  {!hiddenColumns.has('qty') && <col className="w-[5%]" />}
+                  {!hiddenColumns.has('price') && <col className="w-[7.5%]" />}
+                  {!hiddenColumns.has('setOf4Price') && <col className="w-[8%]" />}
+                  {/* 9.5%: the widest configured offer label ("Free Wheel
+                      Alignment") measures 136px, and 6% gave only 88px, which
+                      forced the badge to ellipsize. 9.5% clears all 9 labels. */}
+                  {!hiddenColumns.has('offer') && <col className="w-[9.5%]" />}
+                  <col className="w-[8.5%]" />
+                </colgroup>
                 <thead className="bg-slate-50/90 backdrop-blur sticky top-0 z-10 border-b border-slate-200">
                   <tr className="text-[11px] font-bold text-slate-500 uppercase tracking-wider select-none">
-                    {!hiddenColumns.has('brand') && <th onClick={() => handleSort('brand')} className="py-2.5 px-1.5 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[7%]">Brand <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('category') && <th onClick={() => handleSort('category')} className="py-2.5 px-1.5 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[7.5%]">Category <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('size') && <th onClick={() => handleSort('size')} className="py-2.5 px-1.5 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[10%]">Tyre Size <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('name') && <th onClick={() => handleSort('pattern')} className="py-2.5 px-1.5 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[20%]">Name <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('oem') && <th className="py-2.5 px-1 text-center whitespace-nowrap w-[4%]">OEM</th>}
-                    {!hiddenColumns.has('runflat') && <th className="py-2.5 px-1 text-center whitespace-nowrap w-[4.5%]">RunFlat</th>}
-                    {!hiddenColumns.has('origin') && <th onClick={() => handleSort('country')} className="py-2.5 px-1.5 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[7%]">Origin <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('year') && <th onClick={() => handleSort('year')} className="py-2.5 px-1 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap w-[4%]">Year <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('qty') && <th onClick={() => handleSort('qty')} className="py-2.5 px-1 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap w-[4%]">Qty <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('price') && <th onClick={() => handleSort('price')} className="py-2.5 px-1.5 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[6%]">Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('setOf4Price') && <th onClick={() => handleSort('setOf4Price')} className="py-2.5 px-1.5 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[7%]">Set of 4 <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('offer') && <th className="py-2.5 px-1.5 text-center whitespace-nowrap w-[10%]">Offer</th>}
-                    <th className="py-2.5 px-1.5 text-center whitespace-nowrap w-[9%]">Action</th>
+                    {!hiddenColumns.has('brand') && <th onClick={() => handleSort('brand')} className="py-2.5 px-1.5 cursor-pointer hover:text-slate-900 whitespace-nowrap">Brand <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('category') && <th onClick={() => handleSort('category')} className="py-2.5 px-1.5 cursor-pointer hover:text-slate-900 whitespace-nowrap">Category <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('size') && <th onClick={() => handleSort('size')} className="py-2.5 px-1.5 cursor-pointer hover:text-slate-900 whitespace-nowrap">Tyre Size <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('name') && <th onClick={() => handleSort('pattern')} className="py-2.5 px-1.5 cursor-pointer hover:text-slate-900 whitespace-nowrap">Name <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('oem') && <th className="py-2.5 px-1 text-center whitespace-nowrap">OEM</th>}
+                    {!hiddenColumns.has('runflat') && <th className="py-2.5 px-1 text-center whitespace-nowrap">RunFlat</th>}
+                    {!hiddenColumns.has('origin') && <th onClick={() => handleSort('country')} className="py-2.5 px-1.5 cursor-pointer hover:text-slate-900 whitespace-nowrap">Origin <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('year') && <th onClick={() => handleSort('year')} className="py-2.5 px-1 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap">Year <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('qty') && <th onClick={() => handleSort('qty')} className="py-2.5 px-1 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap">Qty <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('price') && <th onClick={() => handleSort('price')} className="py-2.5 px-1.5 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap">Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('setOf4Price') && <th onClick={() => handleSort('setOf4Price')} className="py-2.5 px-1.5 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap">Set of 4 <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('offer') && <th className="py-2.5 px-1.5 text-center whitespace-nowrap">Offer</th>}
+                    <th className="py-2.5 px-1.5 text-center whitespace-nowrap">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-sans">

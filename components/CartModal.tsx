@@ -69,7 +69,7 @@ export default function CartModal({ onCloseAction, onCheckoutAction }: CartModal
       aria-label="Cart"
     >
       <div
-        className={`bg-slate-50 w-full max-w-full shadow-2xl flex flex-col overflow-hidden transition-all duration-700 ease-out h-[85vh] max-h-[680px] rounded-t-2xl border-t border-slate-200 ${
+        className={`bg-slate-50 w-full max-w-full shadow-2xl flex flex-col overflow-hidden transition-all duration-700 ease-out h-[90vh] max-h-[90vh] rounded-t-2xl border-t border-slate-200 ${
           isOpen && !isClosing ? "translate-y-0 opacity-100" : "translate-y-full opacity-0"
         }`}
         onClick={(e) => e.stopPropagation()}

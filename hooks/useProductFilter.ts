@@ -36,6 +36,34 @@ export function matchesSizeInput(item: { size?: string; sizeFull?: string }, s: 
   return matchesSearch(item, s, SIZE_BOX_FIELDS, SIZE_BOX_FIELDS);
 }
 
+/**
+ * Plain case-insensitive substring test across explicitly-named fields.
+ *
+ * Deliberately dumber than `matchesSearch`: no tokenizing, no size
+ * normalisation, no year/rim special-casing. That intelligence is what makes
+ * "2254018" find a 225/40 R18, but it also routes ANY all-digit token to the
+ * size fields alone — so a price like "469" or a qty like "1" could never
+ * match, because those never reach a non-size field. This runs alongside it
+ * (never instead of it) to cover the plain "does this text appear anywhere"
+ * case.
+ */
+function matchesGlobalFields(
+  row: Record<string, unknown>,
+  fields: readonly string[],
+  needle: string,
+): boolean {
+  for (const field of fields) {
+    const v = row[field];
+    if (v === null || v === undefined || v === "") continue;
+    if (String(v).toLowerCase().includes(needle)) return true;
+    // Price columns render with 2 decimals ("469.00") while the record holds
+    // 469, so the displayed form has to be searchable too or typing what is
+    // literally on screen finds nothing.
+    if (typeof v === "number" && v.toFixed(2).includes(needle)) return true;
+  }
+  return false;
+}
+
 export interface FilterOptions<T> {
   allProducts: T[];
   searchQuery: string;
@@ -50,6 +78,14 @@ export interface FilterOptions<T> {
   supplierFilter?: string;
   searchFields?: readonly string[];
   searchSizeFields?: readonly string[];
+  /**
+   * Opt-in: fields the search box should ALSO match as a plain substring,
+   * UNIONed with the normal tokenized search rather than replacing it.
+   *
+   * Omitted (the default) means the search behaves exactly as before, so pages
+   * that don't pass this — /supplier-products, /products — are untouched.
+   */
+  globalSearchFields?: readonly string[];
 }
 
 export function useProductFilter<T extends Record<string, any>>({
@@ -66,18 +102,35 @@ export function useProductFilter<T extends Record<string, any>>({
   supplierFilter = "ALL",
   searchFields = SEARCHABLE_FIELDS,
   searchSizeFields = DEFAULT_SIZE_FIELDS,
+  globalSearchFields,
 }: FilterOptions<T>): T[] {
   return useMemo(() => {
     let result: T[] = allProducts;
 
     // 1. Search Query with aspect rim fallback
     if (searchQuery && searchQuery.trim()) {
-      result = searchWithAspectRimFallback(
+      const trimmed = searchQuery.trim();
+      const tokenMatched = searchWithAspectRimFallback(
         result,
-        searchQuery.trim(),
+        trimmed,
         searchFields as any,
         searchSizeFields as any
       );
+
+      if (globalSearchFields && globalSearchFields.length) {
+        /* UNION, not replacement: keep every row the tokenized search found,
+           then add rows matching the raw text in any listed field. Additive by
+           design — no query that worked before returns fewer rows now.
+           Ordering here is irrelevant: the caller sorts afterwards. */
+        const needle = trimmed.toLowerCase();
+        const already = new Set<T>(tokenMatched);
+        const extra = result.filter(
+          (row) => !already.has(row) && matchesGlobalFields(row, globalSearchFields, needle),
+        );
+        result = extra.length ? [...tokenMatched, ...extra] : tokenMatched;
+      } else {
+        result = tokenMatched;
+      }
     }
 
     // 2. Category exact match
@@ -171,5 +224,6 @@ export function useProductFilter<T extends Record<string, any>>({
     supplierFilter,
     searchFields,
     searchSizeFields,
+    globalSearchFields,
   ]);
 }

@@ -23,7 +23,10 @@ import {
 } from "@heroicons/react/24/outline";
 
 /** One icon per spec cell, as the storefront shows — not a repeated tick. */
-export const SPEC_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
+export const SPEC_ICON: Record<
+  string,
+  React.ComponentType<{ className?: string }>
+> = {
   WIDTH: ArrowsRightLeftIcon,
   PROFILE: ArrowsUpDownIcon,
   "RIM SIZE": ViewfinderCircleIcon,
@@ -36,7 +39,10 @@ export const SPEC_ICON: Record<string, React.ComponentType<{ className?: string 
   COUNTRY: GlobeAltIcon,
   SKU: DocumentTextIcon,
 };
-import { fetchTcQuickViewCached, fetchTcQuickViewMatchesCached } from "@/services/cache";
+import {
+  fetchTcQuickViewCached,
+  fetchTcQuickViewMatchesCached,
+} from "@/services/cache";
 import type { TcAttributeItem, TcQuickViewProduct } from "@/services/types";
 
 /** Case/whitespace-insensitive compare. Everything else must be identical. */
@@ -59,7 +65,10 @@ function sameValue(a: string, b: string): boolean {
  * notations ("2.75-10", "MH90-21") match nothing at all and yield nothing.
  */
 export function splitSupplierSize(raw: string): {
-  width: string; profile: string; rim: string; load: string;
+  width: string;
+  profile: string;
+  rim: string;
+  load: string;
 } {
   const empty = { width: "", profile: "", rim: "", load: "" };
   const v = (raw || "").trim();
@@ -90,10 +99,17 @@ const UNKNOWN = "-";
  * Some attributes return a single SPACE as their label (`runflat`, `oem_marking`,
  * `ev`), so labels are trimmed or the grid fills with blank boxes.
  */
-function readAttr(items: (TcAttributeItem | null)[] | null | undefined, code: string): string {
+function readAttr(
+  items: (TcAttributeItem | null)[] | null | undefined,
+  code: string,
+): string {
   const a = (items ?? []).find((x) => x?.code === code);
   if (!a) return "";
-  if (a.value !== null && a.value !== undefined && String(a.value).trim() !== "") {
+  if (
+    a.value !== null &&
+    a.value !== undefined &&
+    String(a.value).trim() !== ""
+  ) {
     return String(a.value).trim();
   }
   return (a.selected_options ?? [])
@@ -136,7 +152,9 @@ export default function QuickViewModal({
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [isClosing, setIsClosing] = useState<boolean>(false);
   /** undefined = still loading, null = no storefront product for this sku. */
-  const [detail, setDetail] = useState<TcQuickViewProduct | null | undefined>(undefined);
+  const [detail, setDetail] = useState<TcQuickViewProduct | null | undefined>(
+    undefined,
+  );
 
   /**
    * Full detail from the live `products` query, cache-first — SKU first, then an
@@ -167,7 +185,9 @@ export default function QuickViewModal({
         // If raw SKU has a prefix like "ps_178411336154", strip "ps_" and try numeric SKU "178411336154"
         const cleanSku = rawSku.replace(/^ps_/i, "").trim();
         if (cleanSku && cleanSku !== rawSku) {
-          const byCleanSku = await fetchTcQuickViewCached(cleanSku).catch(() => null);
+          const byCleanSku = await fetchTcQuickViewCached(cleanSku).catch(
+            () => null,
+          );
           if (byCleanSku) return byCleanSku;
         }
       }
@@ -182,39 +202,64 @@ export default function QuickViewModal({
       // 1. Query storefront by Brand + Size first (e.g., "Accelera 205/50 R16")
       if (brand && size) {
         const brandSizeQuery = `${brand} ${size}`.trim();
-        candidates = await fetchTcQuickViewMatchesCached(brandSizeQuery).catch(() => []);
+        candidates = await fetchTcQuickViewMatchesCached(brandSizeQuery).catch(
+          () => [],
+        );
       }
 
       // 2. If no candidates, try pattern
       if (candidates.length === 0 && pattern) {
-        const patternClean = Array.from(new Set(pattern.split(/\s+/).filter(Boolean))).join(" ");
-        candidates = await fetchTcQuickViewMatchesCached(patternClean).catch(() => []);
+        const patternClean = Array.from(
+          new Set(pattern.split(/\s+/).filter(Boolean)),
+        ).join(" ");
+        candidates = await fetchTcQuickViewMatchesCached(patternClean).catch(
+          () => [],
+        );
       }
 
       // 3. Fallback to full deduplicated words
       if (candidates.length === 0) {
         const rawQuery = [brand, pattern, size].filter(Boolean).join(" ");
-        const uniqueWords = Array.from(new Set(rawQuery.split(/\s+/).filter(Boolean))).join(" ");
-        candidates = await fetchTcQuickViewMatchesCached(uniqueWords).catch(() => []);
+        const uniqueWords = Array.from(
+          new Set(rawQuery.split(/\s+/).filter(Boolean)),
+        ).join(" ");
+        candidates = await fetchTcQuickViewMatchesCached(uniqueWords).catch(
+          () => [],
+        );
       }
 
       if (candidates.length === 0) return null;
 
       // Match best candidate by pattern or return first
       const bestMatch = candidates.find((c) => {
-        const cPattern = readAttr(c.custom_attributesV2?.items, "pattern").toLowerCase();
-        const cBrand = readAttr(c.custom_attributesV2?.items, "brand").toLowerCase();
+        const cPattern = readAttr(
+          c.custom_attributesV2?.items,
+          "pattern",
+        ).toLowerCase();
+        const cBrand = readAttr(
+          c.custom_attributesV2?.items,
+          "brand",
+        ).toLowerCase();
         const pLower = pattern.toLowerCase();
-        return (cBrand && pLower.includes(cBrand)) || (cPattern && pLower.includes(cPattern));
+        return (
+          (cBrand && pLower.includes(cBrand)) ||
+          (cPattern && pLower.includes(cPattern))
+        );
       });
 
       return bestMatch ?? candidates[0] ?? null;
     }
 
     void resolve()
-      .then((d) => { if (alive) setDetail(d); })
-      .catch(() => { if (alive) setDetail(null); });
-    return () => { alive = false; };
+      .then((d) => {
+        if (alive) setDetail(d);
+      })
+      .catch(() => {
+        if (alive) setDetail(null);
+      });
+    return () => {
+      alive = false;
+    };
   }, [product.itemCode, product.brand, product.pattern, product.size]);
 
   const [isAnimatedOpen, setIsAnimatedOpen] = useState<boolean>(false);
@@ -248,7 +293,10 @@ export default function QuickViewModal({
   const pick = (code: string, rowValue?: string | number | null) => {
     const fromApi = readAttr(attrs, code);
     if (fromApi) return fromApi;
-    const v = rowValue === null || rowValue === undefined ? "" : String(rowValue).trim();
+    const v =
+      rowValue === null || rowValue === undefined
+        ? ""
+        : String(rowValue).trim();
     return v || UNKNOWN;
   };
 
@@ -271,13 +319,17 @@ export default function QuickViewModal({
   const apiSize = readAttr(attrs, "tyre_size");
   const fullSizeText = apiSize
     ? [apiSize, specLoad].filter(Boolean).join(" ")
-    : (product.sizeFull || product.size || UNKNOWN);
+    : product.sizeFull || product.size || UNKNOWN;
 
   const priceRange = detail?.price_range?.minimum_price;
-  const apiPrice = priceRange?.final_price?.value ?? priceRange?.regular_price?.value ?? 0;
-  const currency = priceRange?.final_price?.currency ?? priceRange?.regular_price?.currency ?? "AED";
+  const apiPrice =
+    priceRange?.final_price?.value ?? priceRange?.regular_price?.value ?? 0;
+  const currency =
+    priceRange?.final_price?.currency ??
+    priceRange?.regular_price?.currency ??
+    "AED";
   // The storefront's own price when it has one, otherwise the supplier's cost.
-  const unitPrice = apiPrice > 0 ? apiPrice : (product.cost || 0);
+  const unitPrice = apiPrice > 0 ? apiPrice : product.cost || 0;
   const setOf2Price = unitPrice * 2;
   const setOf4Price = unitPrice * 4;
   const totalPrice = unitPrice * selectedQty;
@@ -294,9 +346,14 @@ export default function QuickViewModal({
   }, [product.itemCode, detail]);
 
   const gallery = useMemo(() => {
-    const rawUrls = [detail?.image?.url, ...((detail?.media_gallery ?? []).map((g) => g?.url))]
-      .filter((u): u is string => typeof u === "string" && u.length > 0 && !u.includes("/placeholder/"));
-    
+    const rawUrls = [
+      detail?.image?.url,
+      ...(detail?.media_gallery ?? []).map((g) => g?.url),
+    ].filter(
+      (u): u is string =>
+        typeof u === "string" && u.length > 0 && !u.includes("/placeholder/"),
+    );
+
     // Deduplicate by filename to prevent Magento cache paths from showing 2 identical thumbnails
     const uniqueMap = new Map<string, string>();
     for (const url of rawUrls) {
@@ -308,8 +365,16 @@ export default function QuickViewModal({
     return Array.from(uniqueMap.values());
   }, [detail]);
 
-  const tyreImgSrc = gallery[selectedImgIndex] ?? gallery[0] ?? (product.image && !product.image.includes("/placeholder/") ? product.image : "");
-  const displayName = detail?.name || [product.brand, product.pattern].filter(Boolean).join(" ") || product.itemCode;
+  const tyreImgSrc =
+    gallery[selectedImgIndex] ??
+    gallery[0] ??
+    (product.image && !product.image.includes("/placeholder/")
+      ? product.image
+      : "");
+  const displayName =
+    detail?.name ||
+    [product.brand, product.pattern].filter(Boolean).join(" ") ||
+    product.itemCode;
 
   // Split spec rows matching exact screenshot layout:
   // Row 1 (4 cols): Width, Profile, Rim Size, Load/Speed
@@ -325,7 +390,10 @@ export default function QuickViewModal({
     { label: "BRAND", value: pick("brand", product.brand) },
     { label: "PATTERN", value: pick("pattern", product.pattern) },
     { label: "SIZE", value: fullSizeText, info: true },
-    { label: "YEAR", value: pick("year", product.year && product.year > 0 ? product.year : "") },
+    {
+      label: "YEAR",
+      value: pick("year", product.year && product.year > 0 ? product.year : ""),
+    },
   ];
 
   // Row 3 (3 cols): Warranty, Country, SKU
@@ -347,7 +415,9 @@ export default function QuickViewModal({
   return createPortal(
     <div
       className={`fixed inset-0 z-[9999] flex items-end justify-center bg-black/60 backdrop-blur-xs transition-opacity duration-500 ease-out ${
-        isAnimatedOpen && !isClosing ? "opacity-100" : "opacity-0 pointer-events-none"
+        isAnimatedOpen && !isClosing
+          ? "opacity-100"
+          : "opacity-0 pointer-events-none"
       }`}
     >
       {/* Backdrop overlay click to close */}
@@ -355,16 +425,15 @@ export default function QuickViewModal({
 
       {/* Slide-Up Bottom Container */}
       <div
-        className={`relative w-full max-w-full bg-white rounded-t-2xl shadow-2xl border-t border-slate-200 overflow-hidden z-10 transition-transform duration-500 ease-out max-h-[92vh] flex flex-col p-5 sm:p-6 ${
-          isAnimatedOpen && !isClosing
-            ? "translate-y-0"
-            : "translate-y-full"
+        className={`relative w-full max-w-full bg-slate-50 rounded-t-2xl shadow-2xl border-t border-slate-200 overflow-hidden z-10 transition-transform duration-500 ease-out h-[90vh] max-h-[90vh] flex flex-col p-5 sm:p-6 ${
+          isAnimatedOpen && !isClosing ? "translate-y-0" : "translate-y-full"
         }`}
       >
-        
         {/* Header with Divider Line */}
         <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 shrink-0">
-          <h2 className="text-xl font-bold text-slate-900 tracking-tight">Quick View</h2>
+          <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+            Quick View
+          </h2>
           <button
             onClick={handleClose}
             className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-400 hover:text-slate-700 transition-colors"
@@ -377,13 +446,13 @@ export default function QuickViewModal({
         {/* Scrollable Content Body (pb-24 prevents scrollbar layout shift when Qty dropdown opens) */}
         <div className="flex-1 overflow-y-auto px-2 sm:px-4 pb-24">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start max-w-7xl mx-auto">
-            
             {/* Left Side: Compact Product Image Card & Thumbnails */}
             <div className="lg:col-span-4 flex flex-col items-center w-full max-w-sm mx-auto">
               {/* FIXED height, not min-height: with a floor the card grew 10px
                   once the image and thumbnails arrived, nudging the panel. */}
-              <div className="w-full bg-white border border-slate-200 rounded-xl p-4 relative shadow-xs overflow-hidden flex flex-col items-center justify-between h-[350px] max-w-[340px]">
-                
+
+              {/* <div className="w-full bg-white border border-slate-200 rounded-xl p-4 relative shadow-xs overflow-hidden flex flex-col items-center justify-between h-[350px] max-w-[340px]"> */}
+              <div className="w-full bg-white border border-slate-200 rounded-xl p-4">
                 {/* Offer banner — the API's own label. The strip keeps its height
                     whether or not there is an offer, so the card does not resize
                     between products. It previously rendered a hardcoded
@@ -406,24 +475,31 @@ export default function QuickViewModal({
 
                 {/* Fixed height: an image, a skeleton and the empty state all
                     occupy the same box, so loading never moves the layout. */}
-                <div className="w-full h-56 mt-9 flex items-center justify-center p-2">
+                {/* <div className="w-full h-56 mt-9 flex items-center justify-center p-2"> */}
+                <div className="w-full h-[340px] mt-4 flex items-center justify-center overflow-hidden">
                   {loading ? (
-                    <div className="skeleton w-48 h-48 rounded-lg" aria-hidden="true" />
+                    <div
+                      className="skeleton w-48 h-48 rounded-lg"
+                      aria-hidden="true"
+                    />
                   ) : tyreImgSrc ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={tyreImgSrc}
                       alt={detail?.image?.label || displayName}
-                      className="w-48 h-48 object-contain filter drop-shadow-md transition-transform duration-300 hover:scale-105"
+                      className="w-96 h-80 object-contain filter transition-transform duration-300 hover:scale-105"
                     />
                   ) : (
-                    <span className="text-xs font-semibold text-slate-400">No image available</span>
+                    <span className="text-xs font-semibold text-slate-400">
+                      No image available
+                    </span>
                   )}
                 </div>
 
                 {/* Thumbnails Row — displayed only when multiple real images exist */}
                 {gallery.length > 1 ? (
-                  <div className="flex items-center justify-center gap-2.5 mt-2">
+                  // <div className="flex items-center justify-center gap-2.5 mt-2">
+                  <div className="flex items-center justify-center gap-2 mt-auto pb-4">
                     {gallery.slice(0, 4).map((url, idx) => (
                       <button
                         key={idx}
@@ -451,7 +527,6 @@ export default function QuickViewModal({
 
             {/* Right Side: Specs & Pricing */}
             <div className="lg:col-span-8 flex flex-col gap-3.5">
-              
               {/* Brand Header Logo & Title */}
               <div>
                 <div className="flex items-center gap-1.5 mb-0.5">
@@ -470,7 +545,7 @@ export default function QuickViewModal({
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
                   Product Specifications
                 </h3>
-                
+
                 {/* Row 1: 4 Columns (Width, Profile, Rim Size, Load/Speed) */}
                 <div className="grid grid-cols-4 gap-2">
                   {row1.map((item, i) => (
@@ -519,8 +594,15 @@ export default function QuickViewModal({
                         </span>
                       </div>
                       <div className="text-xs font-bold text-slate-900 truncate w-full flex items-center justify-center gap-0.5">
-                        <span>{item.value}</span>
-                        {item.info && <InformationCircleIcon className="w-3 h-3 text-slate-400 shrink-0" />}
+                        {/* <span>{item.value}</span> */}
+                        <span>
+                          {item.value && String(item.value).trim() !== ""
+                            ? item.value
+                            : "-"}
+                        </span>
+                        {item.info && (
+                          <InformationCircleIcon className="w-3 h-3 text-slate-400 shrink-0" />
+                        )}
                       </div>
                     </div>
                   ))}
@@ -552,7 +634,6 @@ export default function QuickViewModal({
                     </div>
                   ))}
                 </div>
-
               </div>
 
               {/* Fitted Price Box */}
@@ -565,12 +646,38 @@ export default function QuickViewModal({
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <div className="text-2xl font-black text-slate-900 tracking-tight flex items-baseline gap-1">
-                      <span>{currency} {unitPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                      <span className="text-xs font-semibold text-slate-500">/ Per Pcs</span>
+                      <span>
+                        {currency}{" "}
+                        {unitPrice.toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </span>
+                      <span className="text-xs font-semibold text-slate-500">
+                        / Per Pcs
+                      </span>
                     </div>
                     <div className="text-xs font-semibold text-slate-600 mt-0.5 flex gap-3">
-                      <span>Set of 2 : <strong className="text-slate-900">{currency} {setOf2Price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
-                      <span>Set of {selectedQty} : <strong className="text-slate-900">{currency} {totalPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
+                      <span>
+                        Set of 2 :{" "}
+                        <strong className="text-slate-900">
+                          {currency}{" "}
+                          {setOf2Price.toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </strong>
+                      </span>
+                      <span>
+                        Set of {selectedQty} :{" "}
+                        <strong className="text-slate-900">
+                          {currency}{" "}
+                          {totalPrice.toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </strong>
+                      </span>
                     </div>
                   </div>
 
@@ -585,7 +692,9 @@ export default function QuickViewModal({
                           className="h-9 px-3 bg-white border border-slate-200 hover:border-emerald-500/50 rounded-lg text-xs font-extrabold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-[#008b47] cursor-pointer shadow-2xs flex items-center gap-1.5 transition-all"
                         >
                           <span>Qty: {selectedQty}</span>
-                          <ChevronDownIcon className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isQtyOpen ? "rotate-180 text-emerald-600" : ""}`} />
+                          <ChevronDownIcon
+                            className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isQtyOpen ? "rotate-180 text-emerald-600" : ""}`}
+                          />
                         </button>
 
                         {/* Custom Dropdown Popover (Opens Downward) */}
@@ -606,7 +715,11 @@ export default function QuickViewModal({
                                 }`}
                               >
                                 <span>{q}</span>
-                                {selectedQty === q && <span className="font-bold text-emerald-600 text-[10px]">✓</span>}
+                                {selectedQty === q && (
+                                  <span className="font-bold text-emerald-600 text-[10px]">
+                                    ✓
+                                  </span>
+                                )}
                               </button>
                             ))}
                           </div>
@@ -620,7 +733,13 @@ export default function QuickViewModal({
                         className="flex-1 h-9 bg-[#008b47] hover:bg-[#007b3e] text-white font-extrabold rounded-lg shadow-sm transition-all active:scale-[0.99] flex items-center justify-center gap-1.5 text-xs uppercase tracking-wider"
                       >
                         <ShoppingBagIcon className="w-3.5 h-3.5 stroke-2" />
-                        <span>Add to Cart - {currency} {totalPrice.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
+                        <span>
+                          Add to Cart - {currency}{" "}
+                          {totalPrice.toLocaleString("en-US", {
+                            minimumFractionDigits: 0,
+                            maximumFractionDigits: 2,
+                          })}
+                        </span>
                       </button>
                     </div>
 
@@ -635,7 +754,6 @@ export default function QuickViewModal({
                     </div>
                   </div>
                 </div>
-
               </div>
 
               {/* Bottom Feature Badges Bar */}
@@ -645,8 +763,12 @@ export default function QuickViewModal({
                     <TruckIcon className="w-3.5 h-3.5 stroke-2" />
                   </div>
                   <div>
-                    <h4 className="text-xs font-bold text-slate-900 leading-tight">Fast Shipping & Installation</h4>
-                    <p className="text-[10px] text-slate-600 leading-tight mt-0.5">We deliver and install most orders on the same day.</p>
+                    <h4 className="text-xs font-bold text-slate-900 leading-tight">
+                      Fast Shipping & Installation
+                    </h4>
+                    <p className="text-[10px] text-slate-600 leading-tight mt-0.5">
+                      We deliver and install most orders on the same day.
+                    </p>
                   </div>
                 </div>
 
@@ -655,8 +777,13 @@ export default function QuickViewModal({
                     <WrenchScrewdriverIcon className="w-3.5 h-3.5 stroke-2" />
                   </div>
                   <div>
-                    <h4 className="text-xs font-bold text-slate-900 leading-tight">Free Wheel Balancing</h4>
-                    <p className="text-[10px] text-slate-600 leading-tight mt-0.5">Free wheel balancing included with every tyre installation.</p>
+                    <h4 className="text-xs font-bold text-slate-900 leading-tight">
+                      Free Wheel Balancing
+                    </h4>
+                    <p className="text-[10px] text-slate-600 leading-tight mt-0.5">
+                      Free wheel balancing included with every tyre
+                      installation.
+                    </p>
                   </div>
                 </div>
 
@@ -665,8 +792,12 @@ export default function QuickViewModal({
                     <ShieldCheckIcon className="w-3.5 h-3.5 stroke-2" />
                   </div>
                   <div>
-                    <h4 className="text-xs font-bold text-slate-900 leading-tight">Always Authentic</h4>
-                    <p className="text-[10px] text-slate-600 leading-tight mt-0.5">We only sell 100% authentic products backed by warranty.</p>
+                    <h4 className="text-xs font-bold text-slate-900 leading-tight">
+                      Always Authentic
+                    </h4>
+                    <p className="text-[10px] text-slate-600 leading-tight mt-0.5">
+                      We only sell 100% authentic products backed by warranty.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -683,14 +814,11 @@ export default function QuickViewModal({
                   <span aria-hidden="true">→</span>
                 </a>
               </div> */}
-
             </div>
-
           </div>
         </div>
-
       </div>
     </div>,
-    document.body
+    document.body,
   );
 }

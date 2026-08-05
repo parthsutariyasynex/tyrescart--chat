@@ -15,7 +15,7 @@ import { buildRowString, buildBulkCopyString } from "@/services/productFormatter
 import Header from '@/components/Header';
 import HeaderBookInquiry from '@/components/HeaderBookInquiry';
 import HeaderActions from '@/components/HeaderActions';
-import { CATEGORY_BADGES_TAILWIND, BRAND_BADGES_TAILWIND } from "@/constants/badges";
+import { CATEGORY_BADGES_SEMANTIC, BRAND_BADGES_TAILWIND } from "@/constants/badges";
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import {
@@ -41,6 +41,7 @@ import { useProductFilter } from '@/hooks/useProductFilter';
 import { useProductSorting } from '@/hooks/useProductSorting';
 import {
   streamCachedSupplierProducts,
+  getCachedSupplierProductsByYearDesc,
   purgeHistoricalSupplierRows,
   getRows,
   setRows,
@@ -65,7 +66,12 @@ import { SYNC_TASK, setSupplierPageRequest } from '@/services/syncTasks';
  * shape, so the equivalents are passed explicitly. That override is exactly why
  * `matchesSearch` takes the field lists as parameters.
  */
-const SEARCH_FIELDS = ['pattern', 'itemCode', 'brand', 'category', 'country', 'size'] as const;
+/* `source` is the SOURCE column — the supplier/competitor name, mapped from
+   the feed's `source_name` ("LKN", "pitstop", "Mivomoto", "tyrescart"…).
+   It was missing here, so the one column that identifies WHO stocks a tyre was
+   the only visible column the search box could not match: typing "LKN"
+   returned nothing despite 137 such rows being in the feed. */
+const SEARCH_FIELDS = ['pattern', 'itemCode', 'brand', 'category', 'country', 'size', 'source'] as const;
 /** Numeric tokens are matched against the size ONLY — never name or SKU. */
 const SEARCH_SIZE_FIELDS = ['size'] as const;
 
@@ -305,7 +311,7 @@ function mapSupplierToProduct(p: CachedSupplierProduct): Product {
 
 /** Badge classes now live in constants/badges.ts; aliased so the JSX below
  *  is untouched and this page keeps its own variant. */
-const categoryBadges = CATEGORY_BADGES_TAILWIND;
+const categoryBadges = CATEGORY_BADGES_SEMANTIC;
 const brandBadges = BRAND_BADGES_TAILWIND;
 
 export default function SupplierProductsPage() {
@@ -352,7 +358,11 @@ export default function SupplierProductsPage() {
 
   const [pageSize, setPageSize] = useState(15);
   const [currentPage, setCurrentPage] = useState(1);
-  const { sortColumn, sortAsc, handleSort, sortItems } = useProductSorting<Product>('date', false);
+  // Default sort is Year, descending (latest year first) — the array itself
+  // already arrives in this order straight off the `year` index (see the
+  // initial-load effect below), so this default just keeps the DISPLAYED
+  // order matching what was actually loaded rather than re-sorting it by date.
+  const { sortColumn, sortAsc, handleSort, sortItems } = useProductSorting<Product>('year', false);
 
   /** Product whose Cost History modal is open, or null. */
   const [costHistoryItem, setCostHistoryItem] = useState<Product | null>(null);
@@ -410,70 +420,63 @@ export default function SupplierProductsPage() {
         return;
       }
 
-      /* ── PAGED, PROGRESSIVE READ ──
-         Was `getAll()` over the whole store: it blocked 4.6–7.2s before
-         resolving, then mapping all 319,429 rows ran as one 3.9s task — 87% of a
-         9.9s load, to fill a table showing 10 rows. Now the store is walked in
-         key-ordered pages: the FIRST page is mapped and painted immediately and
-         the rest streams in behind it, with the thread handed back between pages
-         so nothing freezes.
+      /* ── YEAR-INDEXED READ (default initial order: latest year first) ──
+         Sourced from `getCachedSupplierProductsByYearDesc`, which reads the
+         `year` INDEX on the store (services/db.ts v7) and only reverses the
+         already-ordered result — no `Array.prototype.sort()` over the rows.
+         See that function and the DB_VERSION v7 comment for why the index
+         needed a one-time data migration before it could be trusted.
 
-         Rows accumulate in `acc`; each page appends and re-publishes, exactly the
-         accumulate-then-flush shape the sync batches already use. `seqs` keeps
-         each row's `sort_seq` (the mapper drops it) so the canonical catalogue
-         order can be restored once, at the end — see below. */
+         Chunked into artificial "pages" purely to keep the same progressive-
+         paint UX the old primary-key pager had (first slice paints
+         immediately, the thread is handed back between chunks) — NOT because
+         this read needs paging for correctness. The store this reads is
+         bounded to the latest-only catalogue (~8,251 rows measured), so one
+         `getAll()`-backed index read is cheap; that was NOT true of the old
+         319,429-row non-latest store, which is why that version paged by
+         primary key instead. */
       // One-time: drop historical rows left by a cache written before this page
       // became latest-only. No-op (one meta read) on every load after the first.
       await purgeHistoricalSupplierRows().catch(() => 0);
       if (!alive) return;
 
-      const acc: Product[] = [];
-      const seqs: number[] = [];
-      let pages = 0;
+      const yearOrderedRows = await getCachedSupplierProductsByYearDesc().catch(
+        () => [] as CachedSupplierProduct[],
+      );
+      if (!alive) return;
 
-      const readCount = await streamCachedSupplierProducts({
-        isCancelled: () => !alive,
-        onPage: (rows) => {
-          if (!alive) return;
-          for (const row of rows) {
-            const mapped = mapSupplierToProduct(row);
-            acc.push(mapped);
-            seqs.push(typeof row.sort_seq === 'number' ? row.sort_seq : Number.MAX_SAFE_INTEGER);
-            // Seed the batch de-dupe set as we go. Mounting DURING a running sync
-            // otherwise appends rows that are already on screen (measured: 67,500
-            // duplicates) because `seenIds` starts empty on a fresh mount.
-            seenIds.current.add(mapped.id);
-          }
-          pages++;
-          // New array each page so React sees a change; copying refs is cheap
-          // next to the deserialisation that just happened.
-          setAllProducts([...acc]);
-          setIsLoading(false);
-        },
-      });
+      const acc: Product[] = [];
+      const CHUNK_SIZE = 1000;
+      for (let i = 0; i < yearOrderedRows.length; i += CHUNK_SIZE) {
+        if (!alive) return;
+        for (const row of yearOrderedRows.slice(i, i + CHUNK_SIZE)) {
+          const mapped = mapSupplierToProduct(row);
+          acc.push(mapped);
+          // Seed the batch de-dupe set as we go. Mounting DURING a running sync
+          // otherwise appends rows that are already on screen (measured: 67,500
+          // duplicates) because `seenIds` starts empty on a fresh mount.
+          seenIds.current.add(mapped.id);
+        }
+        // New array each chunk so React sees a change; copying refs is cheap
+        // next to the deserialisation that just happened.
+        setAllProducts([...acc]);
+        setIsLoading(false);
+        if (i + CHUNK_SIZE < yearOrderedRows.length) {
+          // Hand the thread back so React can paint and input stays responsive.
+          await new Promise((r) => setTimeout(r, 0));
+        }
+      }
+      const readCount = yearOrderedRows.length;
       if (!alive) return;
 
       /* The read is done — clear the loading flag whether or not it produced
-         rows. `onPage` clears it too (so the first page paints immediately), but
-         on a COLD cache the store is empty, no page is ever emitted, and the flag
-         would stay true forever: rows then arrive via sync batches and the table
-         sat on skeletons until a reload. `showSkeleton`'s bootstrap clause still
-         covers the genuinely-empty-while-syncing case. */
+         rows. The loop above clears it too (so the first chunk paints
+         immediately), but on a COLD cache the store is empty, the loop body
+         never runs, and the flag would stay true forever: rows then arrive via
+         sync batches and the table sat on skeletons until a reload.
+         `showSkeleton`'s bootstrap clause still covers the genuinely-empty-
+         while-syncing case. */
       setIsLoading(false);
-
-      /* Restore canonical order once, after the last page. Pages arrive in
-         primary-key order, while the catalogue's order lives in `sort_seq`; the
-         old code got this for free because it sorted the whole array before
-         mapping. Sorting an index array and rebuilding avoids re-mapping, and it
-         is one short task at the end instead of a gate on the first paint. Skipped
-         when a single page covered everything (already in order). */
-      if (pages > 1 && acc.length) {
-        const order = acc.map((_, i) => i).sort((a, b) => {
-          if (seqs[a] !== seqs[b]) return seqs[a] - seqs[b];
-          return String(acc[a].id).localeCompare(String(acc[b].id), undefined, { numeric: true });
-        });
-        setAllProducts(order.map((i) => acc[i]));
-      }
 
 
       // CACHE-FIRST IS UNCHANGED: with anything cached we render it and stop —
@@ -693,6 +696,14 @@ export default function SupplierProductsPage() {
     qtyInput: dQtyInput,
     minPriceInput: dMinPriceInput,
     maxPriceInput: dMaxPriceInput,
+    /* These were DEFINED at the top of this file but never passed, so the hook
+       fell back to SEARCHABLE_FIELDS — the raw `SupplierProductItem` names
+       (`product_name`, `sku`, `brand_category`). Those do not exist on this
+       page's mapped shape, so only the three names that happen to coincide
+       (brand, country, size) were ever searchable; SOURCE, Tyre Pattern and
+       SKU silently matched nothing. */
+    searchFields: SEARCH_FIELDS,
+    searchSizeFields: SEARCH_SIZE_FIELDS,
   });
 
   /* ── Freeze the visible order for the duration of a sync ──
@@ -842,8 +853,8 @@ export default function SupplierProductsPage() {
   const currentItems = page.items;
 
   const hasActiveFilter = useMemo(() => {
-    return Boolean(dSearchQuery || dBrandInput || dSizeInput || dYearInput || dQtyInput || dMinPriceInput || dMaxPriceInput || categoryFilter !== 'ALL');
-  }, [dSearchQuery, dBrandInput, dSizeInput, dYearInput, dQtyInput, dMinPriceInput, dMaxPriceInput, categoryFilter]);
+    return Boolean(dSearchQuery || dBrandInput || dSizeInput || dYearInput || dQtyInput || dMinPriceInput || dMaxPriceInput || categoryFilter !== 'ALL' || supplierFilter !== 'ALL');
+  }, [dSearchQuery, dBrandInput, dSizeInput, dYearInput, dQtyInput, dMinPriceInput, dMaxPriceInput, categoryFilter, supplierFilter]);
 
   // Skeleton only while reading the cache (isLoading) or during an in-progress
   // Sync that has no data yet. An empty cache with no sync shows the empty state.
@@ -947,9 +958,9 @@ export default function SupplierProductsPage() {
 
   // Cell padding class based on Density mode
   const cellPaddingClass = useMemo(() => {
-    if (density === 'compact') return 'py-1 px-2';
-    if (density === 'comfortable') return 'py-1.5 px-3';
-    return 'py-2.5 px-3.5'; // breathable
+    if (density === 'compact') return 'py-1 px-1.5';
+    if (density === 'comfortable') return 'py-1.5 px-2';
+    return 'py-2 px-2'; // breathable
   }, [density]);
 
   return (
@@ -1072,23 +1083,39 @@ export default function SupplierProductsPage() {
             {/* Scrollable Table — fills the card and scrolls INTERNALLY so row
                 count / page size never changes the card height (no layout shift). */}
             <div className={`flex-1 min-h-0 [scrollbar-gutter:stable] ${pageSize > 15 ? "overflow-y-auto" : "overflow-hidden"}`}>
-              <table className="w-full min-w-[1680px] text-left border-collapse table-fixed">
+              <table className="w-full text-left border-collapse table-fixed">
+                <colgroup>
+                  {!hiddenColumns.has('source') && <col className="w-[7%]" />}
+                  {!hiddenColumns.has('type') && <col className="w-[6%]" />}
+                  {!hiddenColumns.has('category') && <col className="w-[7%]" />}
+                  {!hiddenColumns.has('brand') && <col className="w-[8%]" />}
+                  {!hiddenColumns.has('pattern') && <col />}
+                  {!hiddenColumns.has('size') && <col className="w-[10%]" />}
+                  {!hiddenColumns.has('runflat') && <col className="w-[4%]" />}
+                  {!hiddenColumns.has('country') && <col className="w-[5.5%]" />}
+                  {!hiddenColumns.has('year') && <col className="w-[4%]" />}
+                  {!hiddenColumns.has('qty') && <col className="w-[3.5%]" />}
+                  {!hiddenColumns.has('cost') && <col className="w-[6.5%]" />}
+                  {!hiddenColumns.has('fittingPrice') && <col className="w-[7.5%]" />}
+                  {!hiddenColumns.has('date') && <col className="w-[6%]" />}
+                  <col className="w-[6%]" />
+                </colgroup>
                 <thead className="bg-slate-50/90 backdrop-blur sticky top-0 z-10 border-b border-slate-200">
                   <tr className="text-[11px] font-bold text-slate-500 uppercase tracking-wider select-none">
-                    {!hiddenColumns.has('source') && <th onClick={() => handleSort('source')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[100px]">Source <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('type') && <th onClick={() => handleSort('productType')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[120px]">Type <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('category') && <th onClick={() => handleSort('category')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[110px]">Category <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('brand') && <th onClick={() => handleSort('brand')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[130px]">Brand <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('pattern') && <th onClick={() => handleSort('pattern')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[350px]">Tyre Pattern <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('size') && <th onClick={() => handleSort('size')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[140px]">Size <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('runflat') && <th className="py-3 px-2 text-center whitespace-nowrap w-[75px]">Runflat</th>}
-                    {!hiddenColumns.has('country') && <th onClick={() => handleSort('country')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[110px]">Countries <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('year') && <th onClick={() => handleSort('year')} className="py-3 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap w-[65px]">Year <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('qty') && <th onClick={() => handleSort('qty')} className="py-3 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap w-[60px]">Qty <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('cost') && <th onClick={() => handleSort('cost')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[115px]">Cost <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('fittingPrice') && <th onClick={() => handleSort('fittingPrice')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap w-[125px]">Fitting Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('date') && <th onClick={() => handleSort('date')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap w-[90px]">Date <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    <th className="py-3 px-2 text-center whitespace-nowrap w-[65px]">Actions</th>
+                    {!hiddenColumns.has('source') && <th onClick={() => handleSort('source')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">Source <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('type') && <th onClick={() => handleSort('productType')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">Type <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('category') && <th onClick={() => handleSort('category')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">Category <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('brand') && <th onClick={() => handleSort('brand')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">Brand <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('pattern') && <th onClick={() => handleSort('pattern')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">Tyre Pattern <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('size') && <th onClick={() => handleSort('size')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">Size <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('runflat') && <th className="py-3 px-2 text-center whitespace-nowrap">Runflat</th>}
+                    {!hiddenColumns.has('country') && <th onClick={() => handleSort('country')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">Countries <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('year') && <th onClick={() => handleSort('year')} className="py-3 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap">Year <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('qty') && <th onClick={() => handleSort('qty')} className="py-3 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap">Qty <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('cost') && <th onClick={() => handleSort('cost')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap">Cost <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('fittingPrice') && <th onClick={() => handleSort('fittingPrice')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap">Fitting Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('date') && <th onClick={() => handleSort('date')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">Date <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    <th className="py-3 px-2 text-center whitespace-nowrap">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-sans">
@@ -1158,7 +1185,7 @@ export default function SupplierProductsPage() {
 
                           {!hiddenColumns.has('category') && (
                             <td className={`${cellPaddingClass} whitespace-nowrap`}>
-                              <span className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase whitespace-nowrap inline-block ${categoryBadges[item.category] || 'bg-slate-100 text-slate-600'}`}>
+                              <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full border uppercase whitespace-nowrap inline-block ${categoryBadges[item.category] || 'badge-cat-default'}`}>
                                 {item.category}
                               </span>
                             </td>
@@ -1173,7 +1200,7 @@ export default function SupplierProductsPage() {
                           )}
 
                           {!hiddenColumns.has('pattern') && (
-                            <td className={`${cellPaddingClass} text-xs font-bold text-slate-900`}>
+                            <td className={`${cellPaddingClass} text-xs font-bold text-slate-900 max-w-md`}>
                               <span className="line-clamp-2">{item.pattern}</span>
                             </td>
                           )}
@@ -1299,6 +1326,7 @@ export default function SupplierProductsPage() {
             sizeFull: costHistoryItem.sizeFull,
             pattern: costHistoryItem.pattern,
             itemCode: costHistoryItem.itemCode,
+            source: costHistoryItem.source,
             cost: costHistoryItem.cost,
             productType: costHistoryItem.productType,
           }}

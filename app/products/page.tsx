@@ -12,6 +12,7 @@ import {
 import Header from "@/components/Header";
 import HeaderActions from "@/components/HeaderActions";
 import QuotationModal from "@/components/QuotationModal";
+import ChatModal from "@/components/ChatModal";
 import {
   fetchStorefrontBatch,
   fetchStorefrontBatchWithRetry,
@@ -79,6 +80,7 @@ export default function PosProductsPage() {
   // setState-in-effect).
   const isOnline = useOnlineStatus();
   const [isQuotationModalOpen, setIsQuotationModalOpen] = useState<boolean>(false);
+  const [isChatModalOpen, setIsChatModalOpen] = useState<boolean>(false);
 
   // A new client-side search always resets the visible window to the first page.
   useEffect(() => {
@@ -362,6 +364,7 @@ export default function PosProductsPage() {
                 )
               }
               onCreateQuote={() => setIsQuotationModalOpen(true)}
+              onChat={() => setIsChatModalOpen(true)}
             />
           }
         />
@@ -575,6 +578,10 @@ export default function PosProductsPage() {
       <QuotationModal
         isOpen={isQuotationModalOpen}
         onClose={() => setIsQuotationModalOpen(false)}
+      />
+      <ChatModal
+        isOpen={isChatModalOpen}
+        onClose={() => setIsChatModalOpen(false)}
       />
     </div>
   );

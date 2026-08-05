@@ -36,7 +36,7 @@ export const CATEGORY_BADGES_TAILWIND: BadgeClassMap = {
   'MID-RANGE': 'bg-teal-50 text-teal-700 border-teal-200/70',
 };
 
-/** Semantic variant — /tc-products. Classes live in globals.css. */
+/** Semantic variant — /tc-products and /supplier-products. Classes live in globals.css. */
 export const CATEGORY_BADGES_SEMANTIC: BadgeClassMap = {
   Premium: 'badge-cat-premium',
   Quality: 'badge-cat-quality',
@@ -45,6 +45,13 @@ export const CATEGORY_BADGES_SEMANTIC: BadgeClassMap = {
   'Tier 1': 'badge-cat-tier1',
   'Tier 2': 'badge-cat-tier2',
   'Tier 3': 'badge-cat-tier3',
+  PREMIUM: 'badge-cat-premium',
+  QUALITY: 'badge-cat-quality',
+  BUDGET: 'badge-cat-budget',
+  'MID-RANGE': 'badge-cat-midrange',
+  'TIER 1': 'badge-cat-tier1',
+  'TIER 2': 'badge-cat-tier2',
+  'TIER 3': 'badge-cat-tier3',
 };
 
 /* ─── Brand badges ────────────────────────────────────────── */

@@ -175,6 +175,21 @@ export default function TyreGuideChatPage() {
     );
   });
 
+  /** Header's "Copy Result" — the bulk counterpart to the per-card `handleCopy`
+   *  above. Copies whatever the search box currently shows, same as the
+   *  Copy Result button does on tc-products / supplier-products. */
+  const copyAllResults = () => {
+    if (!filteredShortcuts.length) return;
+    const text = filteredShortcuts
+      .map((item) => `${item.index} — ${item.title}\n${item.description}`)
+      .join("\n\n");
+    navigator.clipboard.writeText(text);
+    toast(
+      `Copied ${filteredShortcuts.length} shortcut${filteredShortcuts.length === 1 ? "" : "s"}`,
+      "success",
+    );
+  };
+
   return (
     <div className="flex h-full w-full overflow-hidden bg-[#f4f6f9] text-gray-800 font-sans relative">
 
@@ -218,6 +233,9 @@ export default function TyreGuideChatPage() {
                   {shortcuts.length.toLocaleString()} items
                 </span>
               }
+              onCopyResult={copyAllResults}
+              hasActiveFilter={!!debouncedSearch.trim()}
+              onCreateQuote={() => setIsQuotationModalOpen(true)}
             />
           }
         />

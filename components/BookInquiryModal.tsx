@@ -85,7 +85,7 @@ export default function BookInquiryModal({
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 5;
+  const pageSize = 15;
 
   // Custom Dropdown Open States (replacing native HTML select elements to eliminate browser blue highlights)
   const [isFormStatusOpen, setIsFormStatusOpen] = useState(false);
@@ -565,7 +565,7 @@ export default function BookInquiryModal({
     >
       {/* Slide-Up Bottom Container (Full Width like CostHistoryModal & QuickViewModal) */}
       <div
-        className={`relative bg-white w-full max-w-full border-t border-slate-200 shadow-2xl flex flex-col overflow-hidden transition-transform duration-500 ease-out max-h-[90vh] rounded-none ${
+        className={`relative bg-slate-50 w-full max-w-full border-t border-slate-200 shadow-2xl flex flex-col overflow-hidden transition-transform duration-500 ease-out h-[90vh] max-h-[90vh] rounded-t-2xl ${
           isAnimatedOpen && !isClosing
             ? "translate-y-0"
             : "translate-y-full"
@@ -584,9 +584,9 @@ export default function BookInquiryModal({
         )}
 
         {/* Header (Bright Light SaaS Theme) */}
-        <div className="px-6 py-4 border-b border-slate-200/80 bg-white flex items-center justify-between">
+        <div className="px-5 py-2 border-b border-slate-200/80 bg-white flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-200/60">
+            <div className="p-1.5 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-200/60">
               <CalendarDaysIcon className="w-5 h-5" />
             </div>
             <div>
@@ -609,12 +609,12 @@ export default function BookInquiryModal({
         </div>
 
         {/* Body Split View (pb-28 guarantees zero layout shift when dropdown popovers open) */}
-        <div className="flex-1 overflow-y-auto p-5 sm:p-6 pb-28 grid grid-cols-1 lg:grid-cols-12 gap-6 bg-slate-50/50 [&>*]:min-w-0">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-4 pb-6 grid grid-cols-1 lg:grid-cols-12 gap-4 bg-slate-50/50 [&>*]:min-w-0">
           
           {/* Right Column: Form Section */}
-          <div className="lg:col-span-5 lg:order-2 bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between min-h-[580px]">
+          <div className="lg:col-span-5 lg:order-2 bg-white rounded-xl border border-slate-200 p-3 shadow-xs flex flex-col justify-between min-h-[460px]">
             <div>
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-3">
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                   {editingId ? (
                     <>
@@ -638,7 +638,7 @@ export default function BookInquiryModal({
                 )}
               </div>
 
-              <form onSubmit={handleSubmit} className="space-y-3.5">
+              <form onSubmit={handleSubmit} className="space-y-2.5">
                 {/* Name & Phone (Required) */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
@@ -910,10 +910,10 @@ export default function BookInquiryModal({
           </div>
 
           {/* Left Column: Inquiry List Section */}
-          <div className="lg:col-span-7 lg:order-1 bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between min-h-[580px]">
+          <div className="lg:col-span-7 lg:order-1 bg-white rounded-xl border border-slate-200 p-3 shadow-xs flex flex-col justify-between min-h-[460px]">
             <div>
               {/* Search & Filter Header */}
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 mb-1.5 pb-1 border-b border-slate-100">
                 <div className="flex items-center gap-2 flex-1">
                   <div className="relative flex-1">
                     <MagnifyingGlassIcon className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
@@ -983,24 +983,23 @@ export default function BookInquiryModal({
                 </div>
               </div>
 
-              {/* Inquiry Table (min-h-[320px] pb-12 ensures downward popover fits comfortably) */}
-              <div className="overflow-x-auto min-h-[320px] pb-12 rounded-lg border border-slate-200">
+              {/* Inquiry Table */}
+              <div className="overflow-x-auto min-h-[200px] rounded-lg border border-slate-200">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-100/80 border-b border-slate-200 text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                      <th className="px-3 py-2.5">Inquiry ID</th>
-                      <th className="px-3 py-2.5">Customer</th>
-                      <th className="px-3 py-2.5">Tire Size(s)</th>
-                      <th className="px-3 py-2.5">Plate</th>
-                      <th className="px-3 py-2.5 text-center">Status</th>
-                      <th className="px-3 py-2.5 text-center">Actions</th>
+                      <th className="px-3 py-0.5">Customer</th>
+                      <th className="px-3 py-0.5">Tire Size(s)</th>
+                      <th className="px-3 py-0.5">Plate</th>
+                      <th className="px-3 py-0.5 text-center">Status</th>
+                      <th className="px-3 py-0.5 text-center">Actions</th>
                     </tr>
                   </thead>
 
                   <tbody className="divide-y divide-slate-100 text-xs">
                     {paginatedInquiries.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                        <td colSpan={5} className="px-4 py-6 text-center text-slate-400">
                           <ClockIcon className="w-8 h-8 mx-auto mb-2 opacity-30" />
                           <p className="font-semibold text-xs">No inquiries found</p>
                           <p className="text-[11px] text-slate-400">
@@ -1016,41 +1015,16 @@ export default function BookInquiryModal({
                             editingId === item.id ? "bg-emerald-50/50" : ""
                           }`}
                         >
-                          {/* ID & Date */}
-                          <td className="px-3 py-2.5 whitespace-nowrap">
-                            {/* CRM-sourced rows are tinted and badged: they are
-                                read-only, since the schema has no update or
-                                delete mutation to push a change back. */}
-                            <span className={`font-mono font-bold px-1.5 py-0.5 rounded border text-[11px] ${
-                              "fromCrm" in item
-                                ? "text-sky-700 bg-sky-50 border-sky-200/60"
-                                : "text-emerald-700 bg-emerald-50 border-emerald-200/60"
-                            }`}>
-                              {item.id}
-                            </span>
-                            {"fromCrm" in item && (
-                              <span className="ml-1 px-1 py-0.5 rounded bg-sky-100 text-sky-700 text-[8px] font-extrabold uppercase tracking-wide">
-                                CRM
-                              </span>
-                            )}
-                            <div className="text-[10px] text-slate-400 mt-0.5">
-                              {item.createdAt && !Number.isNaN(Date.parse(item.createdAt))
-                                ? new Date(item.createdAt).toLocaleDateString("en-US", {
-                                    month: "short",
-                                    day: "numeric",
-                                  })
-                                : "—"}
-                            </div>
-                          </td>
-
                           {/* Customer Name & Phone */}
-                          <td className="px-3 py-2.5">
-                            <div className="font-bold text-slate-800">{item.name}</div>
+                          <td className="px-3 py-0.5">
+                            <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                              <span>{item.name}</span>
+                            </div>
                             <div className="text-[11px] font-mono text-slate-500">{item.phone}</div>
                           </td>
 
                           {/* Tire Sizes */}
-                          <td className="px-3 py-2.5 font-mono text-[11px] whitespace-nowrap">
+                          <td className="px-3 py-0.5 font-mono text-[11px] whitespace-nowrap">
                             {item.tireSize1 ? (
                               <div className="font-semibold text-slate-700">{item.tireSize1}</div>
                             ) : (
@@ -1064,7 +1038,7 @@ export default function BookInquiryModal({
                           </td>
 
                           {/* Plate */}
-                          <td className="px-3 py-2.5 font-mono text-[11px] whitespace-nowrap">
+                          <td className="px-3 py-0.5 font-mono text-[11px] whitespace-nowrap">
                             {item.vehiclePlateNumber ? (
                               <span className="bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-bold border border-slate-200">
                                 {item.vehiclePlateNumber}
@@ -1075,7 +1049,7 @@ export default function BookInquiryModal({
                           </td>
 
                           {/* Status */}
-                          <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                          <td className="px-3 py-0.5 text-center whitespace-nowrap">
                             {(() => {
                               const st = item.status || "Pending";
                               const stLower = String(st).toLowerCase();
@@ -1103,7 +1077,7 @@ export default function BookInquiryModal({
                           </td>
 
                           {/* Actions */}
-                          <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                          <td className="px-3 py-0.5 text-center whitespace-nowrap">
                             <div className="flex items-center justify-center gap-1">
                               <button
                                 onClick={() => setViewingInquiry(item)}
@@ -1135,7 +1109,7 @@ export default function BookInquiryModal({
             </div>
 
             {/* Pagination Controls */}
-            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+            <div className="mt-1 pt-1 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
               <span>
                 Showing <strong className="text-slate-800">{paginatedInquiries.length}</strong> of{" "}
                 <strong className="text-slate-800">{filteredInquiries.length}</strong> inquiries

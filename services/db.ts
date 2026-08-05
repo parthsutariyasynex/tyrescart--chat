@@ -8,7 +8,7 @@
  * Object stores:
  *   - productQueries   : cached storefront/query responses, keyed by query signature
  *   - supplierProducts : the full supplier catalogue, one record PER product (keyPath "id"),
- *                        with indexes on brand/size/year/source_name/is_latest
+ *                        with an index on `year` (descending initial sort — see v7 note)
  *   - tyresChat        : cached tyresChat items, keyed by id
  *   - meta             : misc key/value (sync timestamps, etc.)
  */
@@ -31,7 +31,26 @@ const DB_NAME = "tyrescart-pos";
 // cached queries all survive the upgrade. It carries a `productId` index because
 // the chart reads one product's history at a time, and a full scan of a store
 // that grows with every price change would defeat the point.
-const DB_VERSION = 6;
+// v7: re-adds ONE index on `supplierProducts.year`, so the default table order
+// (latest year first) comes from the index instead of an in-memory sort. This
+// store is now bounded to the latest-only catalogue (~8,251 rows, not the 318k
+// v4 was optimizing for), so one index costs a small fraction of what v4
+// removed.
+//
+// Before creating the index, every EXISTING record's `year` is coerced to a
+// plain number. Measured live: 95.4% of rows stored it as a STRING ("2024"),
+// and 4.6% had no `year` field at all. Indexing that as-is would have been
+// actively wrong two ways: an index silently EXCLUDES any record missing its
+// keyed field, so the 382 yearless rows would vanish from every indexed read;
+// and IndexedDB orders all numbers before all strings, so the string-typed
+// majority would sort as one block after any numeric leftovers instead of
+// interleaving by year. Coercing to `Number(year) || 0` first (0 for missing/
+// invalid — the same convention `dateSortKey` already uses elsewhere in this
+// app) fixes both: every row gets a real key, and undated rows group at one
+// end instead of scattering. `enrichSupplier` applies the same coercion at
+// write time, so every future sync keeps the index correct without another
+// migration.
+const DB_VERSION = 7;
 
 export const STORE_PRODUCT_QUERIES = "productQueries";
 export const STORE_SUPPLIER_PRODUCTS = "supplierProducts";
@@ -72,19 +91,39 @@ function openDB(): Promise<IDBDatabase> {
         db.createObjectStore(STORE_TYRES_CHAT, { keyPath: "id" });
       }
       if (!db.objectStoreNames.contains(STORE_SUPPLIER_PRODUCTS)) {
-        // Fresh install: keyPath only. Deliberately NO secondary indexes — see
-        // the v4 note on DB_VERSION. Ordering is carried by the `sort_seq`
-        // field on each record, sorted at read time.
-        db.createObjectStore(STORE_SUPPLIER_PRODUCTS, { keyPath: "id" });
+        // Fresh install: no existing rows to normalize, and `enrichSupplier`
+        // already writes a clean numeric `year` going forward, so the index
+        // can be created immediately.
+        const store = db.createObjectStore(STORE_SUPPLIER_PRODUCTS, { keyPath: "id" });
+        store.createIndex("year", "year", { unique: false });
       } else {
-        // Upgrading from v3: drop the never-read indexes. Records are left
-        // untouched, so a user's existing catalogue survives the upgrade (it
-        // just has no `sort_seq` until their next full sync — read-time
-        // ordering handles that case).
+        // Upgrading from an earlier version: drop the v3 indexes if they
+        // somehow survived (v4 already removed them for everyone, but this
+        // stays idempotent for a DB that skipped straight from v3).
         const store = tx.objectStore(STORE_SUPPLIER_PRODUCTS);
-        for (const name of ["brand", "size", "year", "source_name", "is_latest"]) {
+        for (const name of ["brand", "size", "source_name", "is_latest"]) {
           if (store.indexNames.contains(name)) store.deleteIndex(name);
         }
+        if (store.indexNames.contains("year")) store.deleteIndex("year");
+
+        // v7: normalize every existing record's `year` to a plain number
+        // BEFORE indexing it — see the DB_VERSION comment above for why.
+        // `cursor.update` inside the same versionchange transaction; no
+        // record is added, removed or has any other field touched.
+        const cursorReq = store.openCursor();
+        cursorReq.onsuccess = () => {
+          const cursor = cursorReq.result;
+          if (!cursor) {
+            store.createIndex("year", "year", { unique: false });
+            return;
+          }
+          const rec = cursor.value as { year?: unknown };
+          const numericYear = Number(rec.year) || 0;
+          if (typeof rec.year !== "number" || rec.year !== numericYear) {
+            cursor.update({ ...rec, year: numericYear });
+          }
+          cursor.continue();
+        };
       }
       if (!db.objectStoreNames.contains(STORE_CART)) {
         // One record per cart line, keyed by product id so add-to-cart is an
@@ -287,6 +326,34 @@ export async function idbGetAllByIndex<T>(
   return new Promise<T[]>((resolve, reject) => {
     const req = db.transaction(store, "readonly").objectStore(store).index(index).getAll(value);
     req.onsuccess = () => resolve((req.result as T[]) ?? []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/**
+ * Every record in a store, ordered by `index` — no value filter, unlike
+ * {@link idbGetAllByIndex}. `descending` reverses the result; IndexedDB itself
+ * only walks an index ascending, so "descending" here is one O(n) `.reverse()`
+ * on the array `getAll()` already returned, not a comparator sort.
+ *
+ * `getAll()` still clones every record into memory in one call — the same cost
+ * `idbGetPage` was built to avoid for a 319k-row store. This is fine only
+ * because the caller's store is bounded (the supplier catalogue is latest-only
+ * now, ~8,251 rows); a store that can still grow into the hundreds of
+ * thousands should keep using the paged reader instead.
+ */
+export async function idbGetAllByIndexOrdered<T>(
+  store: string,
+  index: string,
+  descending = false,
+): Promise<T[]> {
+  const db = await openDB();
+  return new Promise<T[]>((resolve, reject) => {
+    const req = db.transaction(store, "readonly").objectStore(store).index(index).getAll();
+    req.onsuccess = () => {
+      const rows = (req.result as T[]) ?? [];
+      resolve(descending ? rows.reverse() : rows);
+    };
     req.onerror = () => reject(req.error);
   });
 }

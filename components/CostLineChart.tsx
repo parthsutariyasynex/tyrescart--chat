@@ -60,8 +60,12 @@ export default function CostLineChart({
   const max = Math.max(...costs);
   const pad = Math.max((max - min) * 0.15, max === min ? Math.max(max * 0.05, 1) : 1);
 
+  // Fills the card at lg+ (where the modal constrains the row height) instead
+  // of the old fixed 280px that left the rest of the card blank. Below lg the
+  // column is auto-height, so a definite height is required or the chart
+  // collapses to zero.
   return (
-    <div className="h-[280px] w-full">
+    <div className="h-[280px] lg:h-full w-full">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 12, right: 16, bottom: 4, left: 4 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />

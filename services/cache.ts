@@ -13,6 +13,7 @@ import {
   idbPut,
   idbGetAll,
   idbGetPage,
+  idbGetAllByIndexOrdered,
   idbClear,
   idbCount,
   idbDelete,
@@ -572,6 +573,12 @@ const enrichSupplier = (
   sync_batch?: number,
 ): CachedSupplierProduct => ({
   ...p,
+  // Coerced to a plain number so the `year` INDEX (see db.ts v7) stays valid
+  // forever, not just after the one-time migration. The API returns it typed
+  // `number` but measured live as a STRING on 95% of rows and absent on the
+  // rest — spreading `...p` as-is would write that straight back to
+  // IndexedDB. 0 for missing/invalid, same convention as `dateSortKey`.
+  year: Number(p.year) || 0,
   plain_size: supplierPlainSize(p.size),
   sort_seq,
   sync_batch,
@@ -714,6 +721,21 @@ export async function getCachedSupplierProducts(): Promise<CachedSupplierProduct
     if (sa !== sb) return sa - sb;
     return String(a.id).localeCompare(String(b.id), undefined, { numeric: true });
   });
+}
+
+/**
+ * The supplier catalogue in latest-year-first order, read straight off the
+ * `year` INDEX (see db.ts v7) — no `Array.prototype.sort()` in this function.
+ * `idbGetAllByIndexOrdered(..., descending: true)` asks IndexedDB to walk the
+ * index itself and only reverses the already-ordered result, an O(n) pass
+ * rather than an O(n log n) comparison sort.
+ *
+ * This is the default INITIAL load for /supplier-products; the existing
+ * `getCachedSupplierProducts` (sort_seq / catalogue order) is unchanged and
+ * still backs Check Supplier and anything else that wants arrival order.
+ */
+export async function getCachedSupplierProductsByYearDesc(): Promise<CachedSupplierProduct[]> {
+  return idbGetAllByIndexOrdered<CachedSupplierProduct>(STORE_SUPPLIER_PRODUCTS, "year", true);
 }
 
 /* ── Supplier cache integrity ──────────────────────────────────────────────

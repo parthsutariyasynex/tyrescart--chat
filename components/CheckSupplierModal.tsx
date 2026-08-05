@@ -34,10 +34,14 @@ import {
   ArrowsPointingOutIcon,
   CheckBadgeIcon,
   GlobeAltIcon,
+  ClockIcon,
+  ClipboardDocumentIcon,
 } from "@heroicons/react/24/outline";
 import { fetchSupplierProductsGraphQL } from "@/services/graphql";
 import type { SupplierProductItem } from "@/services/types";
 import { SPEC_ICON, splitSupplierSize } from "@/components/QuickViewModal";
+import { buildRowString } from "@/services/productFormatter";
+import CostHistoryModal from "@/components/CostHistoryModal";
 
 /** Quick View's icons, plus the three cells that only exist on this panel. */
 const ICON = {
@@ -71,19 +75,6 @@ const norm = (v: unknown) => String(v ?? "").trim().toLowerCase().replace(/\s+/g
 /** Shown when the row carries no value. Never a made-up default. */
 const UNKNOWN = "-";
 
-/**
- * RunFlat, rendered the way the tc-products table renders it: "Runflat" or "-".
- *
- * NOT "Yes"/"No". A tc row's `runflat` is derived as `label !== ""`, so `false`
- * means "the attribute is absent", not "this tyre is not runflat" — printing
- * "No" would assert something the data never said, and would contradict the
- * table this panel opens from, which shows "-" for the same row.
- *
- * The supplier feed types the field `boolean | string | number` and, measured
- * across all 8,251 cached rows, only ever holds "" (5,762), null (2,159),
- * "Runflat" (244) or "RunFlat" (86) — there is no explicit negative in it
- * either. So both sides collapse to the same two states.
- */
 function runflatText(v: boolean | string | number | undefined | null): string {
   if (v === undefined || v === null || v === "") return UNKNOWN;
   if (typeof v === "boolean") return v ? "Runflat" : UNKNOWN;
@@ -122,6 +113,10 @@ export default function CheckSupplierModal({
   onCloseAction: () => void;
 }) {
   const [rows, setRows] = useState<SupplierProductItem[] | null>(null);
+  const [sortField, setSortField] = useState<string>("cost");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [costHistoryItem, setCostHistoryItem] = useState<any | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   /* Mount hidden, slide up on the next tick, slide down before unmount. */
   const [isOpen, setIsOpen] = useState(false);
@@ -134,6 +129,11 @@ export default function CheckSupplierModal({
   }, []);
 
   useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current); }, []);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
 
   const handleClose = () => {
     setIsClosing(true);
@@ -176,11 +176,53 @@ export default function CheckSupplierModal({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  /** Cheapest first — the reason to open this panel at all. */
-  const sorted = useMemo(
-    () => [...(rows ?? [])].sort((a, b) => (Number(a.cost) || 0) - (Number(b.cost) || 0)),
-    [rows],
-  );
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortOrder(prev => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortOrder("asc");
+    }
+  };
+
+  const sorted = useMemo(() => {
+    if (!rows) return [];
+    return [...rows].sort((a: any, b: any) => {
+      let aVal: any = a[sortField];
+      let bVal: any = b[sortField];
+      if (sortField === "source") {
+        aVal = a.source_name || a.product_source || a.source || "";
+        bVal = b.source_name || b.product_source || b.source || "";
+      } else if (sortField === "cost" || sortField === "qty" || sortField === "year" || sortField === "fitting_price") {
+        aVal = Number(aVal) || 0;
+        bVal = Number(bVal) || 0;
+      } else if (sortField === "runflat") {
+        aVal = aVal ? 1 : 0;
+        bVal = bVal ? 1 : 0;
+      } else {
+        aVal = String(aVal ?? "").toLowerCase();
+        bVal = String(bVal ?? "").toLowerCase();
+      }
+      if (aVal < bVal) return sortOrder === "asc" ? -1 : 1;
+      if (aVal > bVal) return sortOrder === "asc" ? 1 : -1;
+      return 0;
+    });
+  }, [rows, sortField, sortOrder]);
+
+  const copyRowData = (item: any) => {
+    const rowString = buildRowString({
+      brand: item.brand,
+      pattern: item.pattern || item.name,
+      size: item.size,
+      sizeFull: item.size,
+      year: item.year,
+      country: item.country,
+      qty: item.qty,
+      cost: Number(item.cost) || 0,
+    });
+    navigator.clipboard.writeText(rowString);
+    showToast(`Copied product details to clipboard!`);
+  };
 
   /* ── Spec grid, all of it off the row already in hand ── */
   const parts = useMemo(
@@ -188,8 +230,6 @@ export default function CheckSupplierModal({
     [product.sizeFull, product.size],
   );
 
-  /* The pattern usually already carries the brand ("AC Delco ACD-27-44 12V
-     44AH"), so prefixing it again reads as a stutter. */
   const displayName = (() => {
     const brand = (product.brand || "").trim();
     const pattern = (product.pattern || "").trim();
@@ -212,10 +252,6 @@ export default function CheckSupplierModal({
     { label: "YEAR", value: product.year && product.year > 0 ? String(product.year) : UNKNOWN },
   ];
 
-  // RUNFLAT is a boolean on the row, so "No" is a real answer, not a missing one.
-  // ORIGIN is the row's country (with its flag). WARRANTY lives on the Magento
-  // product, not on a tc-products row, so it is a dash rather than an assumed
-  // "1 Year Warranty".
   const row3 = [
     { label: "RUNFLAT", value: runflatText(product.runflat) },
     { label: "ORIGIN", value: [product.flag, product.country].filter(Boolean).join(" ") || UNKNOWN },
@@ -238,17 +274,36 @@ export default function CheckSupplierModal({
       aria-label="Check supplier"
     >
       <div
-        className={`relative w-full max-w-full bg-white rounded-t-2xl shadow-2xl border-t border-slate-200 flex flex-col overflow-hidden max-h-[92vh] transition-transform duration-500 ease-out ${
+        className={`relative w-full max-w-full bg-slate-50 rounded-t-2xl shadow-2xl border-t border-slate-200 flex flex-col overflow-hidden h-[90vh] max-h-[90vh] transition-transform duration-500 ease-out ${
           shown ? "translate-y-0" : "translate-y-full"
         }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between gap-4 px-5 sm:px-6 py-4 border-b border-slate-200 shrink-0">
-          <h2 className="text-base font-extrabold text-slate-900 tracking-tight flex items-center gap-1.5">
-            <TruckIcon className="w-4 h-4 text-slate-400" />
-            Supplier availability
-          </h2>
+        <div className="flex items-center justify-between gap-4 px-5 sm:px-6 py-3.5 border-b border-slate-200 shrink-0">
+          <div className="flex items-center gap-3 min-w-0 flex-wrap">
+            <h2 className="text-xs font-bold text-slate-500 tracking-tight flex items-center gap-1 shrink-0">
+              <TruckIcon className="w-3.5 h-3.5 text-slate-400" />
+              Supplier availability
+            </h2>
+            <span className="text-slate-300 font-light shrink-0">|</span>
+            <div className="flex items-center gap-2 min-w-0 flex-wrap text-xs">
+              <span className="font-black uppercase text-[#008b47] tracking-wider flex items-center gap-1 shrink-0 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#008b47]" />
+                {product.brand || "—"} TIRES
+              </span>
+              <span className="font-extrabold text-slate-900 truncate max-w-xl text-sm">
+                {displayName}
+              </span>
+              {product.price !== undefined && product.price > 0 && (
+                <span className="font-black text-slate-900 bg-slate-100 text-slate-800 border border-slate-200 px-2 py-0.5 rounded-full text-xs shrink-0">
+                  AED <span className="text-[#008b47] font-mono">{money(product.price)}</span>
+                  <span className="ml-1 text-[10px] font-semibold text-slate-500">per tyre</span>
+                </span>
+              )}
+            </div>
+          </div>
+
           <button
             type="button"
             onClick={handleClose}
@@ -261,41 +316,17 @@ export default function CheckSupplierModal({
         </div>
 
         {/* Body */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-5 sm:px-6 py-4 space-y-4">
-          {/* Brand chip, product name, price */}
-          <div>
-            <div className="flex items-center gap-1.5 mb-0.5">
-              <span className="text-xs font-black uppercase text-[#008b47] tracking-widest flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-[#008b47]" />
-                {product.brand || "—"} TIRES
-              </span>
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 sm:px-6 py-4 space-y-4 relative">
+          {/* Toast Notification */}
+          {toastMessage && (
+            <div className="absolute top-2 right-6 z-50 bg-slate-900 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-lg animate-in fade-in duration-150">
+              {toastMessage}
             </div>
-            <h1 className="text-xl font-extrabold text-slate-900 leading-tight">{displayName}</h1>
-            {product.price !== undefined && product.price > 0 && (
-              <p className="mt-1 text-lg font-black text-slate-900">
-                AED <span className="text-[#008b47]">{money(product.price)}</span>
-                <span className="ml-1.5 text-[11px] font-semibold text-slate-400">per tyre</span>
-              </p>
-            )}
-          </div>
+          )}
 
-          {/* Product Specifications */}
-          <div className="space-y-1.5">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
-              Product Specifications
-            </h3>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {row1.map((s) => <SpecCell key={s.label} {...s} />)}
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {row2.map((s) => <SpecCell key={s.label} {...s} />)}
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {row3.map((s) => <SpecCell key={s.label} {...s} />)}
-            </div>
-          </div>
 
-          {/* Supplier rows */}
+
+          {/* Supplier rows table */}
           <div className="border border-slate-200 rounded-xl overflow-hidden min-h-[300px]">
             {loading ? (
               <div className="p-4 space-y-2.5 min-h-[300px] flex flex-col justify-start">
@@ -314,43 +345,78 @@ export default function CheckSupplierModal({
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto max-h-[50vh] overflow-y-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-[10px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200">
-                      <th className="text-left py-2 px-5">Brand</th>
-                      <th className="text-left py-2 px-3">Tyre Size</th>
-                      <th className="text-left py-2 px-3">RunFlat</th>
-                      <th className="text-left py-2 px-3">Origin</th>
-                      <th className="text-left py-2 px-5">Year</th>
+              <div className="overflow-x-auto max-h-[100vh] overflow-y-auto">
+                <table className="w-full text-xs text-left border-collapse">
+                  <thead className="bg-slate-50 sticky top-0 z-10 border-b border-slate-200">
+                    <tr className="text-[10px] font-bold text-slate-500 uppercase tracking-wider select-none">
+                      <th onClick={() => handleSort("source")} className="py-2.5 px-5 cursor-pointer hover:text-slate-900 whitespace-nowrap">
+                        Supplier <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      </th>
+                      <th onClick={() => handleSort("size")} className="py-2.5 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">
+                        Tyre Size <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      </th>
+                      <th onClick={() => handleSort("runflat")} className="py-2.5 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">
+                        RunFlat <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      </th>
+                      <th onClick={() => handleSort("country")} className="py-2.5 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">
+                        Origin <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      </th>
+                      <th onClick={() => handleSort("year")} className="py-2.5 px-5 cursor-pointer hover:text-slate-900 whitespace-nowrap">
+                        Year <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      </th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {sorted.map((r, i) => (
-                      <tr key={`${r.id}-${i}`} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/60">
-                        <td className="py-2 px-5 font-bold text-slate-800">
-                          <span className="inline-flex items-center gap-1.5 flex-wrap">
-                            {r.brand || "-"}
-                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
-                              r.product_source === "competitor"
-                                ? "bg-amber-50 text-amber-700 border border-amber-200/80"
-                                : "bg-slate-100 text-slate-600 border border-slate-200/80"
-                            }`}>
-                              {r.product_source || "supplier"}
-                            </span>
-                            {r.source_name && (
-                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-white text-slate-600 border border-slate-200 shadow-2xs">
-                                {r.source_name}
+                  <tbody className="divide-y divide-slate-100 font-sans">
+                    {sorted.map((r: any, i: number) => {
+                      const runflatVal = runflatText(r.runflat);
+
+                      return (
+                        <tr
+                          key={`${r.id}-${i}`}
+                          onClick={() => copyRowData(r)}
+                          title="Click row to copy details"
+                          className="hover:bg-slate-50/80 transition-colors cursor-pointer border-b border-slate-100 last:border-0"
+                        >
+                          {/* Supplier / Source badge only */}
+                          <td className="py-2.5 px-5 font-bold text-slate-800">
+                            <span className="inline-flex items-center gap-1.5 flex-wrap">
+                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
+                                r.product_source === "competitor"
+                                  ? "bg-amber-50 text-amber-700 border border-amber-200/80"
+                                  : "bg-slate-100 text-slate-600 border border-slate-200/80"
+                              }`}>
+                                {r.product_source || "supplier"}
                               </span>
-                            )}
-                          </span>
-                        </td>
-                        <td className="py-2 px-3 font-mono text-slate-700">{r.size || "-"}</td>
-                        <td className="py-2 px-3 text-slate-600">{runflatText(r.runflat)}</td>
-                        <td className="py-2 px-3 text-slate-600">{r.country || "-"}</td>
-                        <td className="py-2 px-5 text-slate-500">{r.year || "-"}</td>
-                      </tr>
-                    ))}
+                              {r.source_name && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-white text-slate-600 border border-slate-200 shadow-2xs">
+                                  {r.source_name}
+                                </span>
+                              )}
+                            </span>
+                          </td>
+
+                          {/* Tyre Size */}
+                          <td className="py-2.5 px-3 font-mono text-slate-700 whitespace-nowrap">
+                            {r.size || product.size || "-"}
+                          </td>
+
+                          {/* RunFlat */}
+                          <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap">
+                            {runflatVal}
+                          </td>
+
+                          {/* Origin */}
+                          <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap">
+                            {r.country || product.country || "-"}
+                          </td>
+
+                          {/* Year */}
+                          <td className="py-2.5 px-5 text-slate-500 whitespace-nowrap">
+                            {r.year && r.year > 0 ? r.year : "-"}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -358,6 +424,25 @@ export default function CheckSupplierModal({
           </div>
         </div>
       </div>
+
+      {/* Cost History Modal */}
+      {costHistoryItem && (
+        <CostHistoryModal
+          key={String(costHistoryItem.id)}
+          product={{
+            id: costHistoryItem.id,
+            brand: costHistoryItem.brand || product.brand,
+            size: costHistoryItem.size || product.size,
+            sizeFull: costHistoryItem.size || product.sizeFull,
+            pattern: costHistoryItem.pattern || costHistoryItem.name || product.pattern,
+            itemCode: costHistoryItem.sku || product.itemCode,
+            cost: Number(costHistoryItem.cost) || 0,
+            productType: costHistoryItem.product_source || "supplier",
+          }}
+          onCloseAction={() => setCostHistoryItem(null)}
+        />
+      )}
     </div>
   );
 }
+

@@ -192,7 +192,7 @@ export default function ChatModal({ isOpen, onClose }: ChatModalProps) {
       aria-modal="true"
     >
       <div
-        className={`relative bg-slate-50 w-full max-w-full border-t border-slate-200 shadow-2xl flex flex-col overflow-hidden transition-transform duration-500 ease-out max-h-[90vh] rounded-none ${
+        className={`relative bg-slate-50 w-full max-w-full border-t border-slate-200 shadow-2xl flex flex-col overflow-hidden transition-transform duration-500 ease-out h-[90vh] max-h-[90vh] rounded-t-2xl ${
           isAnimatedOpen && !isClosing ? "translate-y-0" : "translate-y-full"
         }`}
         onClick={(e) => e.stopPropagation()}
