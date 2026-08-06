@@ -193,7 +193,7 @@ export async function fetchSupplierProductsGraphQL(
   params: FetchSupplierProductsParams = {}
 ): Promise<SupplierProductsResponse> {
   const {
-    brand, plain_size, is_latest, year, country, source_name,
+    brand, plain_size, is_latest = 1, year, country, source_name,
     brand_category, product_name, sku, size,
     pageSize = 24, currentPage = 1, sortField, sortDirection,
   } = params;
