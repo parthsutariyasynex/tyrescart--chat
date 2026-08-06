@@ -592,7 +592,9 @@ export default function QuickViewModal({
                       src={brandLogo}
                       alt={`${brandName} logo`}
                       onError={() => setLogoBroken(true)}
-                      className="h-6 w-auto max-w-[120px] object-contain object-left"
+                    //   className="h-6 w-auto max-w-[120px] object-contain object-left"
+                    // />
+                    className="h-fit-content w-auto max-w-[120px] object-contain object-left"
                     />
                   ) : (
                     <span className="text-xs font-black uppercase text-[#008b47] tracking-widest flex items-center gap-1">

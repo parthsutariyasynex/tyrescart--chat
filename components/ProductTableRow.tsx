@@ -88,11 +88,7 @@ export const ProductTableRow = React.memo(function ProductTableRow({
       {/* Brand Column */}
       {!hiddenColumns.has("brand") && (
         <td className={`${cellPaddingClass} whitespace-nowrap`}>
-          <span
-            className={`px-2.5 py-0.5 text-[11px] font-semibold tracking-normal rounded-full border whitespace-nowrap inline-block ${
-              brandBadges[item.brand] || "badge-brand-default"
-            }`}
-          >
+          <span className="px-2 py-0.5 text-[10px] font-bold rounded uppercase whitespace-nowrap inline-block bg-slate-100 text-slate-700">
             {item.brand || "-"}
           </span>
         </td>

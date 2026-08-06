@@ -1199,7 +1199,7 @@ export default function SupplierProductsPage() {
 
                           {!hiddenColumns.has('brand') && (
                             <td className={`${cellPaddingClass} text-xs font-semibold text-slate-800 whitespace-nowrap`}>
-                              <span className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase whitespace-nowrap inline-block ${brandBadges[item.brand] || 'bg-slate-100 text-slate-700'}`}>
+                              <span className="px-2 py-0.5 text-[10px] font-bold rounded uppercase whitespace-nowrap inline-block bg-slate-100 text-slate-700">
                                 {item.brand}
                               </span>
                             </td>
