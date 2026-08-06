@@ -106,3 +106,180 @@ export function getOfferBadgeStyle(offer: string, offerOptions?: string[]) {
   }
   return OFFER_COLOR_PALETTE[index % OFFER_COLOR_PALETTE.length];
 }
+
+/* ─── Brand logos ──────────────────────────────────────────── */
+
+/**
+ * Brand mark filenames, keyed by NORMALISED brand name.
+ *
+ * Generated from the files already present in `public/mgs_brand`; no logo is
+ * fetched or added at runtime. Keyed by the normalised name rather than the raw
+ * label so the two feeds agree without duplicate entries — /supplier-products
+ * sends "Matrax Tyres" and /tc-products sends "Matrax", and both reduce to
+ * `matrax`.
+ *
+ * Only the filename is stored. Magento buckets its media by the first two
+ * characters of the filename (`kumho.png` -> `/k/u/kumho.png`), verified true
+ * for all 440 files, so `brandLogoUrl` derives the folders instead of anyone
+ * maintaining them by hand.
+ *
+ * Where a brand had several files (105 of them did — `kumho` had 6), one was
+ * picked by: PNG first, then the un-suffixed base name, then the shortest.
+ */
+export const BRAND_LOGO_FILES: Record<string, string> = {
+  accelera: "accelera.png",
+  altenzo: "altenzo-logo.jpg",
+  amaron: "amaron_logo_0.jpg",
+  americanracing: "american-racing_1_.png",
+  annaite: "annaite-logo_1.jpg",
+  apollo: "apollo-tyres.png",
+  aptany: "aptany.png",
+  arduzza: "arduzza_2_.png",
+  arivo: "arivo_1.jpg",
+  armstrong: "armstrong-logo.png",
+  arroyo: "arroyo-logo.png",
+  asimco: "asimco_1_.jpg",
+  atlander: "atlander-tyres_1.jpg",
+  atlas: "atlas.jpg",
+  atturo: "atturo.png",
+  austone: "austone-tires.png",
+  bearway: "bearway-logo.jpg",
+  bfgoodrich: "bfgoodrich.png",
+  bigbull: "big-bull_1_.png",
+  bosch: "bosch_1_.png",
+  bridgestone: "bridgestone-tyres-shop.png",
+  ceros: "ceros.png",
+  charmhoo: "charmhoo-logo.png",
+  compasal: "compasal_1.jpg",
+  constancy: "constancy.jpg",
+  continental: "continental.png",
+  crossleader: "crossleader-tyres-shop.png",
+  cst: "cst_1_.jpg",
+  dagenite: "dagenite_1_.jpg",
+  deestone: "deestone.png",
+  doublecoin: "double-coin.jpg",
+  doublestar: "double-star-tyres-shop.png",
+  dunlop: "dunlop.png",
+  duracell: "duracell_1_.jpg",
+  duraman: "duraman-tyres_1.jpg",
+  falken: "falken.png",
+  fiamm: "fiamm_1_.jpg",
+  forceland: "forceland_1_.png",
+  forceum: "forceum_1.jpg",
+  fortune: "fortune-logo.jpg",
+  fpower: "fpower_1_.png",
+  fuel: "fuel_1_.png",
+  gepormax: "gepormax.jpg",
+  gfx: "gfx_1_.jpg",
+  giti: "giti-tyres-shop.png",
+  goodyear: "goodyear-tyres-shop.png",
+  gripmax: "gripmax-logo.jpg",
+  habilead: "habilead.png",
+  hankook: "hankook-tyres-shop.png",
+  headway: "headway-logo.jpg",
+  hilo: "hilo.png",
+  honour: "honour-logo.jpg",
+  ilink: "ilink-logo.jpg",
+  kapsen: "kapsen-logo.jpg",
+  kingboss: "kingboss.png",
+  kmcwheels: "kmc_wheels_1_.png",
+  kumho: "kumho.png",
+  kustone: "kustone_1.jpg",
+  landsail: "landsail-tyres-shop.png",
+  landspider: "land-spider_1.jpg",
+  lanvigator: "lanvigator_1.jpg",
+  laufenn: "laufenn-logo.png",
+  leao: "leao-logo_1.png",
+  linglong: "linglong_1.jpg",
+  longway: "longway_1.jpg",
+  marshal: "marshal.jpg",
+  mastercraft: "master-craft.png",
+  matrax: "matrax-tyres.png",
+  maxtrek: "maxtrek-logo.jpg",
+  maxxis: "maxxis.png",
+  maxzez: "maxzez_1_.jpg",
+  metzeler: "metzeler-logo_1_.png",
+  michelin: "michelin.png",
+  mileking: "mileking-tyre_1.jpg",
+  motegiracing: "motegi_racing_logo_1_.png",
+  mrf: "mrf-tyres.png",
+  nankang: "nankang.png",
+  neolin: "neolin.jpg",
+  nexen: "nexen.png",
+  niche: "niche_1_.png",
+  otani: "otani.jpg",
+  petlas: "petlas_1.jpg",
+  pirelli: "pirelli.png",
+  prinx: "prinx-tires-logo.jpg",
+  radar: "radar.png",
+  rauffan: "rauffan.jpg",
+  roadking: "roadking.png",
+  roadstone: "roadstone.png",
+  roadx: "roadx-logo.png",
+  rockblade: "rockblade_1.jpg",
+  rotalla: "rotalla-logo.jpg",
+  rotiform: "rotiform_1_.png",
+  sailun: "sailun-logo_1.jpg",
+  seam: "seam-tyre-logo.png",
+  sensus: "sensus.jpg",
+  solite: "solite_1_.jpg",
+  sonix: "sonix_1.jpg",
+  sunny: "sunny.jpg",
+  tbb: "tbb-logo.jpg",
+  teraflex: "teraflex_1.png",
+  toyo: "toyo.png",
+  tracmax: "tracmax-tyres.jpg",
+  varta: "varta_1_.jpg",
+  venom: "venom.png",
+  vision: "vision_1_.jpg",
+  vitour: "vitour-logo.jpg",
+  volcan: "volcan_1_.png",
+  vredestein: "vredestein.png",
+  wanli: "wanli-logo.jpg",
+  warrior: "warrior-logo.png",
+  windforce: "windforce-logo_1.png",
+  winrun: "winrun.png",
+  yokohama: "yokohama-tyre-shop.png",
+  yomar: "yomar.png",
+  zelda: "zelda.jpg",
+  zeta: "zeta-logo.jpg",
+  zextour: "zextour-logo.jpg",
+};
+
+/**
+ * Manual corrections, keyed the same way as BRAND_LOGO_FILES.
+ *
+ * The generated map strips filler words ("logo", "tyre(s)", "tire(s)", "shop")
+ * from BOTH sides so "Matrax Tyres" finds matrax-tyres.png. That is wrong for a
+ * brand whose real name contains one of those words — "General Tire" reduces to
+ * "general", which could collide with an unrelated file. Add an entry here to
+ * force a specific file, or an empty string to suppress the logo entirely.
+ *
+ * Empty today: of the 202 brands, only "TBB Tires" matched via filler-stripping
+ * ("TBB" + "Tires" -> tbb-logo.jpg), which is correct. Kept as the escape hatch
+ * for when new brands or files arrive.
+ */
+export const BRAND_LOGO_OVERRIDES: Record<string, string> = {};
+
+/** Same normalisation the map was generated with — see BRAND_LOGO_FILES. */
+function normaliseBrandKey(brand: string): string {
+  const filler = /\b(logo|logos|tyre|tyres|tire|tires|shop|brand)\b/g;
+  return brand.toLowerCase().replace(filler, "").replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * Public URL of a brand's logo, or null when there is no file for it.
+ *
+ * null is the normal case for 83 of the 202 brands — callers must keep their
+ * existing text label as the fallback rather than rendering a broken image.
+ */
+export function brandLogoUrl(brand: string | undefined | null): string | null {
+  const key = normaliseBrandKey(String(brand ?? ""));
+  if (!key) return null;
+  const override = BRAND_LOGO_OVERRIDES[key];
+  if (override === "") return null;
+  const file = override || BRAND_LOGO_FILES[key];
+  if (!file) return null;
+  // Magento buckets media by the filename's first two characters.
+  return `/mgs_brand/${file.slice(0, 1).toLowerCase()}/${file.slice(1, 2).toLowerCase()}/${file}`;
+}

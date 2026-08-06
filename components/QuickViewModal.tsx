@@ -42,8 +42,11 @@ export const SPEC_ICON: Record<
 import {
   fetchTcQuickViewCached,
   fetchTcQuickViewMatchesCached,
+  fetchTcAttributeLabelsCached,
 } from "@/services/cache";
-import type { TcAttributeItem, TcQuickViewProduct } from "@/services/types";
+import type { TcAttributeItem, TcQuickViewProduct, TcAttributeLabels } from "@/services/types";
+import { setOfFourPrice } from "@/services/productFormatter";
+import { brandLogoUrl } from "@/constants/badges";
 
 /** No external store to watch — `mounted` only flips via the server/client
  *  snapshot pair, so the subscription is a no-op. Module scope keeps its
@@ -296,6 +299,37 @@ export default function QuickViewModal({
   const loading = detail === undefined;
 
   /** API value first, then the supplier row, then "-". Never a literal. */
+  /* Option-id -> label map, cache-first and shared with the TC table's own
+     label lookup, so opening Quick View costs no extra request after the first. */
+  const [labels, setLabels] = useState<TcAttributeLabels | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void fetchTcAttributeLabelsCached()
+      .then((l) => { if (alive) setLabels(l); })
+      .catch(() => { /* leaves PATTERN on its existing fallback */ });
+    return () => { alive = false; };
+  }, []);
+
+  /**
+   * The real tyre pattern, e.g. "Ultra 5".
+   *
+   * `detail.pattern` is an option id, resolved through the label map. This does
+   * NOT come from `custom_attributesV2` — that returns an Internal server error
+   * and zero attributes for ordinary tyres, which is why this cell used to fall
+   * through to `product.pattern`. That field is misnamed: it holds the full
+   * product NAME ("Accelera 175 R13C 97/95R Ultra 5 2026"), not a pattern.
+   *
+   * There is deliberately NO fallback to that field. Plenty of products have no
+   * pattern at all — batteries (sku TYCT-BT1001 returns `pattern: null`) are not
+   * tyres — and printing their name under a PATTERN heading states something
+   * false. "-" matches every other cell that has no value on those products.
+   */
+  /* Brand mark from `public/mgs_brand`, or null for the 83 of 202 brands that
+     have no file — those keep the text badge. `logoBroken` covers the case
+     where a mapped file 404s, so a missing image degrades to the text label
+     instead of a broken-image icon. Reset per product by the modal's `key`. */
+  const [logoBroken, setLogoBroken] = useState(false);
+
   const pick = (code: string, rowValue?: string | number | null) => {
     const fromApi = readAttr(attrs, code);
     if (fromApi) return fromApi;
@@ -305,6 +339,19 @@ export default function QuickViewModal({
         : String(rowValue).trim();
     return v || UNKNOWN;
   };
+
+  const brandName = pick("brand", product.brand);
+  /** null when the brand has no file in public/mgs_brand — text badge then. */
+  const brandLogo = logoBroken ? null : brandLogoUrl(brandName);
+
+  const patternLabel = (() => {
+    const id = detail?.pattern;
+    if (labels && id !== null && id !== undefined) {
+      const resolved = labels["pattern"]?.[String(id)];
+      if (resolved) return resolved;
+    }
+    return "";
+  })();
 
   // PROFILE is `height` and LOAD/SPEED is `load_index` — the codes do not match
   // the on-screen labels, which is why both looked absent.
@@ -337,12 +384,24 @@ export default function QuickViewModal({
   // The storefront's own price when it has one, otherwise the supplier's cost.
   const unitPrice = apiPrice > 0 ? apiPrice : product.cost || 0;
   const setOf2Price = unitPrice * 2;
-  const setOf4Price = unitPrice * 4;
+  /* Set of 4 uses the project-wide rule (services/productFormatter), NOT a flat
+     4x: "Buy 3 Get 1 Free" charges for 3. Previously hardcoded here, which made
+     Quick View disagree with the TC table for the same product.
+
+     The offer label is resolved from the DIRECT `offers` option id via the
+     cached label map, because `readAttr(attrs, "offers")` reads
+     `custom_attributesV2`, which currently errors out and returns nothing — so
+     the promotion would never be seen. */
+  const resolvedOffer =
+    (labels && detail?.offers !== null && detail?.offers !== undefined
+      ? labels["offers"]?.[String(detail.offers)]
+      : "") || readAttr(attrs, "offers") || "";
+  const setOf4Price = setOfFourPrice(unitPrice, resolvedOffer);
   const totalPrice = unitPrice * selectedQty;
   const priceHeading = readAttr(attrs, "price_included_text") || "Price";
 
   // Offer banner and stock badge render only when the API actually says so.
-  const offerLabel = readAttr(attrs, "offers");
+  const offerLabel = resolvedOffer;
   // "1" on products enrolled in the BNPL programme; absent otherwise.
   const splitPayment = readAttr(attrs, "tabby_payment") === "1";
   const inStock = detail?.stock_status === "IN_STOCK";
@@ -381,10 +440,15 @@ export default function QuickViewModal({
     (product.image && !product.image.includes("/placeholder/")
       ? product.image
       : "");
-  const displayName =
+  const rawDisplayName =
     detail?.name ||
     [product.brand, product.pattern].filter(Boolean).join(" ") ||
     product.itemCode;
+
+  const displayName = rawDisplayName
+    .replace(/\b\d{2,3}(?:\/\d{2,3})?[A-Za-z]\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 
   // Split spec rows matching exact screenshot layout:
   // Row 1 (4 cols): Width, Profile, Rim Size, Load/Speed
@@ -398,8 +462,8 @@ export default function QuickViewModal({
   // Row 2 (4 cols): Brand, Pattern, Size, Year
   const row2 = [
     { label: "BRAND", value: pick("brand", product.brand) },
-    { label: "PATTERN", value: pick("pattern", product.pattern) },
-    { label: "SIZE", value: fullSizeText, info: true },
+    { label: "PATTERN", value: patternLabel || UNKNOWN },
+    { label: "SIZE", value: fullSizeText },
     {
       label: "YEAR",
       value: pick("year", product.year && product.year > 0 ? product.year : ""),
@@ -458,39 +522,23 @@ export default function QuickViewModal({
         <div className="flex-1 overflow-y-auto px-2 sm:px-4 pb-24">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start max-w-7xl mx-auto">
             {/* Left Side: Compact Product Image Card & Thumbnails */}
-            <div className="lg:col-span-4 flex flex-col items-center w-full max-w-sm mx-auto">
-              {/* FIXED height, not min-height: with a floor the card grew 10px
-                  once the image and thumbnails arrived, nudging the panel. */}
-
-              {/* <div className="w-full bg-white border border-slate-200 rounded-xl p-4 relative shadow-xs overflow-hidden flex flex-col items-center justify-between h-[350px] max-w-[340px]"> */}
-              <div className="w-full bg-white border border-slate-200 rounded-xl p-4">
-                {/* Offer banner — the API's own label. The strip keeps its height
-                    whether or not there is an offer, so the card does not resize
-                    between products. It previously rendered a hardcoded
-                    "FREE WHEEL ALIGNMENT" on every product, offer or not. */}
-                <div className="absolute top-0 inset-x-0 h-9 flex items-center justify-center">
-                  {offerLabel && (
-                    <div className="w-full h-full bg-[#008b47] text-white text-xs font-black uppercase tracking-wider px-3 text-center rounded-t-xl flex items-center justify-center">
-                      {offerLabel}
-                    </div>
-                  )}
-                </div>
-
-                {/* Stock ribbon — only when the API says IN_STOCK. */}
+            <div className="lg:col-span-4 flex flex-col items-center w-full max-w-[320px] mx-auto">
+              <div className="w-full bg-white border border-slate-200 rounded-xl p-2.5 sm:p-3 relative shadow-2xs flex flex-col justify-between overflow-hidden">
+                {/* Stock badge — properly anchored inside top-right of image card */}
                 {inStock && (
-                  <div className="absolute top-10 right-0 bg-slate-900 text-white text-[10px] font-black py-1 px-3 uppercase tracking-wider z-10 shadow-md flex items-center rounded-l-none">
+                  <div
+                    className="absolute top-2 right-2 bg-emerald-50 text-[#008b47] border border-emerald-200/90 text-[10px] font-black py-0.5 px-2 uppercase tracking-wider z-20 shadow-2xs flex items-center gap-1.5 rounded-full"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#008b47] animate-pulse"></span>
                     <span>In Stock</span>
-                    <span className="absolute bottom-[-4px] right-0 w-0 h-0 border-t-[4px] border-t-slate-900 border-r-[4px] border-r-transparent"></span>
                   </div>
                 )}
 
-                {/* Fixed height: an image, a skeleton and the empty state all
-                    occupy the same box, so loading never moves the layout. */}
-                {/* <div className="w-full h-56 mt-9 flex items-center justify-center p-2"> */}
-                <div className="w-full h-[340px] mt-4 flex items-center justify-center overflow-hidden">
+                {/* Image Container — Fits cleanly without clipping or cutting off on hover */}
+                <div className="w-full h-[380px] sm:h-[350px] flex items-center justify-center p-1.5 overflow-hidden relative">
                   {loading ? (
                     <div
-                      className="skeleton w-48 h-48 rounded-lg"
+                      className="skeleton w-52 h-52 rounded-lg"
                       aria-hidden="true"
                     />
                   ) : tyreImgSrc ? (
@@ -498,7 +546,7 @@ export default function QuickViewModal({
                     <img
                       src={tyreImgSrc}
                       alt={detail?.image?.label || displayName}
-                      className="w-96 h-80 object-contain filter transition-transform duration-300 hover:scale-105"
+                      className="w-full h-full object-contain filter transition-transform duration-300 hover:scale-[1.02]"
                     />
                   ) : (
                     <span className="text-xs font-semibold text-slate-400">
@@ -509,13 +557,12 @@ export default function QuickViewModal({
 
                 {/* Thumbnails Row — displayed only when multiple real images exist */}
                 {gallery.length > 1 ? (
-                  // <div className="flex items-center justify-center gap-2.5 mt-2">
-                  <div className="flex items-center justify-center gap-2 mt-auto pb-4">
+                  <div className="flex items-center justify-center gap-2 mt-1.5 pt-2 border-t border-slate-100">
                     {gallery.slice(0, 4).map((url, idx) => (
                       <button
                         key={idx}
                         onClick={() => setSelectedImgIndex(idx)}
-                        className={`w-12 h-12 rounded-lg border-2 p-1 bg-white transition-all flex items-center justify-center shadow-2xs ${
+                        className={`w-10 h-10 rounded-lg border-2 p-0.5 bg-white transition-all flex items-center justify-center shadow-2xs ${
                           selectedImgIndex === idx
                             ? "border-[#008b47] ring-2 ring-emerald-500/20"
                             : "border-slate-200 hover:border-slate-300"
@@ -530,9 +577,7 @@ export default function QuickViewModal({
                       </button>
                     ))}
                   </div>
-                ) : (
-                  <div className="h-6" />
-                )}
+                ) : null}
               </div>
             </div>
 
@@ -541,10 +586,20 @@ export default function QuickViewModal({
               {/* Brand Header Logo & Title */}
               <div>
                 <div className="flex items-center gap-1.5 mb-0.5">
-                  <span className="text-xs font-black uppercase text-[#008b47] tracking-widest flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-[#008b47]"></span>
-                    {pick("brand", product.brand)} TIRES
-                  </span>
+                  {brandLogo ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img
+                      src={brandLogo}
+                      alt={`${brandName} logo`}
+                      onError={() => setLogoBroken(true)}
+                      className="h-6 w-auto max-w-[120px] object-contain object-left"
+                    />
+                  ) : (
+                    <span className="text-xs font-black uppercase text-[#008b47] tracking-widest flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-[#008b47]"></span>
+                      {brandName} TIRES
+                    </span>
+                  )}
                 </div>
                 <h1 className="text-xl font-extrabold text-slate-900 leading-tight">
                   {displayName}
@@ -605,15 +660,11 @@ export default function QuickViewModal({
                         </span>
                       </div>
                       <div className="text-xs font-bold text-slate-900 truncate w-full flex items-center justify-center gap-0.5">
-                        {/* <span>{item.value}</span> */}
                         <span>
                           {item.value && String(item.value).trim() !== ""
                             ? item.value
                             : "-"}
                         </span>
-                        {item.info && (
-                          <InformationCircleIcon className="w-3 h-3 text-slate-400 shrink-0" />
-                        )}
                       </div>
                     </div>
                   ))}
@@ -651,7 +702,6 @@ export default function QuickViewModal({
               <div className="bg-[#f8fafc] border border-slate-200/90 rounded-xl p-3.5 flex flex-col gap-2.5">
                 <div className="flex items-center gap-1 text-xs font-bold text-slate-700">
                   <span>{priceHeading}</span>
-                  <InformationCircleIcon className="w-3.5 h-3.5 text-slate-400" />
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -679,11 +729,20 @@ export default function QuickViewModal({
                           })}
                         </strong>
                       </span>
+                      {/* The real Set of 4 PRICE, from the project-wide rule in
+                          services/productFormatter — the same figure the TC
+                          table, CSV export, Check Supplier header and clipboard
+                          string show. This used to render `Set of {selectedQty}`
+                          with the quantity subtotal, which merely happened to
+                          read "Set of 4" at the default qty and disagreed with
+                          the table whenever a free-tyre offer applied. The
+                          quantity total is unchanged and still shown on the Add
+                          to Cart button. */}
                       <span>
-                        Set of {selectedQty} :{" "}
+                        Set of 4 :{" "}
                         <strong className="text-slate-900">
                           {currency}{" "}
-                          {totalPrice.toLocaleString("en-US", {
+                          {setOf4Price.toLocaleString("en-US", {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2,
                           })}

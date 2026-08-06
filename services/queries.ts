@@ -234,6 +234,10 @@ export const TC_LABELLED_ATTRIBUTES = [
   "oem_marking",
   "offers",
   "tyres_category",
+  /* Tyre pattern. Fetched as a DIRECT product field because
+     `custom_attributesV2` — Quick View's only other route to it — currently
+     returns an Internal server error and zero attributes for ordinary tyres. */
+  "pattern",
 ] as const;
 
 /**
@@ -318,6 +322,7 @@ export function tcQuickViewQuery(sku: string): string {
         stock_status
         url_key
         offers
+        pattern
         image { url label }
         media_gallery { url label }
         price_range {

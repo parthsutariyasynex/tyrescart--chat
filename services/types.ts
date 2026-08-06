@@ -274,6 +274,10 @@ export interface TcQuickViewProduct {
   stock_status: string | null;
   url_key: string | null;
   offers: number | null;
+  /** Tyre pattern as an option id (636 = "Ultra 5"). A DIRECT field: it is not
+   *  reachable via `custom_attributesV2`, which currently errors out entirely.
+   *  Resolve through {@link TcAttributeLabels}. */
+  pattern: number | null;
   image: { url: string | null; label: string | null } | null;
   media_gallery: { url: string | null; label: string | null }[] | null;
   price_range: {
@@ -500,3 +504,24 @@ export interface KleverQuoteHistory {
   changed_by: string | null;
   created_at: string | null;
 }
+
+/* ── Klever Vehicle Search ── */
+
+export interface KleverVehicleItem {
+  make_name: string | null;
+  model_name: string | null;
+  year_ranges: string | null;
+  front_width: number | string | null;
+  front_height: number | string | null;
+  front_rim: number | string | null;
+  rear_width: number | string | null;
+  rear_height: number | string | null;
+  rear_rim: number | string | null;
+  is_stock: boolean | number | string | null;
+}
+
+export interface KleverVehicleSearchResult {
+  status: boolean | number | string | null;
+  data: KleverVehicleItem[] | null;
+}
+

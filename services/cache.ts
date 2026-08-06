@@ -1378,9 +1378,10 @@ export function fetchTcProductsCached(
 export function fetchTcAttributeLabelsCached(
   maxAgeMs = TC_LABELS_TTL_MS,
 ): Promise<TcAttributeLabels> {
-  // `:v3` because adding `tyres_category` to TC_LABELLED_ATTRIBUTES requires
-  // clearing old cached maps that lacked option labels for tyres_category.
-  return getCachedQuery("tc:attributeLabels:v3", fetchTcAttributeLabelsGraphQL, {
+  // Bumped to `:v4` for `pattern`. The key carries a version because a map
+  // cached before an attribute was added lacks that attribute's options
+  // entirely, and would resolve every id to '' until the 24h TTL expired.
+  return getCachedQuery("tc:attributeLabels:v4", fetchTcAttributeLabelsGraphQL, {
     maxAgeMs,
     metaKey: "tcProducts:labelsLastSync",
   });

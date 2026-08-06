@@ -33,8 +33,44 @@ export interface FormattableProduct {
   offer?: string;
 }
 
-/** Units in a set when the row carries no precomputed Set of 4 total. */
-const SET_OF_4_UNITS = 4;
+/** Units in a set — a full set of tyres for one car. */
+export const SET_OF_4_UNITS = 4;
+
+/**
+ * How many units a customer actually PAYS for to drive away with four tyres,
+ * given the row's promotion. Used only to derive the Set of 4 figure — the
+ * per-unit Price column is untouched.
+ *
+ * Keyed off the `offer` LABEL because that is the only offer information the
+ * row carries (`offers` itself is an option id, resolved to text via
+ * `tcAttributeLabelsQuery`). Compared case- and whitespace-insensitively so a
+ * label edited in the Magento admin ("Buy 3 Get 1 free", double space) still
+ * matches rather than silently reverting to full price.
+ *
+ * Anything unrecognised — no offer, `NO_API_FIELD`, or a promo that is not a
+ * free-tyre deal ("Free Wheel Alignment", "Top Savings", "Price Slashed"…) —
+ * falls back to the full four units. That fallback is deliberate: a promo whose
+ * mechanics we cannot read must never quietly discount the displayed price.
+ *
+ * NOTE: of the 8 promotions configured on this store, only "Buy 3 Get 1 Free"
+ * exists today; "Buy 2 Get 2 Free" is handled in advance for when it is added.
+ *
+ * THIS IS THE SINGLE SOURCE OF TRUTH. It lives here rather than on the TC
+ * Products page so that every screen showing a Set of 4 figure — the TC table,
+ * CSV export, Quick View, the Check Supplier header, the clipboard string —
+ * computes it identically. Do not re-implement it anywhere.
+ */
+export function setOfFourPaidUnits(offerLabel: string): number {
+  const o = (offerLabel || "").trim().toLowerCase().replace(/\s+/g, " ");
+  if (o === "buy 2 get 2 free") return 2;
+  if (o === "buy 3 get 1 free") return 3;
+  return SET_OF_4_UNITS;
+}
+
+/** The Set of 4 total for a unit price under a given promotion. */
+export function setOfFourPrice(unitPrice: number, offerLabel?: string | null): number {
+  return unitPrice * setOfFourPaidUnits(offerLabel ?? "");
+}
 
 /**
  * Placeholders that mean "no offer" rather than an offer named "—".
@@ -72,7 +108,7 @@ export function buildRowString(item: FormattableProduct): string {
   const setTotal =
     typeof item.setOf4Price === 'number' && item.setOf4Price > 0
       ? item.setOf4Price
-      : unitPrice * SET_OF_4_UNITS;
+      : setOfFourPrice(unitPrice, item.offer);
 
   const offer = offerLabel(item.offer);
 
