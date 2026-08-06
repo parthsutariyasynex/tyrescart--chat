@@ -722,37 +722,43 @@ export default function SupplierProductsPage() {
      is the single final ordering. An explicit header click mid-sync also lifts
      it, so sorting on demand still works. The comparator is untouched. */
   const sortSignature = `${String(sortColumn)}|${sortAsc}`;
-  const sortAtSyncStart = useRef<string | null>(null);
-  // Captured during render rather than in an effect: an effect lands one render
-  // late, and that one unfrozen render is exactly the jump this prevents.
-  if (!fullSyncing) sortAtSyncStart.current = null;
-  else if (sortAtSyncStart.current === null) sortAtSyncStart.current = sortSignature;
 
-  const holdSortDuringSync = fullSyncing && sortAtSyncStart.current === sortSignature;
+  /* The snapshot is taken in a useMemo, not refs: reading or writing a ref
+     during render is what `react-hooks/refs` forbids, and an effect would land
+     one render late — that single unfrozen render is exactly the jump this
+     prevents. A memo is evaluated during the same render the sync starts.
 
-  const rankAtSyncStart = useRef<Map<number, number> | null>(null);
-  if (!fullSyncing) rankAtSyncStart.current = null;
+     Keyed on `fullSyncing` ALONE, deliberately: the snapshot must describe the
+     run's start, so the sort and the row set are read once and then left
+     untracked for the rest of the run. */
+  const syncSnapshot = useMemo(() => {
+    if (!fullSyncing) return null;
+    return {
+      signature: sortSignature,
+      // Ranked over ALL products, not the filtered subset, so changing a filter
+      // mid-sync still yields correctly ordered rows instead of dumping the
+      // newly matched ones at the end.
+      rank: new Map<number, number>(sortItems(allProducts).map((p, i) => [p.id, i])),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- snapshot the run's start, not every later change
+  }, [fullSyncing]);
+
+  // An explicit header click mid-sync changes the signature and lifts the hold,
+  // so sorting on demand still works.
+  const holdSortDuringSync = syncSnapshot !== null && syncSnapshot.signature === sortSignature;
 
   const filteredProducts = useMemo(() => {
-    if (!holdSortDuringSync) return sortItems(filteredProductsRaw);
-
-    // Ranked over ALL products, not the filtered subset, so changing a filter
-    // mid-sync still yields correctly ordered rows instead of dumping the newly
-    // matched ones at the end.
-    let rank = rankAtSyncStart.current;
-    if (!rank) {
-      rank = new Map(sortItems(allProducts).map((p, i) => [p.id, i]));
-      rankAtSyncStart.current = rank;
-    }
+    if (!syncSnapshot || !holdSortDuringSync) return sortItems(filteredProductsRaw);
+    const rank = syncSnapshot.rank;
 
     // Rows present when the run started hold their positions; rows the sync has
     // delivered since follow, in arrival order.
     const held: Product[] = [];
     const arrived: Product[] = [];
     for (const p of filteredProductsRaw) (rank.has(p.id) ? held : arrived).push(p);
-    held.sort((a, b) => rank!.get(a.id)! - rank!.get(b.id)!);
+    held.sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
     return arrived.length ? held.concat(arrived) : held;
-  }, [filteredProductsRaw, sortItems, holdSortDuringSync, allProducts]);
+  }, [filteredProductsRaw, sortItems, holdSortDuringSync, syncSnapshot]);
 
   // All three dropdown lists in ONE pass. Three separate useMemos each walked
   // the full 318k-row array and allocated its own intermediate — at this size

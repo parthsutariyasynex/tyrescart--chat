@@ -1,10 +1,15 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type { KleverQuoteHistory } from "@/services/types";
 import { XMarkIcon, ClockIcon, ChevronDownIcon, CheckIcon, ShoppingCartIcon, TrashIcon, PlusIcon, MinusIcon, DocumentTextIcon } from "@heroicons/react/24/outline";
 import { useCart } from "@/hooks/useCart";
+
+/** No external store to watch — `mounted` only flips via the server/client
+ *  snapshot pair, so the subscription is a no-op. Module scope keeps its
+ *  identity stable; a new closure each render would resubscribe endlessly. */
+const subscribeNever = () => () => {};
 
 const COUNTRY_OPTIONS = [
   { label: "--Please Select--", value: "" },
@@ -51,13 +56,13 @@ function CustomSelect({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [coords, setCoords] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
-  const [mounted, setMounted] = useState(false);
+  /* Client-only guard for the portal: `document` does not exist during SSR.
+     `useSyncExternalStore` returns the server snapshot (false) while rendering
+     and hydrating, then the client one (true) — same result as a
+     setState-on-mount effect, without the effect. */
+  const mounted = useSyncExternalStore(subscribeNever, () => true, () => false);
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   const updateCoords = () => {
     if (containerRef.current) {
@@ -186,7 +191,11 @@ export default function QuotationModal({
   onSave,
   history = [],
 }: QuotationModalProps) {
-  const [mounted, setMounted] = useState(false);
+  /* Client-only guard for the portal: `document` does not exist during SSR.
+     `useSyncExternalStore` returns the server snapshot (false) while rendering
+     and hydrating, then the client one (true) — same result as a
+     setState-on-mount effect, without the effect. */
+  const mounted = useSyncExternalStore(subscribeNever, () => true, () => false);
   const [isSlideOpen, setIsSlideOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -217,23 +226,24 @@ export default function QuotationModal({
   });
 
   useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
     if (isOpen) {
-      setIsClosing(false);
       const t = setTimeout(() => setIsSlideOpen(true), 30);
       return () => clearTimeout(t);
-    } else {
-      setIsSlideOpen(false);
     }
+    // Deferred a tick rather than set synchronously: a setState in an effect
+    // body cascades an extra render.
+    const t = setTimeout(() => setIsSlideOpen(false), 0);
+    return () => clearTimeout(t);
   }, [isOpen]);
 
   const handleClose = () => {
     setIsClosing(true);
     setIsSlideOpen(false);
-    closeTimer.current = setTimeout(onClose, 500);
+    closeTimer.current = setTimeout(() => {
+      onClose();
+      // Cleared at the end of the close, not on the next open — see ChatModal.
+      setIsClosing(false);
+    }, 500);
   };
 
   useEffect(() => {

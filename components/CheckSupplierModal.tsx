@@ -43,6 +43,29 @@ import { SPEC_ICON, splitSupplierSize } from "@/components/QuickViewModal";
 import { buildRowString } from "@/services/productFormatter";
 import CostHistoryModal from "@/components/CostHistoryModal";
 
+/**
+ * A supplier feed row as this modal consumes it.
+ *
+ * `SupplierProductItem` is the shared shape, but rows reaching here also carry
+ * aliases the UI reads — `pattern`/`name` for the tyre pattern (the shared type
+ * only has `product_name`), `qty`, and a plain `source`. They are optional
+ * because which one is present depends on the feed the row came from.
+ */
+type SupplierRow = SupplierProductItem & {
+  pattern?: string;
+  name?: string;
+  qty?: number | string;
+  source?: string;
+};
+
+
+/** Read a row column chosen at runtime. The sort field is a string set by a
+ *  header click, so it cannot be narrowed to `keyof SupplierRow`. */
+function readField(row: SupplierRow, field: string): unknown {
+  return (row as unknown as Record<string, unknown>)[field];
+}
+
+
 /** Quick View's icons, plus the three cells that only exist on this panel. */
 const ICON = {
   ...SPEC_ICON,
@@ -112,10 +135,10 @@ export default function CheckSupplierModal({
   product: CheckSupplierProduct;
   onCloseAction: () => void;
 }) {
-  const [rows, setRows] = useState<SupplierProductItem[] | null>(null);
+  const [rows, setRows] = useState<SupplierRow[] | null>(null);
   const [sortField, setSortField] = useState<string>("cost");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
-  const [costHistoryItem, setCostHistoryItem] = useState<any | null>(null);
+  const [costHistoryItem, setCostHistoryItem] = useState<SupplierRow | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   /* Mount hidden, slide up on the next tick, slide down before unmount. */
@@ -187,29 +210,32 @@ export default function CheckSupplierModal({
 
   const sorted = useMemo(() => {
     if (!rows) return [];
-    return [...rows].sort((a: any, b: any) => {
-      let aVal: any = a[sortField];
-      let bVal: any = b[sortField];
+    const dir = sortOrder === "asc" ? 1 : -1;
+    // Same code-unit ordering the `<` / `>` comparison gave — NOT localeCompare,
+    // which collates accents and case differently.
+    const cmp = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
+    const numeric = sortField === "cost" || sortField === "qty"
+      || sortField === "year" || sortField === "fitting_price";
+    return [...rows].sort((a, b) => {
       if (sortField === "source") {
-        aVal = a.source_name || a.product_source || a.source || "";
-        bVal = b.source_name || b.product_source || b.source || "";
-      } else if (sortField === "cost" || sortField === "qty" || sortField === "year" || sortField === "fitting_price") {
-        aVal = Number(aVal) || 0;
-        bVal = Number(bVal) || 0;
-      } else if (sortField === "runflat") {
-        aVal = aVal ? 1 : 0;
-        bVal = bVal ? 1 : 0;
-      } else {
-        aVal = String(aVal ?? "").toLowerCase();
-        bVal = String(bVal ?? "").toLowerCase();
+        const pick = (r: SupplierRow) =>
+          String(readField(r, "source_name") || readField(r, "product_source") || readField(r, "source") || "");
+        return dir * cmp(pick(a), pick(b));
       }
-      if (aVal < bVal) return sortOrder === "asc" ? -1 : 1;
-      if (aVal > bVal) return sortOrder === "asc" ? 1 : -1;
-      return 0;
+      if (numeric) {
+        return dir * ((Number(readField(a, sortField)) || 0) - (Number(readField(b, sortField)) || 0));
+      }
+      if (sortField === "runflat") {
+        return dir * ((readField(a, sortField) ? 1 : 0) - (readField(b, sortField) ? 1 : 0));
+      }
+      return dir * cmp(
+        String(readField(a, sortField) ?? "").toLowerCase(),
+        String(readField(b, sortField) ?? "").toLowerCase(),
+      );
     });
   }, [rows, sortField, sortOrder]);
 
-  const copyRowData = (item: any) => {
+  const copyRowData = (item: SupplierRow) => {
     const rowString = buildRowString({
       brand: item.brand,
       pattern: item.pattern || item.name,
@@ -217,7 +243,9 @@ export default function CheckSupplierModal({
       sizeFull: item.size,
       year: item.year,
       country: item.country,
-      qty: item.qty,
+      // Coerced: the feed sends qty as a string on some rows, and the formatter
+      // takes a number. Under `any` this mismatch passed through unnoticed.
+      qty: item.qty == null ? null : Number(item.qty) || 0,
       cost: Number(item.cost) || 0,
     });
     navigator.clipboard.writeText(rowString);
@@ -367,7 +395,7 @@ export default function CheckSupplierModal({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-sans">
-                    {sorted.map((r: any, i: number) => {
+                    {sorted.map((r, i) => {
                       const runflatVal = runflatText(r.runflat);
 
                       return (

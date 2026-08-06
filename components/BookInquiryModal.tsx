@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import {
   XMarkIcon,
@@ -25,6 +25,11 @@ import {
 } from "@/services/inquiryStorage";
 import { createCrmBookingGraphQL, fetchCrmCustomerByPhoneGraphQL, fetchCrmRecentBookingsGraphQL } from "@/services/graphql";
 import type { CrmCustomer, CrmRecentBooking } from "@/services/types";
+
+/** No external store to watch — `mounted` only ever flips via the server/client
+ *  snapshot pair, so the subscription is a no-op. Module scope keeps its
+ *  identity stable; a new closure each render would resubscribe endlessly. */
+const subscribeNever = () => () => {};
 
 interface BookInquiryModalProps {
   isOpen: boolean;
@@ -102,15 +107,19 @@ export default function BookInquiryModal({
     let raf1: number;
     let raf2: number;
     if (viewingInquiry) {
-      setViewingInquiryClosing(false);
       raf1 = requestAnimationFrame(() => {
         raf2 = requestAnimationFrame(() => {
           setViewingInquiryAnimated(true);
         });
       });
     } else {
-      setViewingInquiryAnimated(false);
-      setViewingInquiryClosing(false);
+      // Deferred into a frame the cleanup already cancels: a synchronous
+      // setState in an effect body cascades an extra render, and these only
+      // reset state for a detail modal that is no longer on screen.
+      raf1 = requestAnimationFrame(() => {
+        setViewingInquiryAnimated(false);
+        setViewingInquiryClosing(false);
+      });
     }
     return () => {
       cancelAnimationFrame(raf1);
@@ -131,14 +140,15 @@ export default function BookInquiryModal({
     let raf1: number;
     let raf2: number;
     if (isOpen) {
-      setIsClosing(false);
       raf1 = requestAnimationFrame(() => {
         raf2 = requestAnimationFrame(() => {
           setIsAnimatedOpen(true);
         });
       });
     } else {
-      setIsAnimatedOpen(false);
+      raf1 = requestAnimationFrame(() => {
+        setIsAnimatedOpen(false);
+      });
     }
     return () => {
       cancelAnimationFrame(raf1);
@@ -190,6 +200,11 @@ export default function BookInquiryModal({
     setIsClosing(true);
     setTimeout(() => {
       onClose();
+      // Cleared here, at the end of the 500ms animation, rather than on the
+      // next open. `isClosing` stays true while the modal animates out (isOpen
+      // is still true until onClose lands), and something must reset it or the
+      // reopened modal would never pass `isAnimatedOpen && !isClosing`.
+      setIsClosing(false);
     }, 500);
   };
 
@@ -546,10 +561,11 @@ export default function BookInquiryModal({
     return filteredInquiries.slice(start, start + pageSize);
   }, [filteredInquiries, currentPage, pageSize]);
 
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  /* Client-only guard for the portal: `document` does not exist while
+     rendering on the server. `useSyncExternalStore` gives the server snapshot
+     (false) during SSR and hydration, then the client one (true) — the same
+     result as a setState-on-mount effect, without the effect. */
+  const mounted = useSyncExternalStore(subscribeNever, () => true, () => false);
 
   if (!isOpen && !isClosing) return null;
   if (!mounted) return null;

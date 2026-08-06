@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import {
   XMarkIcon,
@@ -44,6 +44,11 @@ import {
   fetchTcQuickViewMatchesCached,
 } from "@/services/cache";
 import type { TcAttributeItem, TcQuickViewProduct } from "@/services/types";
+
+/** No external store to watch — `mounted` only flips via the server/client
+ *  snapshot pair, so the subscription is a no-op. Module scope keeps its
+ *  identity stable; a new closure each render would resubscribe endlessly. */
+const subscribeNever = () => () => {};
 
 /** Case/whitespace-insensitive compare. Everything else must be identical. */
 function sameValue(a: string, b: string): boolean {
@@ -148,7 +153,9 @@ export default function QuickViewModal({
 }: QuickViewModalProps) {
   const [selectedQty, setSelectedQty] = useState<number>(4);
   const [isQtyOpen, setIsQtyOpen] = useState<boolean>(false);
-  const [selectedImgIndex, setSelectedImgIndex] = useState<number>(0);
+  /** Thumbnail choice, tagged with the product it was made for — see the
+   *  derivation further down, next to where `detail` is available. */
+  const [imgPick, setImgPick] = useState<{ key: string; index: number }>({ key: "", index: 0 });
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [isClosing, setIsClosing] = useState<boolean>(false);
   /** undefined = still loading, null = no storefront product for this sku. */
@@ -265,9 +272,8 @@ export default function QuickViewModal({
   const [isAnimatedOpen, setIsAnimatedOpen] = useState<boolean>(false);
 
   useEffect(() => {
-    let raf1: number;
     let raf2: number;
-    raf1 = requestAnimationFrame(() => {
+    const raf1 = requestAnimationFrame(() => {
       raf2 = requestAnimationFrame(() => {
         setIsAnimatedOpen(true);
       });
@@ -341,9 +347,13 @@ export default function QuickViewModal({
   const splitPayment = readAttr(attrs, "tabby_payment") === "1";
   const inStock = detail?.stock_status === "IN_STOCK";
 
-  useEffect(() => {
-    setSelectedImgIndex(0);
-  }, [product.itemCode, detail]);
+  /* Reset-on-product-change, derived rather than done in an effect: an effect
+     runs AFTER the render, so the new product would paint once with the old
+     product's thumbnail index before being corrected. Tagging the pick with
+     the product it belongs to makes a stale pick simply not apply. */
+  const imgKey = `${product.itemCode ?? ""}|${detail?.sku ?? ""}`;
+  const selectedImgIndex = imgPick.key === imgKey ? imgPick.index : 0;
+  const setSelectedImgIndex = (index: number) => setImgPick({ key: imgKey, index });
 
   const gallery = useMemo(() => {
     const rawUrls = [
@@ -405,10 +415,11 @@ export default function QuickViewModal({
     { label: "SKU", value: detail?.sku || product.itemCode || UNKNOWN },
   ];
 
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  /* Client-only guard for the portal: `document` does not exist during SSR.
+     `useSyncExternalStore` returns the server snapshot (false) while rendering
+     and hydrating, then the client one (true) — same result as a
+     setState-on-mount effect, without the effect. */
+  const mounted = useSyncExternalStore(subscribeNever, () => true, () => false);
 
   if (!mounted) return null;
 

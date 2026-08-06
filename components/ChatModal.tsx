@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import {
   ChatBubbleLeftRightIcon,
@@ -14,6 +14,11 @@ import type { TyresChatItem } from "@/services/types";
 import { useToast } from "@/components/ToastProvider";
 import { ChatGridSkeleton } from "@/components/Skeletons";
 import Masonry from "react-masonry-css";
+
+/** No external store to watch — `mounted` only flips via the server/client
+ *  snapshot pair, so the subscription is a no-op. Module scope keeps its
+ *  identity stable; a new closure each render would resubscribe endlessly. */
+const subscribeNever = () => () => {};
 
 interface ChatModalProps {
   isOpen: boolean;
@@ -45,24 +50,25 @@ export default function ChatModal({ isOpen, onClose }: ChatModalProps) {
   // Animation states matching BookInquiryModal
   const [isAnimatedOpen, setIsAnimatedOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  /* Client-only guard for the portal: `document` does not exist during SSR.
+     `useSyncExternalStore` returns the server snapshot (false) while rendering
+     and hydrating, then the client one (true) — same result as a
+     setState-on-mount effect, without the effect. */
+  const mounted = useSyncExternalStore(subscribeNever, () => true, () => false);
 
   useEffect(() => {
     let raf1: number;
     let raf2: number;
     if (isOpen) {
-      setIsClosing(false);
       raf1 = requestAnimationFrame(() => {
         raf2 = requestAnimationFrame(() => {
           setIsAnimatedOpen(true);
         });
       });
     } else {
-      setIsAnimatedOpen(false);
+      raf1 = requestAnimationFrame(() => {
+        setIsAnimatedOpen(false);
+      });
     }
     return () => {
       cancelAnimationFrame(raf1);
@@ -74,6 +80,10 @@ export default function ChatModal({ isOpen, onClose }: ChatModalProps) {
     setIsClosing(true);
     setTimeout(() => {
       onClose();
+      // Reset where the close ends rather than on the next open: `isClosing`
+      // stays true through the animation (isOpen is still true until onClose
+      // lands), and something has to clear it or a reopen never becomes visible.
+      setIsClosing(false);
     }, 500);
   };
 
@@ -113,8 +123,13 @@ export default function ChatModal({ isOpen, onClose }: ChatModalProps) {
     if (!isOpen) return;
 
     let isMounted = true;
-    setLoading(true);
-    setError(null);
+    // Deferred a tick: a synchronous setState in an effect body cascades an
+    // extra render. Cleared by the cleanup if the effect re-runs first.
+    const spinner = setTimeout(() => {
+      if (!isMounted) return;
+      setLoading(true);
+      setError(null);
+    }, 0);
 
     getTyresChatCached(
       { pageSize: 200 },
@@ -155,6 +170,7 @@ export default function ChatModal({ isOpen, onClose }: ChatModalProps) {
 
     return () => {
       isMounted = false;
+      clearTimeout(spinner);
     };
   }, [isOpen, mapApiItems]);
 
