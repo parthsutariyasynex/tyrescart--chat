@@ -338,12 +338,12 @@ export default function TyreGuideChatPage() {
                         </div>
 
                         {/* Title */}
-                        <h3 className="text-sm font-bold text-gray-900 mb-1 leading-tight break-words [overflow-wrap:anywhere]">
+                        <h3 className="text-sm font-bold text-gray-900 mb-1 leading-tight [overflow-wrap:anywhere]">
                           {item.title}
                         </h3>
 
                         {/* Description */}
-                        <p className="text-xs text-gray-500 leading-snug break-words [overflow-wrap:anywhere] whitespace-normal font-normal">
+                        <p className="text-xs text-gray-500 leading-snug [overflow-wrap:anywhere] whitespace-normal font-normal">
                           {item.description}
                         </p>
                       </div>

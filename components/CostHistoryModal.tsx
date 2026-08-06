@@ -42,6 +42,8 @@ export interface CostHistoryProduct {
   source?: string;
   cost: number;
   productType?: string;
+  country?: string;
+  year?: string | number;
 }
 
 const money = (n: number) =>
@@ -222,6 +224,16 @@ export default function CostHistoryModal({
               {(product.sizeFull || product.size) && (
                 <span className="shrink-0 px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-mono font-semibold border border-slate-200/80">
                   {product.sizeFull || product.size}
+                </span>
+              )}
+              {product.country && (
+                <span className="shrink-0 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200/80 text-[10px] font-bold uppercase tracking-wider">
+                  {product.country}
+                </span>
+              )}
+              {product.year && Number(product.year) > 0 && (
+                <span className="shrink-0 px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200/80 text-[10px] font-bold uppercase tracking-wider">
+                  {product.year}
                 </span>
               )}
               {product.pattern && (

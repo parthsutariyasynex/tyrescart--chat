@@ -230,12 +230,12 @@ export default function Filter({
   };
 
   return (
-    <section className="shrink-0 bg-white border border-slate-200/90 rounded-xl p-4 shadow-2xs relative z-30">
-      <div className="flex flex-wrap items-end gap-2.5">
+    <section className="shrink-0 bg-white border border-slate-200/90 rounded-xl p-3 sm:p-4 shadow-2xs relative z-30">
+      <div className="flex flex-wrap items-end gap-2 sm:gap-2.5">
         {/* Supplier (Optional) */}
         {showSupplierFilter && setSupplierFilter && (
-          <div ref={supplierRef} className="flex flex-col w-[110px] shrink-0 relative">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+          <div ref={supplierRef} className="flex flex-col w-[95px] sm:w-[105px] xl:w-[115px] shrink-0 relative">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
               Supplier
             </label>
             <button
@@ -246,11 +246,11 @@ export default function Filter({
                 setIsBrandOpen(false);
                 setIsOfferOpen(false);
               }}
-              className="h-10 bg-white border border-slate-200 rounded-lg px-3 flex items-center justify-between text-sm font-medium text-slate-700 hover:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs transition-all cursor-pointer"
+              className="h-10 bg-white border border-slate-200 rounded-lg px-2.5 sm:px-3 flex items-center justify-between text-xs sm:text-sm font-medium text-slate-700 hover:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs transition-all cursor-pointer"
             >
               <span className="truncate">{supplierFilter === "ALL" ? "All" : supplierFilter}</span>
               <svg
-                className={`w-4 h-4 text-slate-400 ml-2 shrink-0 transition-transform ${isSupplierOpen ? "rotate-180 text-emerald-600" : ""
+                className={`w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-400 ml-1.5 shrink-0 transition-transform ${isSupplierOpen ? "rotate-180 text-emerald-600" : ""
                   }`}
                 fill="none"
                 stroke="currentColor"
@@ -301,8 +301,8 @@ export default function Filter({
         )}
 
         {/* Category */}
-        <div ref={categoryRef} className="flex flex-col w-[120px] shrink-0 relative">
-          <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+        <div ref={categoryRef} className="flex flex-col w-[95px] sm:w-[110px] xl:w-[120px] shrink-0 relative">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
             Category
           </label>
           <button
@@ -313,11 +313,11 @@ export default function Filter({
               setIsBrandOpen(false);
               setIsOfferOpen(false);
             }}
-            className="h-10 bg-white border border-slate-200 rounded-lg px-3 flex items-center justify-between text-sm font-medium text-slate-700 hover:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs transition-all cursor-pointer"
+            className="h-10 bg-white border border-slate-200 rounded-lg px-2.5 sm:px-3 flex items-center justify-between text-xs sm:text-sm font-medium text-slate-700 hover:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs transition-all cursor-pointer"
           >
             <span className="truncate">{categoryFilter === "ALL" ? "All" : categoryFilter}</span>
             <svg
-              className={`w-4 h-4 text-slate-400 ml-2 shrink-0 transition-transform ${isCategoryOpen ? "rotate-180 text-emerald-600" : ""
+              className={`w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-400 ml-1.5 shrink-0 transition-transform ${isCategoryOpen ? "rotate-180 text-emerald-600" : ""
                 }`}
               fill="none"
               stroke="currentColor"
@@ -367,21 +367,21 @@ export default function Filter({
         </div>
 
         {/* Brand */}
-        <div ref={brandRef} className="relative flex flex-col w-[150px] shrink-0">
-          <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+        <div ref={brandRef} className="relative flex flex-col w-[110px] sm:w-[130px] xl:w-[145px] shrink-0">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
             Brand
           </label>
           <div
             onClick={() => brandInputRef.current?.focus()}
-            className="h-10 w-full bg-white border border-slate-200 rounded-lg pl-2.5 pr-2 flex items-center focus-within:ring-2 focus-within:ring-emerald-500/20 focus-within:border-emerald-500 shadow-2xs transition-all relative cursor-text overflow-hidden"
+            className="h-10 w-full bg-white border border-slate-200 rounded-lg pl-2 pr-1.5 flex items-center focus-within:ring-2 focus-within:ring-emerald-500/20 focus-within:border-emerald-500 shadow-2xs transition-all relative cursor-text overflow-hidden"
           >
             <div
-              className="flex-1 min-w-0 flex items-center gap-1.5 overflow-x-auto py-0.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+              className="flex-1 min-w-0 flex items-center gap-1 overflow-x-auto py-0.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
             >
               {completedBrands.map((b) => (
                 <span
                   key={b}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs shrink-0 whitespace-nowrap"
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] sm:text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs shrink-0 whitespace-nowrap"
                 >
                   <span>{b}</span>
                   <button
@@ -421,7 +421,7 @@ export default function Filter({
                   }
                 }}
                 placeholder={completedBrands.length > 0 ? "Add..." : "Brand"}
-                className="flex-1 min-w-[60px] bg-transparent text-sm text-slate-900 placeholder-slate-400 focus:outline-none border-none p-0 h-7 whitespace-nowrap"
+                className="flex-1 min-w-[50px] bg-transparent text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none border-none p-0 h-7 whitespace-nowrap"
               />
             </div>
 
@@ -507,13 +507,9 @@ export default function Filter({
           )}
         </div>
 
-        {/* Search — the only flex-grow field, so it absorbs the row's slack.
-            Widening Size therefore narrows Search by exactly that much. Its
-            min-width is the wrap trigger: the row breaks the moment Search
-            can no longer hold it, so this floor drops alongside Size's gain to
-            keep the existing single-line range. */}
-        <div className="flex flex-col flex-1 min-w-[120px]">
-          <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+        {/* Search */}
+        <div className="flex flex-col flex-1 min-w-[120px] sm:min-w-[140px]">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
             Search
           </label>
           <div className="relative">
@@ -527,15 +523,14 @@ export default function Filter({
                 onSearch();
               }}
               placeholder="Query..."
-              className="search-field h-10 w-full pl-9 pr-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
+              className="search-field h-10 w-full pl-9 pr-3 bg-white border border-slate-200 rounded-lg text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
             />
           </div>
         </div>
 
-        {/* Size — full sizes ("215/55 R18 99H") need more room than Search's
-            short queries, so it takes 60px from Search. */}
-        <div className="flex flex-col w-[300px] shrink-0">
-          <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+        {/* Size */}
+        <div className="flex flex-col flex-1 min-w-[120px] sm:min-w-[140px]">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
             Size
           </label>
           <input
@@ -546,13 +541,13 @@ export default function Filter({
               onSearch();
             }}
             placeholder="Size..."
-            className="h-10 w-full bg-white border border-slate-200 rounded-lg px-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
+            className="h-10 w-full bg-white border border-slate-200 rounded-lg px-3 text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
           />
         </div>
 
         {/* Year */}
-        <div className="flex flex-col w-[85px] shrink-0">
-          <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+        <div className="flex flex-col w-[65px] sm:w-[75px] xl:w-[85px] shrink-0">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
             Year
           </label>
           <input
@@ -563,13 +558,13 @@ export default function Filter({
               onSearch();
             }}
             placeholder="Year..."
-            className="h-10 w-full bg-white border border-slate-200 rounded-lg px-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
+            className="h-10 w-full bg-white border border-slate-200 rounded-lg px-2.5 sm:px-3 text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
           />
         </div>
 
         {/* Qty */}
-        <div className="flex flex-col w-[75px] shrink-0">
-          <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+        <div className="flex flex-col w-[60px] sm:w-[70px] xl:w-[75px] shrink-0">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
             Qty
           </label>
           <input
@@ -580,16 +575,16 @@ export default function Filter({
               onSearch();
             }}
             placeholder="Qty..."
-            className="h-10 w-full bg-white border border-slate-200 rounded-lg px-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
+            className="h-10 w-full bg-white border border-slate-200 rounded-lg px-2 sm:px-3 text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
           />
         </div>
 
         {/* Price Range */}
-        <div className="flex flex-col w-[240px] shrink-0">
-          <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+        <div className="flex flex-col w-full sm:w-[170px] lg:w-[190px] xl:w-[220px] shrink-0">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
             Price Range
           </label>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1 sm:gap-1.5">
             <input
               type="number"
               inputMode="decimal"
@@ -600,7 +595,7 @@ export default function Filter({
                 onSearch();
               }}
               placeholder="Min"
-              className="h-10 w-full min-w-0 bg-white border border-slate-200 rounded-lg px-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
+              className="h-10 w-full min-w-0 bg-white border border-slate-200 rounded-lg px-2 sm:px-2.5 text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
             />
             <span className="text-slate-400 text-xs font-semibold shrink-0">-</span>
             <input
@@ -613,15 +608,15 @@ export default function Filter({
                 onSearch();
               }}
               placeholder="Max"
-              className="h-10 w-full min-w-0 bg-white border border-slate-200 rounded-lg px-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
+              className="h-10 w-full min-w-0 bg-white border border-slate-200 rounded-lg px-2 sm:px-2.5 text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
             />
           </div>
         </div>
 
         {/* Offers Dropdown (Optional) */}
         {showOfferFilter && setOfferFilter && (
-          <div ref={offerRef} className="flex flex-col w-[170px] shrink-0 relative">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+          <div ref={offerRef} className="flex flex-col w-full sm:w-[140px] lg:w-[160px] shrink-0 relative">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
               Offers
             </label>
             <button
@@ -632,9 +627,9 @@ export default function Filter({
                 setIsCategoryOpen(false);
                 setIsBrandOpen(false);
               }}
-              className="h-10 bg-white border border-slate-200 rounded-lg px-3 flex items-center justify-between text-sm font-medium text-slate-700 hover:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs transition-all cursor-pointer"
+              className="h-10 bg-white border border-slate-200 rounded-lg px-2.5 sm:px-3 flex items-center justify-between text-xs sm:text-sm font-medium text-slate-700 hover:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs transition-all cursor-pointer"
             >
-              <div className="flex items-center gap-2 truncate">
+              <div className="flex items-center gap-1.5 sm:gap-2 truncate">
                 {offerFilter !== "ALL" && (
                   <span
                     className={`w-2.5 h-2.5 rounded-full shrink-0 ${getOfferBadgeStyle(offerFilter, offerOptions).dot
@@ -646,7 +641,7 @@ export default function Filter({
                 </span>
               </div>
               <ChevronDownIcon
-                className={`w-4 h-4 text-slate-400 ml-2 shrink-0 transition-transform ${isOfferOpen ? "rotate-180 text-emerald-600" : ""
+                className={`w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-400 ml-1.5 shrink-0 transition-transform ${isOfferOpen ? "rotate-180 text-emerald-600" : ""
                   }`}
               />
             </button>
@@ -701,25 +696,28 @@ export default function Filter({
           </div>
         )}
 
-        {/* Search button */}
-        <button
-          type="button"
-          onClick={onSearch}
-          title="Search"
-          className="h-10 w-10 flex items-center justify-center bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-xs transition-colors shrink-0 cursor-pointer"
-        >
-          <MagnifyingGlassIcon className="w-4 h-4" />
-        </button>
+        {/* Action Buttons */}
+        <div className="flex items-center gap-1.5 shrink-0 self-end ml-auto sm:ml-0">
+          {/* Search button */}
+          <button
+            type="button"
+            onClick={onSearch}
+            title="Search"
+            className="h-10 w-10 flex items-center justify-center bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-xs transition-colors shrink-0 cursor-pointer"
+          >
+            <MagnifyingGlassIcon className="w-4 h-4" />
+          </button>
 
-        {/* Reset button */}
-        <button
-          type="button"
-          onClick={onReset}
-          title="Reset filters"
-          className="h-10 w-10 flex items-center justify-center bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-emerald-600 rounded-lg shadow-2xs transition-colors shrink-0 cursor-pointer"
-        >
-          <ArrowPathIcon className="w-4 h-4" />
-        </button>
+          {/* Reset button */}
+          <button
+            type="button"
+            onClick={onReset}
+            title="Reset filters"
+            className="h-10 w-10 flex items-center justify-center bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-emerald-600 rounded-lg shadow-2xs transition-colors shrink-0 cursor-pointer"
+          >
+            <ArrowPathIcon className="w-4 h-4" />
+          </button>
+        </div>
       </div>
     </section>
   );

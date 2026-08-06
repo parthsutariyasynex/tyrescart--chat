@@ -32,6 +32,7 @@ import QuickViewModal from '@/components/QuickViewModal';
 import QuotationModal from '@/components/QuotationModal';
 import Filter from '@/components/Filter';
 import ChatModal from "@/components/ChatModal";
+import TyresGuideModal from "@/components/TyresGuideModal";
 import ProductTableRow from "@/components/ProductTableRow";
 import Pagination from "@/components/Pagination";
 import ToastContainer from "@/components/ToastContainer";
@@ -358,11 +359,8 @@ export default function SupplierProductsPage() {
 
   const [pageSize, setPageSize] = useState(15);
   const [currentPage, setCurrentPage] = useState(1);
-  // Default sort is Year, descending (latest year first) — the array itself
-  // already arrives in this order straight off the `year` index (see the
-  // initial-load effect below), so this default just keeps the DISPLAYED
-  // order matching what was actually loaded rather than re-sorting it by date.
-  const { sortColumn, sortAsc, handleSort, sortItems } = useProductSorting<Product>('year', false);
+  // Default sort is Date, descending (latest date first)
+  const { sortColumn, sortAsc, handleSort, sortItems } = useProductSorting<Product>('date', false);
 
   /** Product whose Cost History modal is open, or null. */
   const [costHistoryItem, setCostHistoryItem] = useState<Product | null>(null);
@@ -370,6 +368,7 @@ export default function SupplierProductsPage() {
   const [quickViewItem, setQuickViewItem] = useState<Product | null>(null);
   const [isQuotationModalOpen, setIsQuotationModalOpen] = useState(false);
   const [isChatModalOpen, setIsChatModalOpen] = useState(false);
+  const [isTyresGuideModalOpen, setIsTyresGuideModalOpen] = useState(false);
   const [density, setDensity] = useState<TableDensity>('comfortable');
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -1005,6 +1004,7 @@ export default function SupplierProductsPage() {
               onCreateQuote={() => setIsQuotationModalOpen(true)}
               onExportCSV={exportCSV}
               onChat={() => setIsChatModalOpen(true)}
+              onTyresGuide={() => setIsTyresGuideModalOpen(true)}
             />
           }
         />
@@ -1335,6 +1335,8 @@ export default function SupplierProductsPage() {
             source: costHistoryItem.source,
             cost: costHistoryItem.cost,
             productType: costHistoryItem.productType,
+            country: costHistoryItem.country,
+            year: costHistoryItem.year,
           }}
           onCloseAction={() => setCostHistoryItem(null)}
         />
@@ -1369,6 +1371,12 @@ export default function SupplierProductsPage() {
       <ChatModal
         isOpen={isChatModalOpen}
         onClose={() => setIsChatModalOpen(false)}
+      />
+
+      {/* Tyres Guide Modal */}
+      <TyresGuideModal
+        isOpen={isTyresGuideModalOpen}
+        onClose={() => setIsTyresGuideModalOpen(false)}
       />
 
       {/* Toast Notification Container */}

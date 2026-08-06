@@ -29,7 +29,7 @@ const ROUTE_MODULES: { prefix: string; module: SyncModule }[] = [
   { prefix: "/products", module: "products" },
   { prefix: "/dashboard/orders", module: "orders" },
   { prefix: "/dashboard/customers", module: "customers" },
-  { prefix: "/tyre_guide/chat", module: "tyresChat" },
+  { prefix: "/tyreschat", module: "tyresChat" },
   { prefix: "/dashboard", module: "products" },
 ];
 

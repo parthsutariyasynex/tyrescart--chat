@@ -35,6 +35,7 @@ import Header from "@/components/Header";
 import HeaderActions from "@/components/HeaderActions";
 import QuotationModal from "@/components/QuotationModal";
 import ChatModal from "@/components/ChatModal";
+import TyresGuideModal from "@/components/TyresGuideModal";
 import DashboardCard from "@/components/DashboardCard";
 import DashboardStatCard, { type StatTone } from "@/components/DashboardStatCard";
 import DashboardTable, { StatusBadge, type DashboardColumn } from "@/components/DashboardTable";
@@ -91,6 +92,7 @@ export default function DashboardPage() {
   const isOnline = useOnlineStatus();
   const [isQuotationModalOpen, setIsQuotationModalOpen] = useState(false);
   const [isChatModalOpen, setIsChatModalOpen] = useState(false);
+  const [isTyresGuideModalOpen, setIsTyresGuideModalOpen] = useState(false);
 
   /* ── Live data ── */
   const [real, setReal] = useState<RealMetrics | null>(null);
@@ -256,6 +258,7 @@ export default function DashboardPage() {
             <HeaderActions
               onCreateQuote={() => setIsQuotationModalOpen(true)}
               onChat={() => setIsChatModalOpen(true)}
+              onTyresGuide={() => setIsTyresGuideModalOpen(true)}
             />
           }
         >
@@ -475,6 +478,7 @@ export default function DashboardPage() {
 
       <QuotationModal isOpen={isQuotationModalOpen} onClose={() => setIsQuotationModalOpen(false)} />
       <ChatModal isOpen={isChatModalOpen} onClose={() => setIsChatModalOpen(false)} />
+      <TyresGuideModal isOpen={isTyresGuideModalOpen} onClose={() => setIsTyresGuideModalOpen(false)} />
     </div>
   );
 }

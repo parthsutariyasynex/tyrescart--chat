@@ -55,7 +55,7 @@ type ActionKey = 'badge' | 'copyResult' | 'bookInquiry' | 'createQuote' | 'chat'
 const PAGE_ACTIONS: { prefix: string; show: readonly ActionKey[] }[] = [
   { prefix: '/supplier-products', show: ['badge', 'copyResult', 'bookInquiry', 'createQuote', 'chat', 'tyresGuide', 'export'] },
   { prefix: '/tc-products', show: ['badge', 'copyResult', 'bookInquiry', 'createQuote', 'chat', 'tyresGuide', 'export'] },
-  { prefix: '/tyre_guide/chat', show: ['badge', 'bookInquiry', 'copyResult', 'createQuote'] },
+  { prefix: '/tyreschat', show: ['badge', 'bookInquiry', 'copyResult', 'createQuote'] },
   { prefix: '/dashboard', show: ['bookInquiry', 'createQuote', 'chat', 'tyresGuide'] },
   // Keep last: "/products" is a prefix of nothing else here, but ordering
   // makes the intent explicit if a "/products-something" route ever appears.
@@ -147,7 +147,7 @@ export default function HeaderActions({
           </button>
         ) : (
           <Link
-            href="/tyre_guide/chat"
+            href="/tyreschat"
             title="Chat Shortcuts"
             aria-label="Chat Shortcuts"
             className="h-9 flex items-center gap-1.5 px-2.5 2xl:px-3.5 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-xs hover:shadow-sky-600/20 transition-all active:scale-[0.98] shrink-0 cursor-pointer"

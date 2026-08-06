@@ -946,7 +946,7 @@ export default function BookInquiryModal({
                           handleSearchCustomer(searchQuery);
                         }
                       }}
-                      placeholder="Search name, phone, plate, ID..."
+                      placeholder="Search Phone Number..."
                       className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all font-medium"
                     />
                   </div>
@@ -1270,8 +1270,13 @@ export default function BookInquiryModal({
                     </div>
                     <div>
                       <span className="text-slate-500 text-[11px] block">Plate</span>
+                      {/* Plate chip: slate text on amber, not amber-on-amber.
+                          `text-slate-900` was already winning over a
+                          `text-amber-900` that sat alongside it — verified in
+                          the browser, slate wins whatever the class order — so
+                          the dead class is dropped and the badge is unchanged. */}
                       {viewingInquiry.vehiclePlateNumber ? (
-                        <span className="font-mono font-bold text-slate-900 bg-amber-100/90 text-amber-900 px-2 py-0.5 rounded border border-amber-300/80 inline-block text-[11px]">
+                        <span className="font-mono font-bold text-slate-900 bg-amber-100/90 px-2 py-0.5 rounded border border-amber-300/80 inline-block text-[11px]">
                           {viewingInquiry.vehiclePlateNumber}
                         </span>
                       ) : (

@@ -35,7 +35,7 @@ import { markManualSync } from "@/services/costHistory";
 const ROUTE_TASK: { prefix: string; task: SyncTaskId }[] = [
   { prefix: "/supplier-products", task: SYNC_TASK.supplierProducts },
   { prefix: "/tc-products", task: SYNC_TASK.tcProducts },
-  { prefix: "/tyre_guide/chat", task: SYNC_TASK.tyresChat },
+  { prefix: "/tyreschat", task: SYNC_TASK.tyresChat },
   // Keep last: "/products" is a prefix of nothing else here, but ordering makes
   // the intent explicit if a "/products-something" route ever appears.
   { prefix: "/products", task: SYNC_TASK.products },

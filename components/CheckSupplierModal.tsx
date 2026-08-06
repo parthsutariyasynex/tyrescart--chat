@@ -29,6 +29,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   XMarkIcon,
+  MagnifyingGlassIcon,
   TruckIcon,
   InformationCircleIcon,
   ArrowsPointingOutIcon,
@@ -38,6 +39,7 @@ import {
   ClipboardDocumentIcon,
 } from "@heroicons/react/24/outline";
 import { fetchSupplierProductsGraphQL } from "@/services/graphql";
+import { searchWithAspectRimFallback } from "@/services/searchFilter";
 import type { SupplierProductItem } from "@/services/types";
 import { SPEC_ICON, splitSupplierSize } from "@/components/QuickViewModal";
 import { buildRowString } from "@/services/productFormatter";
@@ -66,6 +68,32 @@ function readField(row: SupplierRow, field: string): unknown {
 }
 
 
+/**
+ * Columns the tokenized search reads — the same `searchWithAspectRimFallback`
+ * the product pages use, so comma-separated OR clauses ("kumho, hankook") and
+ * the width-omitted size fallback ("55R16") behave identically here.
+ */
+const SEARCH_FIELDS = [
+  "brand", "product_name", "pattern", "name", "sku",
+  "source_name", "product_source", "source", "country", "size",
+] as const;
+
+/** Numeric tokens go to the size only — same rule as the pages. */
+const SEARCH_SIZE_FIELDS = ["size"] as const;
+
+/**
+ * Plain-substring pass, UNIONed with the tokenized one above.
+ *
+ * Needed because the tokenizer routes any all-digit token to the size fields,
+ * so a cost ("241"), a year ("2026") or a qty could never reach its own column
+ * no matter which fields were listed. Union, never replacement: the tokenized
+ * matches keep their order and the substring-only extras follow.
+ */
+const GLOBAL_SEARCH_FIELDS = [
+  ...SEARCH_FIELDS,
+  "cost", "price", "set_price", "fitting_price", "year", "qty", "runflat", "date",
+] as const;
+
 /** Quick View's icons, plus the three cells that only exist on this panel. */
 const ICON = {
   ...SPEC_ICON,
@@ -82,6 +110,12 @@ export interface CheckSupplierProduct {
   pattern?: string;
   /** Unit price off the tc-products row, shown under the product name. */
   price?: number;
+  /** The row's Set of 4 total. Shown only when the row carries one — never
+   *  recomputed here, so this panel cannot disagree with the tc-products cell. */
+  setOf4Price?: number;
+  /** Promotion label off the tc-products row, e.g. "Buy 3 Get 1 Free". Shown in
+   *  the header only when it holds a real promotion — see `validOffer`. */
+  offer?: string;
   year?: number;
   /** Country of origin, with its flag emoji when the row carries one. */
   country?: string;
@@ -97,6 +131,19 @@ const norm = (v: unknown) => String(v ?? "").trim().toLowerCase().replace(/\s+/g
 
 /** Shown when the row carries no value. Never a made-up default. */
 const UNKNOWN = "-";
+
+/**
+ * The offer label to show, or "" when the product carries no promotion.
+ *
+ * tc-products renders its NO_API_FIELD em-dash for offerless products, so a
+ * bare truthiness check would print "Offer: —" on every tyre without one. The
+ * placeholders below are all treated as "no offer".
+ */
+function validOffer(offer: string | undefined | null): string {
+  const trimmed = String(offer ?? "").trim();
+  const placeholder = ["", "-", "—", "–", "n/a", "none", "no offer"];
+  return placeholder.includes(trimmed.toLowerCase()) ? "" : trimmed;
+}
 
 function runflatText(v: boolean | string | number | undefined | null): string {
   if (v === undefined || v === null || v === "") return UNKNOWN;
@@ -140,6 +187,9 @@ export default function CheckSupplierModal({
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [costHistoryItem, setCostHistoryItem] = useState<SupplierRow | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  /** Filters the rows in this popup only. Not debounced: the list is capped at
+   *  one API page, so filtering is cheap enough to run on every keystroke. */
+  const [search, setSearch] = useState("");
 
   /* Mount hidden, slide up on the next tick, slide down before unmount. */
   const [isOpen, setIsOpen] = useState(false);
@@ -208,15 +258,36 @@ export default function CheckSupplierModal({
     }
   };
 
-  const sorted = useMemo(() => {
+  const filtered = useMemo(() => {
     if (!rows) return [];
+    const q = search.trim();
+    if (!q) return rows;
+
+    const tokenMatched = searchWithAspectRimFallback(rows, q, SEARCH_FIELDS, SEARCH_SIZE_FIELDS);
+    const needle = q.toLowerCase();
+    const already = new Set(tokenMatched);
+    const extra = rows.filter((r) => {
+      if (already.has(r)) return false;
+      return GLOBAL_SEARCH_FIELDS.some((f) => {
+        const v = readField(r, f);
+        if (v === null || v === undefined || v === "") return false;
+        if (String(v).toLowerCase().includes(needle)) return true;
+        // "241" should find a cost stored as 241 and rendered "241.00".
+        return typeof v === "number" && v.toFixed(2).includes(needle);
+      });
+    });
+    return extra.length ? [...tokenMatched, ...extra] : tokenMatched;
+  }, [rows, search]);
+
+  const sorted = useMemo(() => {
+    if (!filtered.length) return [];
     const dir = sortOrder === "asc" ? 1 : -1;
     // Same code-unit ordering the `<` / `>` comparison gave — NOT localeCompare,
     // which collates accents and case differently.
     const cmp = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
     const numeric = sortField === "cost" || sortField === "qty"
       || sortField === "year" || sortField === "fitting_price";
-    return [...rows].sort((a, b) => {
+    return [...filtered].sort((a, b) => {
       if (sortField === "source") {
         const pick = (r: SupplierRow) =>
           String(readField(r, "source_name") || readField(r, "product_source") || readField(r, "source") || "");
@@ -233,7 +304,7 @@ export default function CheckSupplierModal({
         String(readField(b, sortField) ?? "").toLowerCase(),
       );
     });
-  }, [rows, sortField, sortOrder]);
+  }, [filtered, sortField, sortOrder]);
 
   const copyRowData = (item: SupplierRow) => {
     const rowString = buildRowString({
@@ -261,10 +332,18 @@ export default function CheckSupplierModal({
   const displayName = (() => {
     const brand = (product.brand || "").trim();
     const pattern = (product.pattern || "").trim();
-    if (!pattern) return brand || product.itemCode;
-    if (!brand || pattern.toLowerCase().startsWith(brand.toLowerCase())) return pattern;
-    return `${brand} ${pattern}`;
+    const raw = !pattern
+      ? brand || product.itemCode
+      : !brand || pattern.toLowerCase().startsWith(brand.toLowerCase())
+      ? pattern
+      : `${brand} ${pattern}`;
+
+    // Remove load index / speed rating (e.g. 97/95R, 89V, 91V, 109/107T)
+    return raw.replace(/\b\d{2,3}(?:\/\d{2,3})?[A-Za-z]\b/g, "").replace(/\s+/g, " ").trim();
   })();
+
+  /** "" when the product has no promotion — keeps the header segment out. */
+  const offerLabel = validOffer(product.offer);
 
   const row1 = [
     { label: "WIDTH", value: parts.width ? `${parts.width} mm` : UNKNOWN },
@@ -315,19 +394,82 @@ export default function CheckSupplierModal({
               Supplier availability
             </h2>
             <span className="text-slate-300 font-light shrink-0">|</span>
+            {/* Brand | Product | Price | Offer — one line beside the title. The
+                price and offer segments, separator included, appear only when
+                the selected product actually carries a value, so no empty
+                divider or "Offer:" placeholder is ever left behind. */}
             <div className="flex items-center gap-2 min-w-0 flex-wrap text-xs">
               <span className="font-black uppercase text-[#008b47] tracking-wider flex items-center gap-1 shrink-0 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#008b47]" />
                 {product.brand || "—"} TIRES
               </span>
+              <span className="text-slate-300 font-light shrink-0">|</span>
               <span className="font-extrabold text-slate-900 truncate max-w-xl text-sm">
                 {displayName}
               </span>
               {product.price !== undefined && product.price > 0 && (
-                <span className="font-black text-slate-900 bg-slate-100 text-slate-800 border border-slate-200 px-2 py-0.5 rounded-full text-xs shrink-0">
-                  AED <span className="text-[#008b47] font-mono">{money(product.price)}</span>
-                  <span className="ml-1 text-[10px] font-semibold text-slate-500">per tyre</span>
-                </span>
+                <>
+                  <span className="text-slate-300 font-light shrink-0">|</span>
+                  <span className="font-black text-slate-900 bg-slate-100 text-slate-800 border border-slate-200 px-2 py-0.5 rounded-full text-xs shrink-0">
+                    AED <span className="text-[#008b47] font-mono">{money(product.price)}</span>
+                    <span className="ml-1 text-[10px] font-semibold text-slate-500">per Tire</span>
+                  </span>
+                </>
+              )}
+              {product.setOf4Price !== undefined && product.setOf4Price > 0 && (
+                <>
+                  <span className="text-slate-300 font-light shrink-0">|</span>
+                  <span className="font-black text-slate-900 bg-slate-100 text-slate-800 border border-slate-200 px-2 py-0.5 rounded-full text-xs shrink-0 whitespace-nowrap">
+                    <span className="text-[10px] font-semibold text-slate-500">Set of 4:</span>{" "}
+                    AED <span className="text-[#008b47] font-mono">{money(product.setOf4Price)}</span>
+                  </span>
+                </>
+              )}
+              {offerLabel && (
+                <>
+                  <span className="text-slate-300 font-light shrink-0">|</span>
+                  <span className="font-bold bg-amber-50 text-amber-800 border border-amber-200/80 px-2 py-0.5 rounded-full text-[11px] shrink-0 whitespace-nowrap">
+                    <span className="text-[10px] font-semibold text-amber-600">Offer:</span>{" "}
+                    {offerLabel}
+                  </span>
+                </>
+              )}
+
+              {/* Search sits on the same header line, straight after the product
+                  data. It filters ONLY the rows in this popup and issues no
+                  request — it re-filters what was already fetched for this
+                  tyre. Hidden until there is something to filter. */}
+              {!loading && rows !== null && rows.length > 0 && (
+                <>
+                  <span className="text-slate-300 font-light shrink-0">|</span>
+                  <div className="relative shrink-0 w-64 sm:w-80">
+                    <MagnifyingGlassIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Search supplier, size, origin...."
+                      aria-label="Search supplier rows"
+                      className="h-10 w-full pl-9 pr-9 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
+                    />
+                    {search && (
+                      <button
+                        type="button"
+                        onClick={() => setSearch("")}
+                        title="Clear search"
+                        aria-label="Clear search"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                      >
+                        <XMarkIcon className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  <span className="text-xs font-semibold text-slate-500 shrink-0 whitespace-nowrap">
+                    {search.trim()
+                      ? `${sorted.length} of ${rows.length}`
+                      : `${rows.length} rows`}
+                  </span>
+                </>
               )}
             </div>
           </div>
@@ -365,12 +507,32 @@ export default function CheckSupplierModal({
               </div>
             ) : empty ? (
               <div className="py-14 text-center px-6 min-h-[300px] flex flex-col items-center justify-center">
-                <p className="text-sm font-semibold text-slate-500">No supplier stocks this tyre.</p>
-                <p className="mt-1 text-xs text-slate-400 max-w-md mx-auto">
-                  Nothing in the synced supplier catalogue matches this SKU, or this brand and
-                  size. If the supplier feed has not been synced on this device yet, run Sync on
-                  the Supplier page first.
-                </p>
+                {/* Two different empties: nothing was found for this tyre at all,
+                    versus rows exist but the search excluded them. Saying "no
+                    supplier stocks this tyre" while a filter is on would be wrong. */}
+                {search.trim() && rows !== null && rows.length > 0 ? (
+                  <>
+                    <p className="text-sm font-semibold text-slate-500">
+                      No row matches “{search.trim()}”.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setSearch("")}
+                      className="mt-2 text-xs font-semibold text-[#008b47] hover:underline cursor-pointer"
+                    >
+                      Clear search to see all {rows.length} rows
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm font-semibold text-slate-500">No supplier stocks this tyre.</p>
+                    <p className="mt-1 text-xs text-slate-400 max-w-md mx-auto">
+                      Nothing in the synced supplier catalogue matches this SKU, or this brand and
+                      size. If the supplier feed has not been synced on this device yet, run Sync on
+                      the Supplier page first.
+                    </p>
+                  </>
+                )}
               </div>
             ) : (
               <div className="overflow-x-auto max-h-[100vh] overflow-y-auto">
@@ -466,6 +628,8 @@ export default function CheckSupplierModal({
             itemCode: costHistoryItem.sku || product.itemCode,
             cost: Number(costHistoryItem.cost) || 0,
             productType: costHistoryItem.product_source || "supplier",
+            country: costHistoryItem.country || product.country,
+            year: costHistoryItem.year || product.year,
           }}
           onCloseAction={() => setCostHistoryItem(null)}
         />

@@ -18,9 +18,11 @@ import {
   crmRecentBookingsQuery,
   CREATE_KLEVER_QUOTE,
   ADD_QUOTE_HISTORY,
+  kleverVehicleSearchQuery,
   type TcProductsQueryVars,
 } from "./queries";
 import type {
+  KleverVehicleItem,
   KleverQuote,
   KleverQuoteInput,
   KleverQuoteHistory,
@@ -398,3 +400,17 @@ export async function addKleverQuoteHistory(
   if (!res) throw new Error("Quote history failed: the server returned no record.");
   return res;
 }
+
+/**
+ * Search vehicles fitting a specific tyre size (width, height, rim).
+ */
+export async function fetchKleverVehicleSearchGraphQL(
+  width: number,
+  height: number,
+  rim: number,
+): Promise<KleverVehicleItem[]> {
+  const query = kleverVehicleSearchQuery(width, height, rim);
+  const data = await executeGraphQLQuery(query);
+  return (data?.kleverVehicleSearch?.data as KleverVehicleItem[] | undefined) ?? [];
+}
+

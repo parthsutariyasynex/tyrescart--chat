@@ -24,7 +24,7 @@ export const NAV_ITEMS: NavItem[] = [
   { name: 'Supplier', icon: TruckIcon, href: '/supplier-products' },
   { name: 'TC', icon: BuildingStorefrontIcon, href: '/tc-products' },
   { name: 'Products', icon: ShoppingBagIcon, href: '/products' },
-  { name: 'Chat', icon: ChatBubbleLeftRightIcon, href: '/tyre_guide/chat' },
+  { name: 'Chat', icon: ChatBubbleLeftRightIcon, href: '/tyreschat' },
 ];
 
 export interface SidebarProps {
@@ -37,7 +37,7 @@ export interface SidebarProps {
  *  Sidebar. The Sidebar now renders once in the root layout, so it can't be
  *  given a per-page prop — the same mapping is derived from the path instead,
  *  which keeps every route's accent exactly as it was. */
-const ORANGE_ROUTES = ['/dashboard', '/products', '/tyre_guide'];
+const ORANGE_ROUTES = ['/dashboard', '/products'];
 
 export default function Sidebar({ theme }: SidebarProps = {}) {
   const pathname = usePathname();
