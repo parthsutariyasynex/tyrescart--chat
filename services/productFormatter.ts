@@ -37,6 +37,16 @@ export interface FormattableProduct {
 export const SET_OF_4_UNITS = 4;
 
 /**
+ * Strips trailing load index and speed rating (e.g. "97/95R", "91V", "99H XL") from a tyre size string.
+ */
+export function stripLoadIndex(sizeStr: string): string {
+  if (!sizeStr) return "";
+  return sizeStr
+    .replace(/\s+\d{2,3}(?:\/\d{2,3})?[A-Za-z]{1,2}(?:\s+XL)?\s*$/i, "")
+    .trim();
+}
+
+/**
  * How many units a customer actually PAYS for to drive away with four tyres,
  * given the row's promotion. Used only to derive the Set of 4 figure — the
  * per-unit Price column is untouched.
@@ -60,11 +70,27 @@ export const SET_OF_4_UNITS = 4;
  * CSV export, Quick View, the Check Supplier header, the clipboard string —
  * computes it identically. Do not re-implement it anywhere.
  */
-export function setOfFourPaidUnits(offerLabel: string): number {
+/**
+ * Calculates the number of payable units for a given quantity under an offer.
+ * For "Buy 3 Get 1 Free": 1 free item per 4 items (free = floor(qty / 4)).
+ * For "Buy 2 Get 2 Free": 2 free items per 4 items (free = floor(qty / 4) * 2).
+ */
+export function calculatePayableQty(selectedQty: number, offerLabel?: string | null): number {
+  if (selectedQty <= 0) return 0;
   const o = (offerLabel || "").trim().toLowerCase().replace(/\s+/g, " ");
-  if (o === "buy 2 get 2 free") return 2;
-  if (o === "buy 3 get 1 free") return 3;
-  return SET_OF_4_UNITS;
+  if (o === "buy 3 get 1 free") {
+    const freeItems = Math.floor(selectedQty / 4);
+    return selectedQty - freeItems;
+  }
+  if (o === "buy 2 get 2 free") {
+    const freeItems = Math.floor(selectedQty / 4) * 2;
+    return selectedQty - freeItems;
+  }
+  return selectedQty;
+}
+
+export function setOfFourPaidUnits(offerLabel: string): number {
+  return calculatePayableQty(SET_OF_4_UNITS, offerLabel);
 }
 
 /** The Set of 4 total for a unit price under a given promotion. */

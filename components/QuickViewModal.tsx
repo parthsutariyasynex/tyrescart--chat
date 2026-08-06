@@ -45,7 +45,7 @@ import {
   fetchTcAttributeLabelsCached,
 } from "@/services/cache";
 import type { TcAttributeItem, TcQuickViewProduct, TcAttributeLabels } from "@/services/types";
-import { setOfFourPrice } from "@/services/productFormatter";
+import { setOfFourPrice, stripLoadIndex, calculatePayableQty } from "@/services/productFormatter";
 import { brandLogoUrl } from "@/constants/badges";
 
 /** No external store to watch — `mounted` only flips via the server/client
@@ -141,6 +141,7 @@ export interface QuickViewProduct {
   fittingPrice?: number;
   source?: string;
   image?: string;
+  offer?: string;
 }
 
 interface QuickViewModalProps {
@@ -370,9 +371,8 @@ export default function QuickViewModal({
   const specLoad = readAttr(attrs, "load_index") || fromSize.load;
 
   const apiSize = readAttr(attrs, "tyre_size");
-  const fullSizeText = apiSize
-    ? [apiSize, specLoad].filter(Boolean).join(" ")
-    : product.sizeFull || product.size || UNKNOWN;
+  const rawSizeText = apiSize || product.sizeFull || product.size || UNKNOWN;
+  const fullSizeText = rawSizeText !== UNKNOWN ? stripLoadIndex(rawSizeText) : UNKNOWN;
 
   const priceRange = detail?.price_range?.minimum_price;
   const apiPrice =
@@ -395,9 +395,10 @@ export default function QuickViewModal({
   const resolvedOffer =
     (labels && detail?.offers !== null && detail?.offers !== undefined
       ? labels["offers"]?.[String(detail.offers)]
-      : "") || readAttr(attrs, "offers") || "";
+      : "") || readAttr(attrs, "offers") || product.offer || "";
   const setOf4Price = setOfFourPrice(unitPrice, resolvedOffer);
-  const totalPrice = unitPrice * selectedQty;
+  const payableQty = calculatePayableQty(selectedQty, resolvedOffer);
+  const totalPrice = unitPrice * payableQty;
   const priceHeading = readAttr(attrs, "price_included_text") || "Price";
 
   // Offer banner and stock badge render only when the API actually says so.

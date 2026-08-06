@@ -30,7 +30,7 @@ import { useProductSorting } from '@/hooks/useProductSorting';
 import ChatModal from "@/components/ChatModal";
 import TyresGuideModal from "@/components/TyresGuideModal";
 import ProductTableRow from '@/components/ProductTableRow';
-import { buildRowString, buildBulkCopyString, setOfFourPrice } from "@/services/productFormatter";
+import { buildRowString, buildBulkCopyString, setOfFourPrice, stripLoadIndex } from "@/services/productFormatter";
 import Header from "@/components/Header";
 import HeaderBookInquiry from "@/components/HeaderBookInquiry";
 import HeaderActions from "@/components/HeaderActions";
@@ -270,7 +270,7 @@ function mapTcProduct(p: TcApiProduct, maps: TcLabelMaps): Product {
     brand: lbl(maps.brand, p.brand),
     pattern: p.name ?? '',
     size,
-    sizeFull: size && li ? `${size} ${li}` : size,
+    sizeFull: stripLoadIndex(size),
     runflat: lbl(maps.runflat, p.runflat) !== '',
     // `offers` is an option ID, not a boolean: null and 0 both mean "no offer",
     // any other id is one of the 8 configured promotions. Nothing is defaulted —
@@ -368,7 +368,11 @@ export default function TcProductsPage() {
   const [pageSize, setPageSize] = useState(15);
   const [currentPage, setCurrentPage] = useState(1);
   // Default sort is Date, descending (latest date first)
-  const { sortColumn, sortAsc, handleSort, sortItems } = useProductSorting<Product>('date', false);
+  // Default view is Year DESC, then Date DESC inside each year (see the
+  // `year` branch in useProductSorting). Sorting by 'date' alone ordered the
+  // whole catalogue by date and interleaved the years — 2024 rows dated
+  // 07-Jul sat above 2026 rows dated 04-Jul.
+  const { sortColumn, sortAsc, handleSort, sortItems } = useProductSorting<Product>('year', false);
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   /** Rows the user has added via the Action column. Client-side only — there is

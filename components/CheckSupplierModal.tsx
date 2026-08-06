@@ -42,8 +42,38 @@ import { fetchSupplierProductsGraphQL } from "@/services/graphql";
 import { searchWithAspectRimFallback } from "@/services/searchFilter";
 import type { SupplierProductItem } from "@/services/types";
 import { SPEC_ICON, splitSupplierSize } from "@/components/QuickViewModal";
-import { buildRowString } from "@/services/productFormatter";
+import { buildRowString, stripLoadIndex } from "@/services/productFormatter";
 import CostHistoryModal from "@/components/CostHistoryModal";
+import { CATEGORY_BADGES_SEMANTIC } from "@/constants/badges";
+import Pagination from "@/components/Pagination";
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function formatDateDDMM(rawDate?: string): string {
+  if (!rawDate || !rawDate.trim()) return '-';
+  const str = rawDate.trim();
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) {
+    const day = String(d.getDate()).padStart(2, '0');
+    const monthStr = MONTH_NAMES[d.getMonth()] || String(d.getMonth() + 1).padStart(2, '0');
+    return `${day}-${monthStr}`;
+  }
+  const match = str.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/) || str.match(/(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (match) {
+    if (match[1].length === 4) {
+      const day = match[3].padStart(2, '0');
+      const monthIdx = parseInt(match[2], 10) - 1;
+      const monthStr = MONTH_NAMES[monthIdx] || match[2].padStart(2, '0');
+      return `${day}-${monthStr}`;
+    } else {
+      const day = match[1].padStart(2, '0');
+      const monthIdx = parseInt(match[2], 10) - 1;
+      const monthStr = MONTH_NAMES[monthIdx] || match[2].padStart(2, '0');
+      return `${day}-${monthStr}`;
+    }
+  }
+  return str;
+}
 
 /**
  * A supplier feed row as this modal consumes it.
@@ -58,6 +88,9 @@ type SupplierRow = SupplierProductItem & {
   name?: string;
   qty?: number | string;
   source?: string;
+  category?: string;
+  fitting_price?: number | string;
+  date?: string;
 };
 
 
@@ -190,6 +223,12 @@ export default function CheckSupplierModal({
   /** Filters the rows in this popup only. Not debounced: the list is capped at
    *  one API page, so filtering is cheap enough to run on every keystroke. */
   const [search, setSearch] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, product.itemCode, product.brand, product.size]);
 
   /* Mount hidden, slide up on the next tick, slide down before unmount. */
   const [isOpen, setIsOpen] = useState(false);
@@ -288,6 +327,37 @@ export default function CheckSupplierModal({
     const numeric = sortField === "cost" || sortField === "qty"
       || sortField === "year" || sortField === "fitting_price";
     return [...filtered].sort((a, b) => {
+      if (sortField === "year") {
+        const getYear = (r: SupplierRow) => {
+          const val = readField(r, "year");
+          const num = Number(val);
+          if (!isNaN(num) && num > 0) return num;
+          if (product.year) {
+            const pNum = Number(product.year);
+            if (!isNaN(pNum) && pNum > 0) return pNum;
+          }
+          return 0;
+        };
+        const yA = getYear(a);
+        const yB = getYear(b);
+        if (yA === yB) return 0;
+        if (yA === 0) return 1;
+        if (yB === 0) return -1;
+        return dir * (yA - yB);
+      }
+      if (sortField === "date") {
+        const getDate = (r: SupplierRow) => {
+          const dStr = String(readField(r, "date") || readField(r, "created_at") || "");
+          const t = new Date(dStr).getTime();
+          return isNaN(t) ? 0 : t;
+        };
+        const dA = getDate(a);
+        const dB = getDate(b);
+        if (dA === dB) return 0;
+        if (dA === 0) return 1;
+        if (dB === 0) return -1;
+        return dir * (dA - dB);
+      }
       if (sortField === "source") {
         const pick = (r: SupplierRow) =>
           String(readField(r, "source_name") || readField(r, "product_source") || readField(r, "source") || "");
@@ -305,6 +375,13 @@ export default function CheckSupplierModal({
       );
     });
   }, [filtered, sortField, sortOrder]);
+
+  const totalPages = Math.ceil(sorted.length / pageSize);
+
+  const paginatedRows = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return sorted.slice(start, start + pageSize);
+  }, [sorted, currentPage, pageSize]);
 
   const copyRowData = (item: SupplierRow) => {
     const rowString = buildRowString({
@@ -355,7 +432,7 @@ export default function CheckSupplierModal({
   const row2 = [
     { label: "BRAND", value: product.brand || UNKNOWN },
     { label: "PATTERN", value: product.pattern || UNKNOWN },
-    { label: "TYRE SIZE", value: product.sizeFull || product.size || UNKNOWN, info: true },
+    { label: "TYRE SIZE", value: (product.sizeFull || product.size) ? stripLoadIndex(product.sizeFull || product.size || "") : UNKNOWN, info: true },
     { label: "YEAR", value: product.year && product.year > 0 ? String(product.year) : UNKNOWN },
   ];
 
@@ -497,16 +574,25 @@ export default function CheckSupplierModal({
 
 
           {/* Supplier rows table */}
-          <div className="border border-slate-200 rounded-xl overflow-hidden min-h-[300px]">
+          <div
+            className="border border-slate-200 rounded-xl overflow-hidden flex flex-col justify-between"
+            style={{ minHeight: Math.min(pageSize, 15) * 34 + 80 }}
+          >
             {loading ? (
-              <div className="p-4 space-y-2.5 min-h-[300px] flex flex-col justify-start">
-                <div className="skeleton h-8 rounded-lg w-full mb-1" aria-hidden="true" />
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="skeleton h-8 rounded-lg w-full" aria-hidden="true" />
+              <div
+                className="p-3 space-y-2 flex flex-col justify-start"
+                style={{ minHeight: Math.min(pageSize, 15) * 34 + 32 }}
+              >
+                <div className="skeleton h-7 rounded-lg w-full mb-1" aria-hidden="true" />
+                {Array.from({ length: Math.min(pageSize, 12) }).map((_, i) => (
+                  <div key={i} className="skeleton h-7 rounded-lg w-full" aria-hidden="true" />
                 ))}
               </div>
             ) : empty ? (
-              <div className="py-14 text-center px-6 min-h-[300px] flex flex-col items-center justify-center">
+              <div
+                className="py-14 text-center px-6 flex flex-col items-center justify-center"
+                style={{ minHeight: Math.min(pageSize, 15) * 34 + 32 }}
+              >
                 {/* Two different empties: nothing was found for this tyre at all,
                     versus rows exist but the search excluded them. Saying "no
                     supplier stocks this tyre" while a filter is on would be wrong. */}
@@ -535,29 +621,73 @@ export default function CheckSupplierModal({
                 )}
               </div>
             ) : (
-              <div className="overflow-x-auto max-h-[100vh] overflow-y-auto">
+              <div
+                className="overflow-x-auto overflow-y-hidden flex-1"
+                style={{ minHeight: Math.min(pageSize, 15) * 34 + 32 }}
+              >
                 <table className="w-full text-xs text-left border-collapse">
+                  <colgroup>
+                    <col className="w-[8.5%]" />
+                    <col className="w-[6.5%]" />
+                    <col className="w-[7.5%]" />
+                    <col className="w-[8%]" />
+                    <col className="w-[20%]" />
+                    <col className="w-[11.5%]" />
+                    <col className="w-[5.5%]" />
+                    <col className="w-[6.5%]" />
+                    <col className="w-[4%]" />
+                    <col className="w-[4.5%]" />
+                    <col className="w-[6.5%]" />
+                    <col className="w-[7.5%]" />
+                    <col className="w-[5.5%]" />
+                    <col className="w-[4.5%]" />
+                  </colgroup>
                   <thead className="bg-slate-50 sticky top-0 z-10 border-b border-slate-200">
                     <tr className="text-[10px] font-bold text-slate-500 uppercase tracking-wider select-none">
-                      <th onClick={() => handleSort("source")} className="py-2.5 px-5 cursor-pointer hover:text-slate-900 whitespace-nowrap">
-                        Supplier <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      <th onClick={() => handleSort("source")} className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">
+                        Source <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
                       </th>
-                      <th onClick={() => handleSort("size")} className="py-2.5 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">
-                        Tyre Size <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      <th onClick={() => handleSort("product_source")} className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">
+                        Type <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
                       </th>
-                      <th onClick={() => handleSort("runflat")} className="py-2.5 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">
+                      <th onClick={() => handleSort("category")} className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">
+                        Category <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      </th>
+                      <th onClick={() => handleSort("brand")} className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">
+                        Brand <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      </th>
+                      <th onClick={() => handleSort("pattern")} className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">
+                        Tyre Pattern <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      </th>
+                      <th onClick={() => handleSort("size")} className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">
+                        Size <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      </th>
+                      <th onClick={() => handleSort("runflat")} className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap">
                         RunFlat <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
                       </th>
-                      <th onClick={() => handleSort("country")} className="py-2.5 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">
-                        Origin <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      <th onClick={() => handleSort("country")} className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">
+                        Countries <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
                       </th>
-                      <th onClick={() => handleSort("year")} className="py-2.5 px-5 cursor-pointer hover:text-slate-900 whitespace-nowrap">
+                      <th onClick={() => handleSort("year")} className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap">
                         Year <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
                       </th>
+                      <th onClick={() => handleSort("qty")} className="py-2 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap">
+                        Qty <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      </th>
+                      <th onClick={() => handleSort("cost")} className="py-2 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap">
+                        Cost <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      </th>
+                      <th onClick={() => handleSort("fitting_price")} className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap">
+                        Fitting Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      </th>
+                      <th onClick={() => handleSort("date")} className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">
+                        Date <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      </th>
+                      <th className="py-2 px-3 text-center whitespace-nowrap">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-sans">
-                    {sorted.map((r, i) => {
+                    {paginatedRows.map((r, i) => {
                       const runflatVal = runflatText(r.runflat);
 
                       return (
@@ -567,42 +697,123 @@ export default function CheckSupplierModal({
                           title="Click row to copy details"
                           className="hover:bg-slate-50/80 transition-colors cursor-pointer border-b border-slate-100 last:border-0"
                         >
-                          {/* Supplier / Source badge only */}
-                          <td className="py-2.5 px-5 font-bold text-slate-800">
-                            <span className="inline-flex items-center gap-1.5 flex-wrap">
-                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
-                                r.product_source === "competitor"
-                                  ? "bg-amber-50 text-amber-700 border border-amber-200/80"
-                                  : "bg-slate-100 text-slate-600 border border-slate-200/80"
-                              }`}>
-                                {r.product_source || "supplier"}
-                              </span>
-                              {r.source_name && (
-                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-white text-slate-600 border border-slate-200 shadow-2xs">
-                                  {r.source_name}
-                                </span>
-                              )}
+                          {/* Source */}
+                          <td className="py-1.5 px-3 whitespace-nowrap">
+                            <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-bold rounded border border-indigo-200 uppercase whitespace-nowrap inline-block">
+                              {r.source_name || r.source || "—"}
                             </span>
                           </td>
 
-                          {/* Tyre Size */}
-                          <td className="py-2.5 px-3 font-mono text-slate-700 whitespace-nowrap">
-                            {r.size || product.size || "-"}
+                          {/* Type */}
+                          <td className="py-1.5 px-3 whitespace-nowrap">
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded uppercase whitespace-nowrap inline-block">
+                              {r.product_source || "supplier"}
+                            </span>
+                          </td>
+
+                          {/* Category */}
+                          <td className="py-1.5 px-3 whitespace-nowrap">
+                            <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full border uppercase whitespace-nowrap inline-block ${CATEGORY_BADGES_SEMANTIC[r.category || ''] || 'badge-cat-default'}`}>
+                              {r.category || "—"}
+                            </span>
+                          </td>
+
+                          {/* Brand */}
+                          <td className="py-1.5 px-3 text-xs font-semibold text-slate-800 whitespace-nowrap">
+                            <span className="px-2 py-0.5 text-[10px] font-bold rounded uppercase whitespace-nowrap inline-block bg-slate-100 text-slate-700">
+                              {r.brand || product.brand || "—"}
+                            </span>
+                          </td>
+
+                          {/* Tyre Pattern */}
+                          <td className="py-1.5 px-3 text-xs font-bold text-slate-900 max-w-md">
+                            <span className="line-clamp-2">{r.pattern || r.product_name || r.name || product.pattern || "—"}</span>
+                          </td>
+
+                          {/* Size */}
+                          <td className="py-1.5 px-3 text-xs font-mono text-slate-700 whitespace-nowrap">
+                            {stripLoadIndex(r.size || product.size || "") || "—"}
                           </td>
 
                           {/* RunFlat */}
-                          <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap">
-                            {runflatVal}
+                          <td className="py-1.5 px-3 text-center whitespace-nowrap">
+                            {runflatVal === "Runflat" ? (
+                              <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded border border-emerald-200 whitespace-nowrap inline-block">Runflat</span>
+                            ) : (
+                              <span className="text-slate-400 font-medium">-</span>
+                            )}
                           </td>
 
-                          {/* Origin */}
-                          <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap">
-                            {r.country || product.country || "-"}
+                          {/* Countries */}
+                          <td className="py-1.5 px-3 whitespace-nowrap text-xs font-semibold text-slate-700">
+                            {r.country || product.country || <span className="text-slate-400 font-medium">-</span>}
                           </td>
 
                           {/* Year */}
-                          <td className="py-2.5 px-5 text-slate-500 whitespace-nowrap">
-                            {r.year && r.year > 0 ? r.year : "-"}
+                          <td className="py-1.5 px-3 text-center text-xs font-medium text-slate-600 whitespace-nowrap">
+                            {r.year && Number(r.year) > 0 ? r.year : <span className="text-slate-400 font-medium">-</span>}
+                          </td>
+
+                          {/* Qty */}
+                          <td className="py-1.5 px-2 text-center whitespace-nowrap">
+                            {r.qty === 0 || r.qty === "0" ? (
+                              <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-red-50 text-red-600 text-[11px] font-extrabold border border-red-200/60 font-mono">0</span>
+                            ) : r.qty ? (
+                              <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-extrabold border border-emerald-200/60 font-mono">{r.qty}</span>
+                            ) : (
+                              <span className="text-slate-400 font-medium">-</span>
+                            )}
+                          </td>
+
+                          {/* Cost */}
+                          <td className="py-1.5 px-3 text-right whitespace-nowrap">
+                            {r.cost || r.price ? (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setCostHistoryItem(r); }}
+                                title="View cost history"
+                                className="inline-flex items-center justify-end gap-1 text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap rounded px-1 -mx-1 hover:text-emerald-700 hover:underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors cursor-pointer"
+                                dir="ltr"
+                              >
+                                <span className="whitespace-nowrap">{money(Number(r.cost || r.price))}</span>
+                              </button>
+                            ) : (
+                              <span className="text-slate-400 font-medium">-</span>
+                            )}
+                          </td>
+
+                          {/* Fitting Price */}
+                          <td className="py-1.5 px-3 text-center whitespace-nowrap">
+                            {r.fitting_price ? (
+                              <div className="inline-flex items-center justify-center gap-1 text-xs font-medium text-slate-500 font-mono whitespace-nowrap" dir="ltr">
+                                <span className="whitespace-nowrap">{money(Number(r.fitting_price))}</span>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 font-medium">-</span>
+                            )}
+                          </td>
+
+                          {/* Date */}
+                          <td className="py-1.5 px-3 text-xs text-slate-500 whitespace-nowrap">
+                            {r.date || (r as unknown as { created_at?: string }).created_at ? (
+                              formatDateDDMM(r.date || (r as unknown as { created_at?: string }).created_at)
+                            ) : (
+                              <span className="text-slate-400 font-medium">-</span>
+                            )}
+                          </td>
+
+                          {/* Actions */}
+                          <td className="py-1.5 px-3 text-center whitespace-nowrap">
+                            <div className="flex items-center justify-center">
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); copyRowData(r); }}
+                                title="Copy row data"
+                                className="p-1 rounded text-slate-400 hover:text-[#008b47] hover:bg-slate-100 transition-colors cursor-pointer"
+                              >
+                                <ClipboardDocumentIcon className="w-4 h-4" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -610,6 +821,16 @@ export default function CheckSupplierModal({
                   </tbody>
                 </table>
               </div>
+            )}
+            {!loading && !empty && totalPages > 1 && (
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+                pageSize={pageSize}
+                setPageSize={setPageSize}
+                pageSizeOptions={[15, 30, 50, 100]}
+              />
             )}
           </div>
         </div>

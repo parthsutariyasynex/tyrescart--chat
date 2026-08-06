@@ -11,7 +11,7 @@ import {
   DocumentTextIcon,
   ClipboardDocumentIcon,
 } from '@heroicons/react/24/outline';
-import { buildRowString, buildBulkCopyString } from "@/services/productFormatter";
+import { buildRowString, buildBulkCopyString, stripLoadIndex } from "@/services/productFormatter";
 import Header from '@/components/Header';
 import HeaderBookInquiry from '@/components/HeaderBookInquiry';
 import HeaderActions from '@/components/HeaderActions';
@@ -289,8 +289,8 @@ function mapSupplierToProduct(p: CachedSupplierProduct): Product {
     category: intern(normalizeCategory(p.brand_category)),
     brand: intern(p.brand ?? ''),
     pattern: p.product_name ?? '',
-    size: intern(p.size ?? ''),
-    sizeFull: intern(sizeWithLoadSpeed(p.size ?? '', p.product_name ?? '')),
+    size: intern(stripLoadIndex(p.size ?? '')),
+    sizeFull: intern(stripLoadIndex(p.size ?? '')),
     runflat: p.runflat !== undefined && p.runflat !== null
       ? (typeof p.runflat === 'boolean' ? p.runflat : String(p.runflat).toLowerCase() === 'yes' || String(p.runflat) === '1')
       : /run\s*flat|\bRFT\b|\bZP\b|\bSSR\b|\bMOE\b/i.test(p.product_name ?? ''),
@@ -360,7 +360,11 @@ export default function SupplierProductsPage() {
   const [pageSize, setPageSize] = useState(15);
   const [currentPage, setCurrentPage] = useState(1);
   // Default sort is Date, descending (latest date first)
-  const { sortColumn, sortAsc, handleSort, sortItems } = useProductSorting<Product>('date', false);
+  // Default view is Year DESC, then Date DESC inside each year (see the
+  // `year` branch in useProductSorting). Sorting by 'date' alone ordered the
+  // whole catalogue by date and interleaved the years — 2024 rows dated
+  // 07-Jul sat above 2026 rows dated 04-Jul.
+  const { sortColumn, sortAsc, handleSort, sortItems } = useProductSorting<Product>('year', false);
 
   /** Product whose Cost History modal is open, or null. */
   const [costHistoryItem, setCostHistoryItem] = useState<Product | null>(null);
@@ -1119,7 +1123,7 @@ export default function SupplierProductsPage() {
                     {!hiddenColumns.has('year') && <th onClick={() => handleSort('year')} className="py-3 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap">Year <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('qty') && <th onClick={() => handleSort('qty')} className="py-3 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap">Qty <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('cost') && <th onClick={() => handleSort('cost')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap">Cost <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('fittingPrice') && <th onClick={() => handleSort('fittingPrice')} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap">Fitting Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
+                    {!hiddenColumns.has('fittingPrice') && <th onClick={() => handleSort('fittingPrice')} className="py-3 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap">Fitting Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('date') && <th onClick={() => handleSort('date')} className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">Date <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     <th className="py-3 px-2 text-center whitespace-nowrap">Actions</th>
                   </tr>
@@ -1139,7 +1143,7 @@ export default function SupplierProductsPage() {
                         {!hiddenColumns.has('year') && <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-4 w-12 rounded mx-auto" /></td>}
                         {!hiddenColumns.has('qty') && <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-6 w-8 rounded-full mx-auto" /></td>}
                         {!hiddenColumns.has('cost') && <td className={`${cellPaddingClass} text-right`}><Skeleton className="h-4 w-14 rounded ml-auto" /></td>}
-                        {!hiddenColumns.has('fittingPrice') && <td className={`${cellPaddingClass} text-right`}><Skeleton className="h-4 w-14 rounded ml-auto" /></td>}
+                        {!hiddenColumns.has('fittingPrice') && <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-4 w-14 rounded mx-auto" /></td>}
                         {!hiddenColumns.has('date') && <td className={cellPaddingClass}><Skeleton className="h-4 w-20 rounded" /></td>}
                         <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-4 w-6 rounded mx-auto" /></td>
                       </tr>
@@ -1266,8 +1270,8 @@ export default function SupplierProductsPage() {
                           )}
 
                           {!hiddenColumns.has('fittingPrice') && (
-                            <td className={`${cellPaddingClass} text-right whitespace-nowrap`}>
-                              <div className="inline-flex items-center justify-end gap-1 text-xs font-medium text-slate-500 font-mono whitespace-nowrap" dir="ltr">
+                            <td className={`${cellPaddingClass} text-center whitespace-nowrap`}>
+                              <div className="inline-flex items-center justify-center gap-1 text-xs font-medium text-slate-500 font-mono whitespace-nowrap" dir="ltr">
                                 <span className="whitespace-nowrap">{item.fittingPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                               </div>
                             </td>

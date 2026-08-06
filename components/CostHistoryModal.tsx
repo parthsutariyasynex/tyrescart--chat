@@ -21,6 +21,7 @@ import {
   type CostHistoryRecord,
 } from "@/services/costHistory";
 import { fetchSupplierPriceHistoryCached } from "@/services/cache";
+import { stripLoadIndex } from "@/services/productFormatter";
 
 /** Chart body, client-only: Recharts measures the DOM and cannot server-render. */
 const CostLineChart = dynamic(() => import("./CostLineChart"), {
@@ -223,7 +224,7 @@ export default function CostHistoryModal({
               )}
               {(product.sizeFull || product.size) && (
                 <span className="shrink-0 px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-mono font-semibold border border-slate-200/80">
-                  {product.sizeFull || product.size}
+                  {stripLoadIndex(product.sizeFull || product.size || "")}
                 </span>
               )}
               {product.country && (
