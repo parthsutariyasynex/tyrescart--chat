@@ -14,7 +14,6 @@ import { syncManager, type SyncTaskDefinition } from "./syncManager";
 import { syncModule } from "./syncService";
 import { consumeManualSync, recordCostChanges } from "./costHistory";
 import {
-  syncSupplierProductsPage,
   syncAllSupplierProducts,
   getSupplierSyncState,
   syncAllTcProducts,
@@ -24,8 +23,6 @@ import {
 /** Stable ids so components can subscribe without importing the definitions. */
 export const SYNC_TASK = {
   supplierProducts: "supplierProducts",
-  /** Refreshes ONLY the page of supplier rows currently on screen. */
-  supplierPage: "supplierPage",
   tcProducts: "tcProducts",
   products: "products",
   tyresChat: "tyresChat",
@@ -76,52 +73,25 @@ const supplierProductsTask: SyncTaskDefinition = {
       );
     }
 
-    if (result.complete) return `Synced all ${nf(result.items)} supplier products.`;
+    // Same three messages as before; each now also reports whether the pass
+    // actually finished, so a run that dropped pages lands on "partial" instead
+    // of claiming the catalogue is synced.
+    if (result.complete) {
+      return { complete: true, message: `Synced all ${nf(result.items)} supplier products.` };
+    }
     if (result.aborted) {
-      return `Sync stopped early: ${nf(result.written)} of ${nf(result.total)} products. Previous data kept.`;
+      return {
+        complete: false,
+        message: `Sync stopped early: ${nf(result.written)} of ${nf(result.total)} products. Previous data kept.`,
+      };
     }
-    return `Synced ${nf(result.written)} of ${nf(result.total)} — ${result.failedPages.length} page${result.failedPages.length === 1 ? "" : "s"} failed.`;
+    return {
+      complete: false,
+      message: `Synced ${nf(result.written)} of ${nf(result.total)} — ${result.failedPages.length} page${result.failedPages.length === 1 ? "" : "s"} failed.`,
+    };
   },
 };
 
-
-/* ─────────────────────────────────────────────────────────────
-   Supplier — CURRENT PAGE only (~1 request)
-
-   The header Sync button on /supplier-products refreshes just the rows on
-   screen; the full 319k catalogue (~3,200 requests) is the sidebar's job. It is
-   a registered task so it shares the manager's status, progress, in-flight
-   dedupe and toasts with every other sync — but it is excluded from
-   `startAll()`, where the full pass already covers this data.
-
-   `run` takes no arguments, so the page publishes which slice it is showing via
-   `setSupplierPageRequest` whenever its pagination changes.
-───────────────────────────────────────────────────────────── */
-let supplierPageRequest: { pageSize: number; currentPage: number } = { pageSize: 50, currentPage: 1 };
-
-/** Called by /supplier-products so the page task knows which slice to refresh. */
-export function setSupplierPageRequest(req: { pageSize: number; currentPage: number }): void {
-  supplierPageRequest = req;
-}
-
-const supplierPageTask: SyncTaskDefinition = {
-  id: SYNC_TASK.supplierPage,
-  label: "Supplier page",
-  excludeFromStartAll: true,
-  async run() {
-    const isManual = consumeManualSync(SYNC_TASK.supplierPage);
-    const { pageSize, currentPage } = supplierPageRequest;
-    const rows = await syncSupplierProductsPage({ pageSize, currentPage });
-    // This task only ever runs from the header Sync button, but the mark is
-    // still consumed rather than assumed — one rule for both supplier tasks.
-    if (isManual && rows.length) {
-      await recordCostChanges(rows).catch((e) =>
-        console.warn("[syncTasks] cost history not recorded:", e),
-      );
-    }
-    return `Synced page ${currentPage} — ${nf(rows.length)} supplier products cached.`;
-  },
-};
 
 /* ─────────────────────────────────────────────────────────────
    TC products (~7.8k rows, ~79 requests)
@@ -156,10 +126,18 @@ const tcProductsTask: SyncTaskDefinition = {
     });
 
     if (result.aborted) {
-      return `Sync stopped early: ${nf(result.items)} of ${nf(result.total)} TC products. Previous data kept.`;
+      return {
+        complete: false,
+        message: `Sync stopped early: ${nf(result.items)} of ${nf(result.total)} TC products. Previous data kept.`,
+      };
     }
-    if (result.complete) return `Synced all ${nf(result.items)} TC products.`;
-    return `Synced ${nf(result.items)} of ${nf(result.total)} — ${result.failedPages.length} page${result.failedPages.length === 1 ? "" : "s"} failed.`;
+    if (result.complete) {
+      return { complete: true, message: `Synced all ${nf(result.items)} TC products.` };
+    }
+    return {
+      complete: false,
+      message: `Synced ${nf(result.items)} of ${nf(result.total)} — ${result.failedPages.length} page${result.failedPages.length === 1 ? "" : "s"} failed.`,
+    };
   },
 };
 
@@ -176,8 +154,18 @@ const productsTask: SyncTaskDefinition = {
   id: SYNC_TASK.products,
   label: "Products",
   async run() {
-    await syncModule("products");
-    return "Products synced.";
+    const res = await syncModule("products");
+    // Reports completeness rather than assuming it: this task used to fetch a
+    // single 24-row page and return a bare string, which the manager mapped to
+    // "completed" — so `isAllSynced()` could call the application synced over
+    // 24 of 8,524 products.
+    if (res.complete) {
+      return { complete: true, message: `Synced all ${nf(res.total || res.synced)} products.` };
+    }
+    return {
+      complete: false,
+      message: `Synced ${nf(res.synced)} of ${nf(res.total)} — ${res.failedPages.length} page${res.failedPages.length === 1 ? "" : "s"} failed.`,
+    };
   },
 };
 
@@ -185,8 +173,17 @@ const tyresChatTask: SyncTaskDefinition = {
   id: SYNC_TASK.tyresChat,
   label: "Chat shortcuts",
   async run() {
-    await syncModule("tyresChat");
-    return "Chat shortcuts synced.";
+    const res = await syncModule("tyresChat");
+    // Reports completeness rather than assuming it: a bare string return is
+    // mapped to "completed" by the manager, so a truncated or failed fetch used
+    // to count toward `isAllSynced()`.
+    if (res.complete) {
+      return { complete: true, message: `Synced all ${nf(res.total)} chat shortcuts.` };
+    }
+    return {
+      complete: false,
+      message: `Synced ${nf(res.synced)} of ${nf(res.total)} chat shortcuts.`,
+    };
   },
 };
 
@@ -230,7 +227,6 @@ export async function resumeInterruptedSupplierSync(): Promise<void> {
 /** Idempotent — safe to call from multiple entry points and across fast refresh. */
 export function registerSyncTasks(): void {
   syncManager.registerTask(supplierProductsTask);
-  syncManager.registerTask(supplierPageTask);
   syncManager.registerTask(tcProductsTask);
   syncManager.registerTask(productsTask);
   syncManager.registerTask(tyresChatTask);

@@ -13,13 +13,16 @@
  *     data layer, so the data is fresh the next time the user navigates there.
  */
 import {
+  STOREFRONT_PAGE_SIZE,
+  syncAllSupplierProducts,
   getStorefrontProductsCached,
   getTyresChatCached,
   isProductsRecentlySynced,
   isTyresChatRecentlySynced,
   isSupplierProductsRecentlySynced,
-  syncSupplierProductsPage,
 } from "./cache";
+import type { ProductsResponse, TyresChatItem } from "./types";
+import { fetchTyresChatGraphQL } from "./graphql";
 
 export type SyncModule = "products" | "orders" | "customers" | "tyresChat" | "supplierProducts";
 
@@ -80,37 +83,169 @@ function runCached(
   });
 }
 
-const MODULE_DATA_SYNC: Record<SyncModule, () => Promise<void>> = {
-  products: () =>
-    runCached((cbs) =>
-      getStorefrontProductsCached(
-        { search: "", pageSize: 24, currentPage: 1, sortField: "name", sortDirection: "ASC" },
-        // Explicit sync → always hit GraphQL, never short-circuit on fresh cache.
-        { ...cbs, maxAgeMs: 0 },
-      ),
-    ),
-  tyresChat: () => runCached((cbs) => getTyresChatCached({ pageSize: 200 }, { ...cbs, maxAgeMs: 0 })),
+/** What a module sync actually managed to load. */
+export interface ModuleSyncOutcome {
+  /** false when at least one page failed or fewer rows landed than the API reports. */
+  complete: boolean;
+  synced: number;
+  total: number;
+  failedPages: number[];
+}
+
+/** Nothing to page — the module either has no paging loop or ran a mounted
+ *  page's own refresher, both of which are all-or-nothing. */
+const WHOLE: ModuleSyncOutcome = { complete: true, synced: 0, total: 0, failedPages: [] };
+
+/**
+ * One page of storefront products, resolved with the FRESH response.
+ *
+ * `getStorefrontProductsCached` is callback-shaped — it returns any stale entry
+ * immediately and delivers the network result through `onFresh` — so a paging
+ * loop has to await the callback rather than the returned promise. Same
+ * function, same cache key scheme, same IndexedDB writes as before; this only
+ * adapts it to something a loop can sequence. `maxAgeMs: 0` keeps the existing
+ * "an explicit sync always hits GraphQL" rule.
+ */
+function fetchProductsPage(currentPage: number, pageSize: number): Promise<ProductsResponse | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (res: ProductsResponse | null) => {
+      if (settled) return;
+      settled = true;
+      resolve(res);
+    };
+    void getStorefrontProductsCached(
+      { search: "", pageSize, currentPage, sortField: "name", sortDirection: "ASC" },
+      { maxAgeMs: 0, onFresh: (res) => done(res), onError: () => done(null) },
+    );
+    // Same safety net as `runCached`, per page rather than per sync.
+    setTimeout(() => done(null), 30000);
+  });
+}
+
+/**
+ * Sync EVERY storefront product, not just the first page.
+ *
+ * This used to be a single `pageSize: 24, currentPage: 1` request that reported
+ * success — 24 of 8,524 rows. Page 1 establishes `total_count`, then the
+ * remaining pages are fetched in order. A page that fails is recorded and the
+ * pass continues, so one bad page cannot discard the rest; the outcome then
+ * reports `complete: false` so the task is not marked fully synced.
+ *
+ * `STOREFRONT_PAGE_SIZE` (500) is the measured optimum for this endpoint —
+ * throughput plateaus around 200 rows/s, so a larger page just delays the first
+ * response.
+ */
+async function syncAllStorefrontProducts(): Promise<ModuleSyncOutcome> {
+  const pageSize = STOREFRONT_PAGE_SIZE;
+  const failedPages: number[] = [];
+
+  const first = await fetchProductsPage(1, pageSize);
+  if (!first) return { complete: false, synced: 0, total: 0, failedPages: [1] };
+
+  const total = first.total_count ?? 0;
+  let synced = first.items?.length ?? 0;
+  const totalPages = pageSize > 0 ? Math.ceil(total / pageSize) : 1;
+
+  for (let page = 2; page <= totalPages; page++) {
+    const res = await fetchProductsPage(page, pageSize);
+    if (!res) {
+      failedPages.push(page);
+      continue;
+    }
+    synced += res.items?.length ?? 0;
+  }
+
+  return { complete: failedPages.length === 0 && synced >= total, synced, total, failedPages };
+}
+
+/**
+ * Sync EVERY chat shortcut, sized from the API's own `total_count`.
+ *
+ * This used to be a fixed `pageSize: 200` request that reported success
+ * unconditionally — fine while the dataset is 84 rows, silently truncating the
+ * moment it passes 200, with nothing to surface it.
+ *
+ * Deliberately ONE request sized to `total_count` rather than a page loop:
+ * `getTyresChatCached` clears the store and rewrites it on every call, so
+ * looping pages through it would wipe each previous page and leave only the
+ * last. Sizing the single request keeps that atomic replace intact — a failed
+ * sync cannot leave the cache half-populated — while still being driven by
+ * `total_count` instead of a hardcoded guess.
+ */
+async function syncAllTyresChat(): Promise<ModuleSyncOutcome> {
+  // Cheap count probe; `items` is discarded.
+  const head = await fetchTyresChatGraphQL({ pageSize: 1 }).catch(() => null);
+  if (!head) return { complete: false, synced: 0, total: 0, failedPages: [1] };
+
+  const total = head.total_count ?? 0;
+  if (total === 0) return { complete: true, synced: 0, total: 0, failedPages: [] };
+
+  const items = await new Promise<TyresChatItem[] | null>((resolve) => {
+    let settled = false;
+    const done = (v: TyresChatItem[] | null) => {
+      if (settled) return;
+      settled = true;
+      resolve(v);
+    };
+    void getTyresChatCached(
+      { pageSize: total },
+      { maxAgeMs: 0, onFresh: (rows) => done(rows), onError: () => done(null) },
+    );
+    setTimeout(() => done(null), 30000);
+  });
+
+  if (!items) return { complete: false, synced: 0, total, failedPages: [1] };
+  const synced = items.length;
+  return { complete: synced >= total, synced, total, failedPages: synced >= total ? [] : [1] };
+}
+
+const MODULE_DATA_SYNC: Record<SyncModule, () => Promise<ModuleSyncOutcome>> = {
+  products: () => syncAllStorefrontProducts(),
+  tyresChat: () => syncAllTyresChat(),
   supplierProducts: async () => {
-    await syncSupplierProductsPage();
+    // The FULL catalogue, not `syncSupplierProductsPage()` — that fetches a
+    // single default-sized page, so anything routed through this map would have
+    // silently synced one page and reported success.
+    await syncAllSupplierProducts();
+    return WHOLE;
   },
   // No dedicated data modules yet — ready for when these pages land.
   orders: async () => {
     console.info("[sync] orders module not implemented yet — skipping");
+    return WHOLE;
   },
   customers: async () => {
     console.info("[sync] customers module not implemented yet — skipping");
+    return WHOLE;
   },
 };
 
-async function refreshModule(mod: SyncModule): Promise<void> {
+async function refreshModule(mod: SyncModule): Promise<ModuleSyncOutcome> {
   const refreshers = registry.get(mod);
+
+  /* Products always pages the whole catalogue, mounted or not. A mounted page's
+     refresher only reloads the slice it is showing, so relying on it would make
+     a full sync mean different things depending on which route happened to be
+     open. The refresher still runs afterwards, so an open /products updates in
+     place — the existing contract is kept, just no longer used INSTEAD of the
+     data-layer pass. Other modules are untouched. */
+  if (mod === "products" || mod === "tyresChat") {
+    const outcome = await MODULE_DATA_SYNC[mod]();
+    if (refreshers && refreshers.size > 0) {
+      await Promise.all([...refreshers].map((fn) => Promise.resolve(fn())));
+    }
+    return outcome;
+  }
+
   if (refreshers && refreshers.size > 0) {
     // A page is mounted → update its live view directly.
     await Promise.all([...refreshers].map((fn) => Promise.resolve(fn())));
-  } else {
-    // No page mounted → refresh the data cache at the source.
-    await MODULE_DATA_SYNC[mod]();
+    return WHOLE;
   }
+  // No page mounted → refresh the data cache at the source.
+  await MODULE_DATA_SYNC[mod]();
+  return WHOLE;
 }
 
 /**
@@ -123,8 +258,8 @@ async function refreshModule(mod: SyncModule): Promise<void> {
  * data-layer sync directly instead would leave mounted pages showing stale
  * state after a sync.
  */
-export async function syncModule(mod: SyncModule): Promise<void> {
-  await refreshModule(mod);
+export async function syncModule(mod: SyncModule): Promise<ModuleSyncOutcome> {
+  return refreshModule(mod);
 }
 
 /** Header Sync: refresh ONLY the current route's module. */

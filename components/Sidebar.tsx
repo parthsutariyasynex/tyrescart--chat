@@ -12,6 +12,7 @@ import {
   BuildingStorefrontIcon,
 } from '@heroicons/react/24/outline';
 import SidebarSyncButton from '@/components/SidebarSyncButton';
+import { features, NAV_FEATURE_MAP, getDefaultRoute } from '@/config/features';
 
 export interface NavItem {
   name: string;
@@ -54,7 +55,7 @@ export default function Sidebar({ theme }: SidebarProps = {}) {
       <div className="flex flex-col items-center gap-6 w-full">
         {/* Logo Badge */}
         <Link
-          href="/dashboard"
+          href={getDefaultRoute()}
           title="TyresCart POS"
           className="flex items-center justify-center hover:opacity-80 transition-opacity"
         >
@@ -70,7 +71,10 @@ export default function Sidebar({ theme }: SidebarProps = {}) {
 
         {/* Centralized Navigation Items */}
         <nav className="flex flex-col gap-2 w-full px-2">
-          {NAV_ITEMS.map((item) => {
+          {NAV_ITEMS.filter((item) => {
+            const flagKey = NAV_FEATURE_MAP[item.href];
+            return !flagKey || features[flagKey];
+          }).map((item) => {
             const Icon = item.icon;
             // Active route comes from the pathname only — the Sidebar renders once
             // in the root layout and has no per-page props to read.

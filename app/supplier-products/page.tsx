@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { notFound } from 'next/navigation';
+import { features } from '@/config/features';
 import Link from 'next/link';
 import {
   MagnifyingGlassIcon,
@@ -57,7 +59,7 @@ import {
   useOnSyncComplete,
   useOnSyncError,
 } from '@/hooks/useSyncManager';
-import { SYNC_TASK, setSupplierPageRequest } from '@/services/syncTasks';
+import { SYNC_TASK } from '@/services/syncTasks';
 
 /**
  * Field names `searchFilter` should read on this page's `Product` shape.
@@ -316,6 +318,7 @@ const categoryBadges = CATEGORY_BADGES_SEMANTIC;
 const brandBadges = BRAND_BADGES_TAILWIND;
 
 export default function SupplierProductsPage() {
+  if (!features.supplierProducts) notFound();
   console.time("React Render");
   useEffect(() => {
     console.timeEnd("React Render");
@@ -392,15 +395,8 @@ export default function SupplierProductsPage() {
      state — the page contributes no sync lifecycle of its own, which is what
      lets a sync started here survive navigation to another route. */
   const supplierSync = useSyncTask(SYNC_TASK.supplierProducts);
-  const supplierPageSync = useSyncTask(SYNC_TASK.supplierPage);
   const fullSyncing = supplierSync.status === 'running';
   const syncProgress = supplierSync.progress;
-
-  /* The page-scoped sync task takes no arguments (nothing outside React knows
-     which slice is on screen), so publish it whenever pagination changes. */
-  useEffect(() => {
-    setSupplierPageRequest({ pageSize, currentPage });
-  }, [pageSize, currentPage]);
 
   // IndexedDB-first: on load/refresh/navigation we ONLY read the cached
   // catalogue — no API request, no background sync, no revalidation. Fresh data
@@ -648,16 +644,6 @@ export default function SupplierProductsPage() {
     }, 2800);
   };
 
-  /* A page refresh upserts those rows into IndexedDB; re-read so the table shows
-     them merged into the catalogue in canonical `sort_seq` order — the same thing
-     the old inline handler did with this function's return value. */
-  useOnSyncComplete(SYNC_TASK.supplierPage, () => {
-    void reReadCatalogue().then((rows) => {
-      setAllProducts((prev) => mergeCatalogue(prev, rows));
-      addToast('Current page refreshed.');
-    });
-  });
-
   // Surface a failed background sync — the manager records the reason, but with
   // no page mounted at the time there was nothing to show it.
   useOnSyncError(SYNC_TASK.supplierProducts, () => {
@@ -872,7 +858,7 @@ export default function SupplierProductsPage() {
   // way, and "No products found" would be telling the user something false.
   const showSkeleton =
     isLoading ||
-    ((fullSyncing || supplierPageSync.status === 'running') && allProducts.length === 0) ||
+    (fullSyncing && allProducts.length === 0) ||
     // "still bootstrapping" = this page started the cold sync AND the manager
     // says it is still running. Derived rather than mirrored in state, so an
     // error or completion clears it without an effect writing state.
@@ -980,13 +966,15 @@ export default function SupplierProductsPage() {
       <main className="flex-1 flex flex-col min-w-0 bg-slate-50 overflow-hidden">
 
         {/* TOP NAVIGATION HEADER */}
+        {/* No `syncTask` override here on purpose: SyncButton falls back to its
+            route map, which points /supplier-products at the FULL
+            `supplierProducts` catalogue task. */}
         <Header
           variant="sticky"
           title="Products"
           bookInquiry={false}
           fullscreenTone="slate"
-          syncTask={SYNC_TASK.supplierPage}
-          syncTitle="Sync current page"
+          syncTitle="Sync all supplier products"
           isOnline={isOnline}
           actions={
             <HeaderActions

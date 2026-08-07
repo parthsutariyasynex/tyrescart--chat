@@ -23,6 +23,7 @@ import type { ReactNode } from "react";
 import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
 import SyncButton from "@/components/SyncButton";
 import HeaderBookInquiry from "@/components/HeaderBookInquiry";
+import { features } from "@/config/features";
 import type { SyncTaskId } from "@/services/syncManager";
 
 /** Standard unified header shell across all pages to prevent navigation layout shift. */
@@ -110,7 +111,7 @@ export default function Header({
       {/* ── Right ── */}
       <div className={`flex items-center ${ACTION_GAP[variant]} max-xl:min-w-0 max-xl:overflow-x-auto`}>
         {actions}
-        {bookInquiry !== false &&
+        {features.bookInquiry && bookInquiry !== false &&
           (bookInquiry === "emerald" ? <HeaderBookInquiry variant="emerald" /> : <HeaderBookInquiry />)}
         <FullscreenButton tone={fullscreenTone} />
         <SyncButton {...(syncTask ? { task: syncTask } : {})} title={syncTitle} tone={syncTone} />

@@ -16,6 +16,8 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { notFound } from "next/navigation";
+import { features } from "@/config/features";
 import dynamic from "next/dynamic";
 import {
   BanknotesIcon,
@@ -89,6 +91,7 @@ function statusTone(s: string): "emerald" | "amber" | "rose" | "sky" | "slate" {
 }
 
 export default function DashboardPage() {
+  if (!features.dashboard) notFound();
   const isOnline = useOnlineStatus();
   const [isQuotationModalOpen, setIsQuotationModalOpen] = useState(false);
   const [isChatModalOpen, setIsChatModalOpen] = useState(false);

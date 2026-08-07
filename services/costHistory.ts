@@ -37,8 +37,7 @@ export interface CostHistoryRecord {
 
    `SyncTaskDefinition.run` takes no arguments, so a task cannot be told how it
    was triggered. The Sync button marks the task immediately before starting it
-   and the task consumes that mark — the same publish-then-read pattern
-   `setSupplierPageRequest` already uses for the page-scoped sync.
+   and the task consumes that mark — a publish-then-read handshake.
 
    Consuming clears the mark, so a later automatic run of the same task (a cold
    cache, a resume) records nothing.

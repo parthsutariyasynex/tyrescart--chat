@@ -89,7 +89,7 @@ export const OFFER_COLOR_PALETTE = [
   { bg: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-cyan-200/80', dot: 'bg-cyan-500' },
 ];
 
-export function getOfferBadgeStyle(offer: string, offerOptions?: string[]) {
+export function getOfferBadgeStyle(offer: string | undefined | null, offerOptions?: string[]) {
   if (!offer || offer === NO_API_FIELD) {
     return { bg: 'bg-slate-50', text: 'text-slate-500', border: 'border-slate-200', dot: 'bg-slate-400' };
   }

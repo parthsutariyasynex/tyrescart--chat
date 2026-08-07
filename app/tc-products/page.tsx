@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { notFound } from 'next/navigation';
+import { features } from '@/config/features';
 import Link from 'next/link';
 import {
   MagnifyingGlassIcon,
@@ -343,6 +345,7 @@ function getOfferBadgeStyle(offer: string, offerOptions?: string[]) {
 }
 
 export default function TcProductsPage() {
+  if (!features.tcProducts) notFound();
   const isOnline = useOnlineStatus();
 
   /** Seeded from the session rows cache so returning to this page paints the

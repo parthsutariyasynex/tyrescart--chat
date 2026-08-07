@@ -10,6 +10,7 @@ import {
   BookOpenIcon,
 } from '@heroicons/react/24/outline';
 import HeaderBookInquiry from '@/components/HeaderBookInquiry';
+import { features } from '@/config/features';
 
 export interface HeaderActionsProps {
   badge?: React.ReactNode;
@@ -102,7 +103,7 @@ export default function HeaderActions({
       )}
 
       {/* Copy Result — present and enabled on every page. */}
-      {visible.has('copyResult') && (
+      {features.copyResult && visible.has('copyResult') && (
         <button
           type="button"
           onClick={onCopyResult}
@@ -116,10 +117,10 @@ export default function HeaderActions({
       )}
 
       {/* Book Inquiry Button */}
-      {visible.has('bookInquiry') && <HeaderBookInquiry />}
+      {features.bookInquiry && visible.has('bookInquiry') && <HeaderBookInquiry />}
 
       {/* Create Quote Button */}
-      {visible.has('createQuote') && (
+      {features.quotation && visible.has('createQuote') && (
         <button
           type="button"
           onClick={onCreateQuote}
@@ -133,7 +134,7 @@ export default function HeaderActions({
       )}
 
       {/* Chat Button / Popup Toggle */}
-      {visible.has('chat') && (
+      {features.chat && visible.has('chat') && (
         onChat ? (
           <button
             type="button"
@@ -159,7 +160,7 @@ export default function HeaderActions({
       )}
 
       {/* Tyres Guide */}
-      {visible.has('tyresGuide') && (
+      {features.tyresGuide && visible.has('tyresGuide') && (
         <button
           type="button"
           onClick={onTyresGuide}
@@ -173,7 +174,7 @@ export default function HeaderActions({
       )}
 
       {/* Export — present and enabled on every page. */}
-      {visible.has('export') && (
+      {features.exportCsv && visible.has('export') && (
         <button
           type="button"
           onClick={onExportCSV}

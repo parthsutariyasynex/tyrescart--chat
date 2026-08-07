@@ -8,6 +8,7 @@ import {
   ClockIcon,
 } from "@heroicons/react/24/outline";
 import { getOfferBadgeStyle, NO_API_FIELD } from "@/constants/badges";
+import { features } from "@/config/features";
 
 function WhatsAppIcon({ className = "" }: { className?: string }) {
   return (
@@ -38,13 +39,41 @@ function displayTyreSize(item: { size?: string; sizeFull?: string }): string {
   return (item.sizeFull || "").replace(/\s+\d{2,3}(?:\/\d{2,3})?[A-Z]{1,2}\s*$/i, "").trim();
 }
 
-interface ProductTableRowProps {
-  item: any;
+export interface ProductRowItem {
+  id?: string | number;
+  itemCode?: string;
+  sku?: string;
+  brand?: string;
+  pattern?: string;
+  size?: string;
+  sizeFull?: string;
+  category?: string;
+  brand_category?: string;
+  price?: number;
+  setOf4Price?: number;
+  cost?: number;
+  qty?: number | string | null;
+  country?: string;
+  flag?: string;
+  runflat?: string | number | boolean;
+  warranty?: string;
+  year?: number;
+  offer?: string;
+  hasOffer?: boolean;
+  source?: string;
+  oem?: string;
+  supplier?: string;
+  date?: string;
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+interface ProductTableRowProps<T extends ProductRowItem = ProductRowItem> {
+  item: T;
   type: "tc" | "supplier";
   hiddenColumns: Set<string>;
   cellPaddingClass?: string;
   isSelected?: boolean;
-  brandBadges: Record<string, string>;
+  brandBadges?: Record<string, string>;
   categoryBadges: Record<string, string>;
   onCopyRow: (item: any) => void;
   onQuickView: (item: any) => void;
@@ -55,16 +84,16 @@ interface ProductTableRowProps {
   onCostHistory?: (item: any) => void;
   inCart?: boolean;
   inList?: boolean;
-  offerOptions?: any[];
+  offerOptions?: string[];
 }
 
-export const ProductTableRow = React.memo(function ProductTableRow({
+export const ProductTableRow = React.memo(function ProductTableRow<T extends ProductRowItem = ProductRowItem>({
   item,
   type,
   hiddenColumns,
   cellPaddingClass = "py-0.5 px-2",
   isSelected = false,
-  brandBadges,
+  brandBadges: _brandBadges,
   categoryBadges,
   onCopyRow,
   onQuickView,
@@ -76,7 +105,7 @@ export const ProductTableRow = React.memo(function ProductTableRow({
   inCart = false,
   inList = false,
   offerOptions = [],
-}: ProductTableRowProps) {
+}: ProductTableRowProps<T>) {
   return (
     <tr
       onClick={() => onCopyRow(item)}
@@ -125,10 +154,12 @@ export const ProductTableRow = React.memo(function ProductTableRow({
         <td
           className={`${cellPaddingClass} text-xs font-semibold text-slate-900 cursor-pointer hover:text-emerald-600 hover:bg-emerald-50/60 transition-colors`}
           onClick={(e) => {
-            e.stopPropagation();
-            onQuickView(item);
+            if (features.quickView) {
+              e.stopPropagation();
+              onQuickView(item);
+            }
           }}
-          title="Click to view details"
+          title={features.quickView ? "Click to view details" : undefined}
         >
           <span className="line-clamp-2">{item.pattern || "-"}</span>
         </td>
@@ -249,7 +280,7 @@ export const ProductTableRow = React.memo(function ProductTableRow({
       {/* Action Buttons Column */}
       <td className={`${cellPaddingClass} text-center`}>
         <div className="flex items-center justify-center gap-1.5">
-          {type === "supplier" && onCostHistory && (
+          {features.costHistory && type === "supplier" && onCostHistory && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -263,7 +294,7 @@ export const ProductTableRow = React.memo(function ProductTableRow({
             </button>
           )}
 
-          {onToggleList && (
+          {features.wishlist && onToggleList && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -280,7 +311,7 @@ export const ProductTableRow = React.memo(function ProductTableRow({
             </button>
           )}
 
-          {onAddToCart && (
+          {features.cart && onAddToCart && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -297,7 +328,7 @@ export const ProductTableRow = React.memo(function ProductTableRow({
             </button>
           )}
 
-          {onShareWhatsApp && (
+          {features.whatsapp && onShareWhatsApp && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -311,7 +342,7 @@ export const ProductTableRow = React.memo(function ProductTableRow({
             </button>
           )}
 
-          {onCheckSupplier && (
+          {features.checkSupplier && onCheckSupplier && (
             <button
               onClick={(e) => {
                 e.stopPropagation();

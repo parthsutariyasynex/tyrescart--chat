@@ -27,7 +27,23 @@
 
 export type SyncTaskId = string;
 
-export type SyncTaskStatus = "idle" | "running" | "completed" | "error" | "cancelled";
+export type SyncTaskStatus = "idle" | "running" | "completed" | "partial" | "error" | "cancelled";
+
+/**
+ * What a task resolves with when it needs to distinguish a full pass from an
+ * incomplete one.
+ *
+ * A bare string (or nothing) still means FULL success, so tasks that cannot end
+ * up partial are unchanged. Only a task that already computes its own
+ * completeness — the two catalogue passes, which track failed pages — needs
+ * this shape.
+ */
+export interface SyncTaskResult {
+  /** Same human-readable outcome a plain string return would have given. */
+  message?: string;
+  /** false when the pass finished but did not persist everything. */
+  complete: boolean;
+}
 
 export interface SyncProgress {
   loaded: number;
@@ -60,8 +76,9 @@ export interface SyncTaskContext {
 export interface SyncTaskDefinition {
   id: SyncTaskId;
   label: string;
-  /** Resolve with an optional message to show on success. */
-  run: (ctx: SyncTaskContext) => Promise<string | void>;
+  /** Resolve with an optional message to show on success, or a
+   *  {@link SyncTaskResult} when the task can finish with incomplete data. */
+  run: (ctx: SyncTaskContext) => Promise<string | void | SyncTaskResult>;
   /**
    * Keep this task out of {@link SyncManager.startAll}.
    *
@@ -125,6 +142,31 @@ class SyncManager {
 
   isAnyRunning = (): boolean =>
     Object.values(this.snapshot).some((t) => t.status === "running");
+
+  /**
+   * True when every task a full sync would run has finished with COMPLETE data.
+   *
+   * Deliberately tests `"completed"` and nothing else: `"partial"` means the
+   * pass finished but dropped pages, so treating it as synced would tell the
+   * user the application is up to date over incomplete data. `"error"` and
+   * `"cancelled"` are excluded for the same reason, which also keeps a failed
+   * task retryable.
+   *
+   * Mirrors `startAll()`'s own filter, so an excluded task (e.g. the page-scoped
+   * supplier refresh, which a full pass already covers) can never hold this
+   * false forever.
+   *
+   * In-memory only. The snapshot lives on this instance, so this survives
+   * re-renders and client-side navigation but NOT a page reload — a fresh
+   * context starts every task at "idle".
+   */
+  isAllSynced = (): boolean => {
+    const ids = this.getRegisteredIds().filter(
+      (id) => !this.definitions.get(id)?.excludeFromStartAll,
+    );
+    if (ids.length === 0) return false;
+    return ids.every((id) => this.snapshot[id]?.status === "completed");
+  };
 
   /* ── Subscriptions ──────────────────────────────────────────────── */
 
@@ -204,10 +246,21 @@ class SyncManager {
           });
           return;
         }
+        /* A task that returns a string (or nothing) is reporting FULL success,
+           which is what every task did before `SyncTaskResult` existed. Only an
+           explicit `complete: false` downgrades the status — the run still
+           finished and still counts as a run, but `isAllSynced()` must not treat
+           a pass that dropped pages as a synced application. */
+        const detailed = typeof message === "object" && message !== null;
+        const complete = detailed ? (message as SyncTaskResult).complete : true;
         this.patch(id, {
-          status: "completed",
+          status: complete ? "completed" : "partial",
           finishedAt: Date.now(),
-          message: typeof message === "string" ? message : null,
+          message: detailed
+            ? ((message as SyncTaskResult).message ?? null)
+            : typeof message === "string"
+              ? message
+              : null,
           runCount: (this.snapshot[id]?.runCount ?? 0) + 1,
         });
       } catch (err) {

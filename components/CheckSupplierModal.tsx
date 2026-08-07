@@ -1,6 +1,3 @@
-// devlopment branch set?
-// if its done so merge it in main
-
 "use client";
 
 /**
@@ -29,16 +26,14 @@
  * the Magento product, behind a fetch) so it shows "-" rather than a guess.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   XMarkIcon,
   MagnifyingGlassIcon,
   TruckIcon,
-  InformationCircleIcon,
   ArrowsPointingOutIcon,
   CheckBadgeIcon,
   GlobeAltIcon,
-  ClockIcon,
   ClipboardDocumentIcon,
 } from "@heroicons/react/24/outline";
 import { fetchSupplierProductsGraphQL } from "@/services/graphql";
@@ -159,13 +154,7 @@ const GLOBAL_SEARCH_FIELDS = [
   "date",
 ] as const;
 
-/** Quick View's icons, plus the three cells that only exist on this panel. */
-const ICON = {
-  ...SPEC_ICON,
-  "TYRE SIZE": ArrowsPointingOutIcon,
-  RUNFLAT: CheckBadgeIcon,
-  ORIGIN: GlobeAltIcon,
-};
+
 
 export interface CheckSupplierProduct {
   itemCode: string;
@@ -226,38 +215,7 @@ function runflatText(v: boolean | string | number | undefined | null): string {
   return String(v).trim();
 }
 
-/** One spec cell, styled exactly as Quick View's. */
-function SpecCell({
-  label,
-  value,
-  info,
-}: {
-  label: string;
-  value: string;
-  info?: boolean;
-}) {
-  const Icon = ICON[label as keyof typeof ICON];
-  return (
-    <div className="bg-white border border-slate-200 rounded-lg py-2 px-1.5 flex flex-col items-center justify-center text-center shadow-2xs hover:border-[#008b47]/50 transition-colors">
-      <div className="flex items-center gap-1 mb-0.5">
-        {Icon && (
-          <span className="w-3.5 h-3.5 rounded-full bg-[#008b47]/10 text-[#008b47] flex items-center justify-center shrink-0">
-            <Icon className="w-2 h-2 stroke-[2.5]" />
-          </span>
-        )}
-        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
-          {label}
-        </span>
-      </div>
-      <div className="text-xs font-bold text-slate-900 truncate w-full flex items-center justify-center gap-0.5">
-        <span className="truncate">{value}</span>
-        {info && (
-          <InformationCircleIcon className="w-3 h-3 text-slate-400 shrink-0" />
-        )}
-      </div>
-    </div>
-  );
-}
+
 
 export default function CheckSupplierModal({
   product,
@@ -279,9 +237,10 @@ export default function CheckSupplierModal({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
 
-  useEffect(() => {
+  const handleSearchChange = (val: string) => {
+    setSearch(val);
     setCurrentPage(1);
-  }, [search, product.itemCode, product.brand, product.size]);
+  };
 
   /* Mount hidden, slide up on the next tick, slide down before unmount. */
   const [isOpen, setIsOpen] = useState(false);
@@ -305,10 +264,10 @@ export default function CheckSupplierModal({
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     setIsClosing(true);
     closeTimer.current = setTimeout(onCloseAction, 500);
-  };
+  }, [onCloseAction]);
 
   useEffect(() => {
     let alive = true;
@@ -323,6 +282,7 @@ export default function CheckSupplierModal({
     })
       .then((res) => {
         if (!alive) return;
+        setCurrentPage(1);
         const all = res.items || [];
         const sku = norm(product.itemCode);
         const bySku = sku ? all.filter((r) => norm(r.sku) === sku) : [];
@@ -349,7 +309,10 @@ export default function CheckSupplierModal({
         );
       })
       .catch(() => {
-        if (alive) setRows([]);
+        if (alive) {
+          setCurrentPage(1);
+          setRows([]);
+        }
       });
     return () => {
       alive = false;
@@ -362,7 +325,7 @@ export default function CheckSupplierModal({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [handleClose]);
 
   const handleSort = (field: string) => {
     if (sortField === field) {
@@ -476,7 +439,7 @@ export default function CheckSupplierModal({
         )
       );
     });
-  }, [filtered, sortField, sortOrder]);
+  }, [filtered, sortField, sortOrder, product.year]);
 
   const totalPages = Math.ceil(sorted.length / pageSize);
 
@@ -527,40 +490,7 @@ export default function CheckSupplierModal({
   /** "" when the product has no promotion — keeps the header segment out. */
   const offerLabel = validOffer(product.offer);
 
-  const row1 = [
-    { label: "WIDTH", value: parts.width ? `${parts.width} mm` : UNKNOWN },
-    { label: "PROFILE", value: parts.profile || UNKNOWN },
-    { label: "RIM SIZE", value: parts.rim ? `R${parts.rim}` : UNKNOWN },
-    { label: "LOAD/SPEED", value: parts.load || UNKNOWN },
-  ];
 
-  const row2 = [
-    { label: "BRAND", value: product.brand || UNKNOWN },
-    { label: "PATTERN", value: product.pattern || UNKNOWN },
-    {
-      label: "TYRE SIZE",
-      value:
-        product.sizeFull || product.size
-          ? stripLoadIndex(product.sizeFull || product.size || "")
-          : UNKNOWN,
-      info: true,
-    },
-    {
-      label: "YEAR",
-      value: product.year && product.year > 0 ? String(product.year) : UNKNOWN,
-    },
-  ];
-
-  const row3 = [
-    { label: "RUNFLAT", value: runflatText(product.runflat) },
-    {
-      label: "ORIGIN",
-      value:
-        [product.flag, product.country].filter(Boolean).join(" ") || UNKNOWN,
-    },
-    { label: "WARRANTY", value: UNKNOWN },
-    { label: "SKU", value: product.itemCode || UNKNOWN },
-  ];
 
   const loading = rows === null;
   const empty = !loading && sorted.length === 0;
@@ -608,7 +538,7 @@ export default function CheckSupplierModal({
               {product.price !== undefined && product.price > 0 && (
                 <>
                   <span className="text-slate-300 font-light shrink-0">|</span>
-                  <span className="font-black text-slate-900 bg-slate-100 text-slate-800 border border-slate-200 px-2 py-0.5 rounded-full text-xs shrink-0">
+                  <span className="font-black text-slate-900 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full text-xs shrink-0">
                     AED{" "}
                     <span className="text-[#008b47] font-mono">
                       {money(product.price)}
@@ -622,7 +552,7 @@ export default function CheckSupplierModal({
               {product.setOf4Price !== undefined && product.setOf4Price > 0 && (
                 <>
                   <span className="text-slate-300 font-light shrink-0">|</span>
-                  <span className="font-black text-slate-900 bg-slate-100 text-slate-800 border border-slate-200 px-2 py-0.5 rounded-full text-xs shrink-0 whitespace-nowrap">
+                  <span className="font-black text-slate-900 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full text-xs shrink-0 whitespace-nowrap">
                     <span className="text-[10px] font-semibold text-slate-500">
                       Set of 4:
                     </span>{" "}
@@ -657,7 +587,7 @@ export default function CheckSupplierModal({
                     <input
                       type="text"
                       value={search}
-                      onChange={(e) => setSearch(e.target.value)}
+                      onChange={(e) => handleSearchChange(e.target.value)}
                       placeholder="Search supplier, size, origin...."
                       aria-label="Search supplier rows"
                       className="h-10 w-full pl-9 pr-9 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
@@ -665,7 +595,7 @@ export default function CheckSupplierModal({
                     {search && (
                       <button
                         type="button"
-                        onClick={() => setSearch("")}
+                        onClick={() => handleSearchChange("")}
                         title="Clear search"
                         aria-label="Clear search"
                         className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"

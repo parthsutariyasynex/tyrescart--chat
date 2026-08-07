@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { setDefaultResultOrder } from "node:dns";
+import { features } from "@/config/features";
 
 // Belt-and-suspenders with instrumentation.ts: this dev machine's IPv6 route to
 // the upstream is unreachable, and undici (Node fetch) resolves AAAA/IPv6 first
@@ -61,6 +62,12 @@ async function fetchUpstream(body: unknown): Promise<Response> {
 }
 
 export async function POST(req: Request) {
+  if (!features.graphqlProxy) {
+    return NextResponse.json(
+      { errors: [{ message: "GraphQL Proxy feature is disabled." }] },
+      { status: 403 }
+    );
+  }
   try {
     const body = await req.json();
     const response = await fetchUpstream(body);
