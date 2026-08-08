@@ -819,9 +819,9 @@ export default function CheckSupplierModal({
                           ↑↓
                         </span>
                       </th>
-                      <th className="py-2 px-3 text-center whitespace-nowrap">
+                      {/* <th className="py-2 px-3 text-center whitespace-nowrap">
                         Actions
-                      </th>
+                      </th> */}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-sans">
@@ -1011,7 +1011,7 @@ export default function CheckSupplierModal({
                           </td>
 
                           {/* Actions */}
-                          <td className="py-1.5 px-3 text-center whitespace-nowrap">
+                          {/* <td className="py-1.5 px-3 text-center whitespace-nowrap">
                             <div className="flex items-center justify-center">
                               <button
                                 type="button"
@@ -1025,7 +1025,7 @@ export default function CheckSupplierModal({
                                 <ClipboardDocumentIcon className="w-4 h-4" />
                               </button>
                             </div>
-                          </td>
+                          </td> */}
                         </tr>
                       );
                     })}
