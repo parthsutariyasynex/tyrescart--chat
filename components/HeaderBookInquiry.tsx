@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { CalendarDaysIcon } from '@heroicons/react/24/outline';
 import BookInquiryModal from '@/components/BookInquiryModal';
+import { features } from '@/config/features';
 
 interface HeaderBookInquiryProps {
   className?: string;
@@ -17,6 +18,7 @@ export default function HeaderBookInquiry({
   variant = 'emerald',
 }: HeaderBookInquiryProps) {
   const [isOpen, setIsOpen] = useState(false);
+  if (!features.bookInquiry) return null;
 
   const baseStyle =
     variant === 'emerald'

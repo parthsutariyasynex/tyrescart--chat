@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { notFound } from "next/navigation";
+import { features } from "@/config/features";
 import {
   ChatBubbleLeftRightIcon,
   MagnifyingGlassIcon,
@@ -39,6 +41,7 @@ const breakpointColumnsObj = {
 };
 
 export default function TyreGuideChatPage() {
+  if (!features.chat) notFound();
   const [shortcuts, setShortcuts] = useState<FormattedShortcutItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);

@@ -26,16 +26,14 @@
  * the Magento product, behind a fetch) so it shows "-" rather than a guess.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   XMarkIcon,
   MagnifyingGlassIcon,
   TruckIcon,
-  InformationCircleIcon,
   ArrowsPointingOutIcon,
   CheckBadgeIcon,
   GlobeAltIcon,
-  ClockIcon,
   ClipboardDocumentIcon,
 } from "@heroicons/react/24/outline";
 import { fetchSupplierProductsGraphQL } from "@/services/graphql";
@@ -47,28 +45,44 @@ import CostHistoryModal from "@/components/CostHistoryModal";
 import { CATEGORY_BADGES_SEMANTIC } from "@/constants/badges";
 import Pagination from "@/components/Pagination";
 
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTH_NAMES = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 
 function formatDateDDMM(rawDate?: string): string {
-  if (!rawDate || !rawDate.trim()) return '-';
+  if (!rawDate || !rawDate.trim()) return "-";
   const str = rawDate.trim();
   const d = new Date(str);
   if (!isNaN(d.getTime())) {
-    const day = String(d.getDate()).padStart(2, '0');
-    const monthStr = MONTH_NAMES[d.getMonth()] || String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, "0");
+    const monthStr =
+      MONTH_NAMES[d.getMonth()] || String(d.getMonth() + 1).padStart(2, "0");
     return `${day}-${monthStr}`;
   }
-  const match = str.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/) || str.match(/(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  const match =
+    str.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/) ||
+    str.match(/(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
   if (match) {
     if (match[1].length === 4) {
-      const day = match[3].padStart(2, '0');
+      const day = match[3].padStart(2, "0");
       const monthIdx = parseInt(match[2], 10) - 1;
-      const monthStr = MONTH_NAMES[monthIdx] || match[2].padStart(2, '0');
+      const monthStr = MONTH_NAMES[monthIdx] || match[2].padStart(2, "0");
       return `${day}-${monthStr}`;
     } else {
-      const day = match[1].padStart(2, '0');
+      const day = match[1].padStart(2, "0");
       const monthIdx = parseInt(match[2], 10) - 1;
-      const monthStr = MONTH_NAMES[monthIdx] || match[2].padStart(2, '0');
+      const monthStr = MONTH_NAMES[monthIdx] || match[2].padStart(2, "0");
       return `${day}-${monthStr}`;
     }
   }
@@ -93,13 +107,11 @@ type SupplierRow = SupplierProductItem & {
   date?: string;
 };
 
-
 /** Read a row column chosen at runtime. The sort field is a string set by a
  *  header click, so it cannot be narrowed to `keyof SupplierRow`. */
 function readField(row: SupplierRow, field: string): unknown {
   return (row as unknown as Record<string, unknown>)[field];
 }
-
 
 /**
  * Columns the tokenized search reads — the same `searchWithAspectRimFallback`
@@ -107,8 +119,16 @@ function readField(row: SupplierRow, field: string): unknown {
  * the width-omitted size fallback ("55R16") behave identically here.
  */
 const SEARCH_FIELDS = [
-  "brand", "product_name", "pattern", "name", "sku",
-  "source_name", "product_source", "source", "country", "size",
+  "brand",
+  "product_name",
+  "pattern",
+  "name",
+  "sku",
+  "source_name",
+  "product_source",
+  "source",
+  "country",
+  "size",
 ] as const;
 
 /** Numeric tokens go to the size only — same rule as the pages. */
@@ -124,16 +144,17 @@ const SEARCH_SIZE_FIELDS = ["size"] as const;
  */
 const GLOBAL_SEARCH_FIELDS = [
   ...SEARCH_FIELDS,
-  "cost", "price", "set_price", "fitting_price", "year", "qty", "runflat", "date",
+  "cost",
+  "price",
+  "set_price",
+  "fitting_price",
+  "year",
+  "qty",
+  "runflat",
+  "date",
 ] as const;
 
-/** Quick View's icons, plus the three cells that only exist on this panel. */
-const ICON = {
-  ...SPEC_ICON,
-  "TYRE SIZE": ArrowsPointingOutIcon,
-  RUNFLAT: CheckBadgeIcon,
-  ORIGIN: GlobeAltIcon,
-};
+
 
 export interface CheckSupplierProduct {
   itemCode: string;
@@ -157,10 +178,17 @@ export interface CheckSupplierProduct {
 }
 
 const money = (n: number) =>
-  n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  n.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
 /** Compare loosely on case/spacing only — never on partial text. */
-const norm = (v: unknown) => String(v ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+const norm = (v: unknown) =>
+  String(v ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
 
 /** Shown when the row carries no value. Never a made-up default. */
 const UNKNOWN = "-";
@@ -187,26 +215,7 @@ function runflatText(v: boolean | string | number | undefined | null): string {
   return String(v).trim();
 }
 
-/** One spec cell, styled exactly as Quick View's. */
-function SpecCell({ label, value, info }: { label: string; value: string; info?: boolean }) {
-  const Icon = ICON[label as keyof typeof ICON];
-  return (
-    <div className="bg-white border border-slate-200 rounded-lg py-2 px-1.5 flex flex-col items-center justify-center text-center shadow-2xs hover:border-[#008b47]/50 transition-colors">
-      <div className="flex items-center gap-1 mb-0.5">
-        {Icon && (
-          <span className="w-3.5 h-3.5 rounded-full bg-[#008b47]/10 text-[#008b47] flex items-center justify-center shrink-0">
-            <Icon className="w-2 h-2 stroke-[2.5]" />
-          </span>
-        )}
-        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">{label}</span>
-      </div>
-      <div className="text-xs font-bold text-slate-900 truncate w-full flex items-center justify-center gap-0.5">
-        <span className="truncate">{value}</span>
-        {info && <InformationCircleIcon className="w-3 h-3 text-slate-400 shrink-0" />}
-      </div>
-    </div>
-  );
-}
+
 
 export default function CheckSupplierModal({
   product,
@@ -218,7 +227,9 @@ export default function CheckSupplierModal({
   const [rows, setRows] = useState<SupplierRow[] | null>(null);
   const [sortField, setSortField] = useState<string>("cost");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
-  const [costHistoryItem, setCostHistoryItem] = useState<SupplierRow | null>(null);
+  const [costHistoryItem, setCostHistoryItem] = useState<SupplierRow | null>(
+    null,
+  );
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   /** Filters the rows in this popup only. Not debounced: the list is capped at
    *  one API page, so filtering is cheap enough to run on every keystroke. */
@@ -226,9 +237,10 @@ export default function CheckSupplierModal({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
 
-  useEffect(() => {
+  const handleSearchChange = (val: string) => {
+    setSearch(val);
     setCurrentPage(1);
-  }, [search, product.itemCode, product.brand, product.size]);
+  };
 
   /* Mount hidden, slide up on the next tick, slide down before unmount. */
   const [isOpen, setIsOpen] = useState(false);
@@ -240,17 +252,22 @@ export default function CheckSupplierModal({
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current); }, []);
+  useEffect(
+    () => () => {
+      if (closeTimer.current) clearTimeout(closeTimer.current);
+    },
+    [],
+  );
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     setIsClosing(true);
     closeTimer.current = setTimeout(onCloseAction, 500);
-  };
+  }, [onCloseAction]);
 
   useEffect(() => {
     let alive = true;
@@ -265,6 +282,7 @@ export default function CheckSupplierModal({
     })
       .then((res) => {
         if (!alive) return;
+        setCurrentPage(1);
         const all = res.items || [];
         const sku = norm(product.itemCode);
         const bySku = sku ? all.filter((r) => norm(r.sku) === sku) : [];
@@ -272,25 +290,46 @@ export default function CheckSupplierModal({
         const size = norm(product.size);
         const byAttrs =
           brand && size
-            ? all.filter((r) => norm(r.brand) === brand && norm(r.size) === size)
+            ? all.filter(
+                (r) => norm(r.brand) === brand && norm(r.size) === size,
+              )
             : [];
 
-        const matched = [...new Map([...bySku, ...byAttrs].map((r) => [String(r.id), r])).values()];
-        setRows(matched.length > 0 ? matched : all.filter(r => norm(r.brand) === brand || norm(r.size) === size));
+        const matched = [
+          ...new Map(
+            [...bySku, ...byAttrs].map((r) => [String(r.id), r]),
+          ).values(),
+        ];
+        setRows(
+          matched.length > 0
+            ? matched
+            : all.filter(
+                (r) => norm(r.brand) === brand || norm(r.size) === size,
+              ),
+        );
       })
-      .catch(() => { if (alive) setRows([]); });
-    return () => { alive = false; };
+      .catch(() => {
+        if (alive) {
+          setCurrentPage(1);
+          setRows([]);
+        }
+      });
+    return () => {
+      alive = false;
+    };
   }, [product.itemCode, product.brand, product.size]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") handleClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [handleClose]);
 
   const handleSort = (field: string) => {
     if (sortField === field) {
-      setSortOrder(prev => (prev === "asc" ? "desc" : "asc"));
+      setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
     } else {
       setSortField(field);
       setSortOrder("asc");
@@ -302,7 +341,12 @@ export default function CheckSupplierModal({
     const q = search.trim();
     if (!q) return rows;
 
-    const tokenMatched = searchWithAspectRimFallback(rows, q, SEARCH_FIELDS, SEARCH_SIZE_FIELDS);
+    const tokenMatched = searchWithAspectRimFallback(
+      rows,
+      q,
+      SEARCH_FIELDS,
+      SEARCH_SIZE_FIELDS,
+    );
     const needle = q.toLowerCase();
     const already = new Set(tokenMatched);
     const extra = rows.filter((r) => {
@@ -324,8 +368,11 @@ export default function CheckSupplierModal({
     // Same code-unit ordering the `<` / `>` comparison gave — NOT localeCompare,
     // which collates accents and case differently.
     const cmp = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
-    const numeric = sortField === "cost" || sortField === "qty"
-      || sortField === "year" || sortField === "fitting_price";
+    const numeric =
+      sortField === "cost" ||
+      sortField === "qty" ||
+      sortField === "year" ||
+      sortField === "fitting_price";
     return [...filtered].sort((a, b) => {
       if (sortField === "year") {
         const getYear = (r: SupplierRow) => {
@@ -347,7 +394,9 @@ export default function CheckSupplierModal({
       }
       if (sortField === "date") {
         const getDate = (r: SupplierRow) => {
-          const dStr = String(readField(r, "date") || readField(r, "created_at") || "");
+          const dStr = String(
+            readField(r, "date") || readField(r, "created_at") || "",
+          );
           const t = new Date(dStr).getTime();
           return isNaN(t) ? 0 : t;
         };
@@ -360,21 +409,37 @@ export default function CheckSupplierModal({
       }
       if (sortField === "source") {
         const pick = (r: SupplierRow) =>
-          String(readField(r, "source_name") || readField(r, "product_source") || readField(r, "source") || "");
+          String(
+            readField(r, "source_name") ||
+              readField(r, "product_source") ||
+              readField(r, "source") ||
+              "",
+          );
         return dir * cmp(pick(a), pick(b));
       }
       if (numeric) {
-        return dir * ((Number(readField(a, sortField)) || 0) - (Number(readField(b, sortField)) || 0));
+        return (
+          dir *
+          ((Number(readField(a, sortField)) || 0) -
+            (Number(readField(b, sortField)) || 0))
+        );
       }
       if (sortField === "runflat") {
-        return dir * ((readField(a, sortField) ? 1 : 0) - (readField(b, sortField) ? 1 : 0));
+        return (
+          dir *
+          ((readField(a, sortField) ? 1 : 0) -
+            (readField(b, sortField) ? 1 : 0))
+        );
       }
-      return dir * cmp(
-        String(readField(a, sortField) ?? "").toLowerCase(),
-        String(readField(b, sortField) ?? "").toLowerCase(),
+      return (
+        dir *
+        cmp(
+          String(readField(a, sortField) ?? "").toLowerCase(),
+          String(readField(b, sortField) ?? "").toLowerCase(),
+        )
       );
     });
-  }, [filtered, sortField, sortOrder]);
+  }, [filtered, sortField, sortOrder, product.year]);
 
   const totalPages = Math.ceil(sorted.length / pageSize);
 
@@ -412,36 +477,20 @@ export default function CheckSupplierModal({
     const raw = !pattern
       ? brand || product.itemCode
       : !brand || pattern.toLowerCase().startsWith(brand.toLowerCase())
-      ? pattern
-      : `${brand} ${pattern}`;
+        ? pattern
+        : `${brand} ${pattern}`;
 
     // Remove load index / speed rating (e.g. 97/95R, 89V, 91V, 109/107T)
-    return raw.replace(/\b\d{2,3}(?:\/\d{2,3})?[A-Za-z]\b/g, "").replace(/\s+/g, " ").trim();
+    return raw
+      .replace(/\b\d{2,3}(?:\/\d{2,3})?[A-Za-z]\b/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
   })();
 
   /** "" when the product has no promotion — keeps the header segment out. */
   const offerLabel = validOffer(product.offer);
 
-  const row1 = [
-    { label: "WIDTH", value: parts.width ? `${parts.width} mm` : UNKNOWN },
-    { label: "PROFILE", value: parts.profile || UNKNOWN },
-    { label: "RIM SIZE", value: parts.rim ? `R${parts.rim}` : UNKNOWN },
-    { label: "LOAD/SPEED", value: parts.load || UNKNOWN },
-  ];
 
-  const row2 = [
-    { label: "BRAND", value: product.brand || UNKNOWN },
-    { label: "PATTERN", value: product.pattern || UNKNOWN },
-    { label: "TYRE SIZE", value: (product.sizeFull || product.size) ? stripLoadIndex(product.sizeFull || product.size || "") : UNKNOWN, info: true },
-    { label: "YEAR", value: product.year && product.year > 0 ? String(product.year) : UNKNOWN },
-  ];
-
-  const row3 = [
-    { label: "RUNFLAT", value: runflatText(product.runflat) },
-    { label: "ORIGIN", value: [product.flag, product.country].filter(Boolean).join(" ") || UNKNOWN },
-    { label: "WARRANTY", value: UNKNOWN },
-    { label: "SKU", value: product.itemCode || UNKNOWN },
-  ];
 
   const loading = rows === null;
   const empty = !loading && sorted.length === 0;
@@ -450,7 +499,9 @@ export default function CheckSupplierModal({
   return (
     <div
       className={`fixed inset-0 z-50 flex items-end justify-center transition-all duration-500 ease-out ${
-        shown ? "opacity-100 bg-slate-900/50 backdrop-blur-sm" : "opacity-0 bg-black/0 pointer-events-none"
+        shown
+          ? "opacity-100 bg-slate-900/50 backdrop-blur-sm"
+          : "opacity-0 bg-black/0 pointer-events-none"
       }`}
       onClick={handleClose}
       role="dialog"
@@ -487,18 +538,28 @@ export default function CheckSupplierModal({
               {product.price !== undefined && product.price > 0 && (
                 <>
                   <span className="text-slate-300 font-light shrink-0">|</span>
-                  <span className="font-black text-slate-900 bg-slate-100 text-slate-800 border border-slate-200 px-2 py-0.5 rounded-full text-xs shrink-0">
-                    AED <span className="text-[#008b47] font-mono">{money(product.price)}</span>
-                    <span className="ml-1 text-[10px] font-semibold text-slate-500">per Tire</span>
+                  <span className="font-black text-slate-900 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full text-xs shrink-0">
+                    AED{" "}
+                    <span className="text-[#008b47] font-mono">
+                      {money(product.price)}
+                    </span>
+                    <span className="ml-1 text-[10px] font-semibold text-slate-500">
+                      per Tire
+                    </span>
                   </span>
                 </>
               )}
               {product.setOf4Price !== undefined && product.setOf4Price > 0 && (
                 <>
                   <span className="text-slate-300 font-light shrink-0">|</span>
-                  <span className="font-black text-slate-900 bg-slate-100 text-slate-800 border border-slate-200 px-2 py-0.5 rounded-full text-xs shrink-0 whitespace-nowrap">
-                    <span className="text-[10px] font-semibold text-slate-500">Set of 4:</span>{" "}
-                    AED <span className="text-[#008b47] font-mono">{money(product.setOf4Price)}</span>
+                  <span className="font-black text-slate-900 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full text-xs shrink-0 whitespace-nowrap">
+                    <span className="text-[10px] font-semibold text-slate-500">
+                      Set of 4:
+                    </span>{" "}
+                    AED{" "}
+                    <span className="text-[#008b47] font-mono">
+                      {money(product.setOf4Price)}
+                    </span>
                   </span>
                 </>
               )}
@@ -506,7 +567,9 @@ export default function CheckSupplierModal({
                 <>
                   <span className="text-slate-300 font-light shrink-0">|</span>
                   <span className="font-bold bg-amber-50 text-amber-800 border border-amber-200/80 px-2 py-0.5 rounded-full text-[11px] shrink-0 whitespace-nowrap">
-                    <span className="text-[10px] font-semibold text-amber-600">Offer:</span>{" "}
+                    <span className="text-[10px] font-semibold text-amber-600">
+                      Offer:
+                    </span>{" "}
                     {offerLabel}
                   </span>
                 </>
@@ -524,7 +587,7 @@ export default function CheckSupplierModal({
                     <input
                       type="text"
                       value={search}
-                      onChange={(e) => setSearch(e.target.value)}
+                      onChange={(e) => handleSearchChange(e.target.value)}
                       placeholder="Search supplier, size, origin...."
                       aria-label="Search supplier rows"
                       className="h-10 w-full pl-9 pr-9 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-2xs"
@@ -532,7 +595,7 @@ export default function CheckSupplierModal({
                     {search && (
                       <button
                         type="button"
-                        onClick={() => setSearch("")}
+                        onClick={() => handleSearchChange("")}
                         title="Clear search"
                         aria-label="Clear search"
                         className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
@@ -571,8 +634,6 @@ export default function CheckSupplierModal({
             </div>
           )}
 
-
-
           {/* Supplier rows table */}
           <div
             className="border border-slate-200 rounded-xl overflow-hidden flex flex-col justify-between"
@@ -583,9 +644,16 @@ export default function CheckSupplierModal({
                 className="p-3 space-y-2 flex flex-col justify-start"
                 style={{ minHeight: Math.min(pageSize, 15) * 34 + 32 }}
               >
-                <div className="skeleton h-7 rounded-lg w-full mb-1" aria-hidden="true" />
+                <div
+                  className="skeleton h-7 rounded-lg w-full mb-1"
+                  aria-hidden="true"
+                />
                 {Array.from({ length: Math.min(pageSize, 12) }).map((_, i) => (
-                  <div key={i} className="skeleton h-7 rounded-lg w-full" aria-hidden="true" />
+                  <div
+                    key={i}
+                    className="skeleton h-7 rounded-lg w-full"
+                    aria-hidden="true"
+                  />
                 ))}
               </div>
             ) : empty ? (
@@ -611,11 +679,14 @@ export default function CheckSupplierModal({
                   </>
                 ) : (
                   <>
-                    <p className="text-sm font-semibold text-slate-500">No supplier stocks this tyre.</p>
+                    <p className="text-sm font-semibold text-slate-500">
+                      No supplier stocks this tyre.
+                    </p>
                     <p className="mt-1 text-xs text-slate-400 max-w-md mx-auto">
-                      Nothing in the synced supplier catalogue matches this SKU, or this brand and
-                      size. If the supplier feed has not been synced on this device yet, run Sync on
-                      the Supplier page first.
+                      Nothing in the synced supplier catalogue matches this SKU,
+                      or this brand and size. If the supplier feed has not been
+                      synced on this device yet, run Sync on the Supplier page
+                      first.
                     </p>
                   </>
                 )}
@@ -644,46 +715,126 @@ export default function CheckSupplierModal({
                   </colgroup>
                   <thead className="bg-slate-50 sticky top-0 z-10 border-b border-slate-200">
                     <tr className="text-[10px] font-bold text-slate-500 uppercase tracking-wider select-none">
-                      <th onClick={() => handleSort("source")} className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">
-                        Source <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      <th
+                        onClick={() => handleSort("source")}
+                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      >
+                        Source{" "}
+                        <span className="ml-0.5 opacity-50 font-normal">
+                          ↑↓
+                        </span>
                       </th>
-                      <th onClick={() => handleSort("product_source")} className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">
-                        Type <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      <th
+                        onClick={() => handleSort("product_source")}
+                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      >
+                        Type{" "}
+                        <span className="ml-0.5 opacity-50 font-normal">
+                          ↑↓
+                        </span>
                       </th>
-                      <th onClick={() => handleSort("category")} className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">
-                        Category <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      <th
+                        onClick={() => handleSort("category")}
+                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      >
+                        Category{" "}
+                        <span className="ml-0.5 opacity-50 font-normal">
+                          ↑↓
+                        </span>
                       </th>
-                      <th onClick={() => handleSort("brand")} className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">
-                        Brand <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      <th
+                        onClick={() => handleSort("brand")}
+                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      >
+                        Brand{" "}
+                        <span className="ml-0.5 opacity-50 font-normal">
+                          ↑↓
+                        </span>
                       </th>
-                      <th onClick={() => handleSort("pattern")} className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">
-                        Tyre Pattern <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      <th
+                        onClick={() => handleSort("pattern")}
+                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      >
+                        Tyre Pattern{" "}
+                        <span className="ml-0.5 opacity-50 font-normal">
+                          ↑↓
+                        </span>
                       </th>
-                      <th onClick={() => handleSort("size")} className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">
-                        Size <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      <th
+                        onClick={() => handleSort("size")}
+                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      >
+                        Size{" "}
+                        <span className="ml-0.5 opacity-50 font-normal">
+                          ↑↓
+                        </span>
                       </th>
-                      <th onClick={() => handleSort("runflat")} className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap">
-                        RunFlat <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      <th
+                        onClick={() => handleSort("runflat")}
+                        className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      >
+                        RunFlat{" "}
+                        <span className="ml-0.5 opacity-50 font-normal">
+                          ↑↓
+                        </span>
                       </th>
-                      <th onClick={() => handleSort("country")} className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">
-                        Countries <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      <th
+                        onClick={() => handleSort("country")}
+                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      >
+                        Countries{" "}
+                        <span className="ml-0.5 opacity-50 font-normal">
+                          ↑↓
+                        </span>
                       </th>
-                      <th onClick={() => handleSort("year")} className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap">
-                        Year <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      <th
+                        onClick={() => handleSort("year")}
+                        className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      >
+                        Year{" "}
+                        <span className="ml-0.5 opacity-50 font-normal">
+                          ↑↓
+                        </span>
                       </th>
-                      <th onClick={() => handleSort("qty")} className="py-2 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap">
-                        Qty <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      <th
+                        onClick={() => handleSort("qty")}
+                        className="py-2 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      >
+                        Qty{" "}
+                        <span className="ml-0.5 opacity-50 font-normal">
+                          ↑↓
+                        </span>
                       </th>
-                      <th onClick={() => handleSort("cost")} className="py-2 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap">
-                        Cost <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      <th
+                        onClick={() => handleSort("cost")}
+                        className="py-2 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      >
+                        Cost{" "}
+                        <span className="ml-0.5 opacity-50 font-normal">
+                          ↑↓
+                        </span>
                       </th>
-                      <th onClick={() => handleSort("fitting_price")} className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap">
-                        Fitting Price <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      <th
+                        onClick={() => handleSort("fitting_price")}
+                        className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      >
+                        Fitting Price{" "}
+                        <span className="ml-0.5 opacity-50 font-normal">
+                          ↑↓
+                        </span>
                       </th>
-                      <th onClick={() => handleSort("date")} className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap">
-                        Date <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                      <th
+                        onClick={() => handleSort("date")}
+                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      >
+                        Date{" "}
+                        <span className="ml-0.5 opacity-50 font-normal">
+                          ↑↓
+                        </span>
                       </th>
-                      <th className="py-2 px-3 text-center whitespace-nowrap">Actions</th>
+                      <th className="py-2 px-3 text-center whitespace-nowrap">
+                        Actions
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-sans">
@@ -713,7 +864,9 @@ export default function CheckSupplierModal({
 
                           {/* Category */}
                           <td className="py-1.5 px-3 whitespace-nowrap">
-                            <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full border uppercase whitespace-nowrap inline-block ${CATEGORY_BADGES_SEMANTIC[r.category || ''] || 'badge-cat-default'}`}>
+                            <span
+                              className={`px-2 py-0.5 text-[10px] font-bold rounded-full border uppercase whitespace-nowrap inline-block ${CATEGORY_BADGES_SEMANTIC[r.category || ""] || "badge-cat-default"}`}
+                            >
                               {r.category || "—"}
                             </span>
                           </td>
@@ -727,41 +880,68 @@ export default function CheckSupplierModal({
 
                           {/* Tyre Pattern */}
                           <td className="py-1.5 px-3 text-xs font-bold text-slate-900 max-w-md">
-                            <span className="line-clamp-2">{r.pattern || r.product_name || r.name || product.pattern || "—"}</span>
+                            <span className="line-clamp-2">
+                              {r.pattern ||
+                                r.product_name ||
+                                r.name ||
+                                product.pattern ||
+                                "—"}
+                            </span>
                           </td>
 
                           {/* Size */}
                           <td className="py-1.5 px-3 text-xs font-mono text-slate-700 whitespace-nowrap">
-                            {stripLoadIndex(r.size || product.size || "") || "—"}
+                            {stripLoadIndex(r.size || product.size || "") ||
+                              "—"}
                           </td>
 
                           {/* RunFlat */}
                           <td className="py-1.5 px-3 text-center whitespace-nowrap">
                             {runflatVal === "Runflat" ? (
-                              <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded border border-emerald-200 whitespace-nowrap inline-block">Runflat</span>
+                              <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded border border-emerald-200 whitespace-nowrap inline-block">
+                                Runflat
+                              </span>
                             ) : (
-                              <span className="text-slate-400 font-medium">-</span>
+                              <span className="text-slate-400 font-medium">
+                                -
+                              </span>
                             )}
                           </td>
 
                           {/* Countries */}
                           <td className="py-1.5 px-3 whitespace-nowrap text-xs font-semibold text-slate-700">
-                            {r.country || product.country || <span className="text-slate-400 font-medium">-</span>}
+                            {r.country || product.country || (
+                              <span className="text-slate-400 font-medium">
+                                -
+                              </span>
+                            )}
                           </td>
 
                           {/* Year */}
                           <td className="py-1.5 px-3 text-center text-xs font-medium text-slate-600 whitespace-nowrap">
-                            {r.year && Number(r.year) > 0 ? r.year : <span className="text-slate-400 font-medium">-</span>}
+                            {r.year && Number(r.year) > 0 ? (
+                              r.year
+                            ) : (
+                              <span className="text-slate-400 font-medium">
+                                -
+                              </span>
+                            )}
                           </td>
 
                           {/* Qty */}
                           <td className="py-1.5 px-2 text-center whitespace-nowrap">
                             {r.qty === 0 || r.qty === "0" ? (
-                              <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-red-50 text-red-600 text-[11px] font-extrabold border border-red-200/60 font-mono">0</span>
+                              <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-red-50 text-red-600 text-[11px] font-extrabold border border-red-200/60 font-mono">
+                                0
+                              </span>
                             ) : r.qty ? (
-                              <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-extrabold border border-emerald-200/60 font-mono">{r.qty}</span>
+                              <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-extrabold border border-emerald-200/60 font-mono">
+                                {r.qty}
+                              </span>
                             ) : (
-                              <span className="text-slate-400 font-medium">-</span>
+                              <span className="text-slate-400 font-medium">
+                                -
+                              </span>
                             )}
                           </td>
 
@@ -770,35 +950,57 @@ export default function CheckSupplierModal({
                             {r.cost || r.price ? (
                               <button
                                 type="button"
-                                onClick={(e) => { e.stopPropagation(); setCostHistoryItem(r); }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCostHistoryItem(r);
+                                }}
                                 title="View cost history"
                                 className="inline-flex items-center justify-end gap-1 text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap rounded px-1 -mx-1 hover:text-emerald-700 hover:underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors cursor-pointer"
                                 dir="ltr"
                               >
-                                <span className="whitespace-nowrap">{money(Number(r.cost || r.price))}</span>
+                                <span className="whitespace-nowrap">
+                                  {money(Number(r.cost || r.price))}
+                                </span>
                               </button>
                             ) : (
-                              <span className="text-slate-400 font-medium">-</span>
+                              <span className="text-slate-400 font-medium">
+                                -
+                              </span>
                             )}
                           </td>
 
                           {/* Fitting Price */}
                           <td className="py-1.5 px-3 text-center whitespace-nowrap">
                             {r.fitting_price ? (
-                              <div className="inline-flex items-center justify-center gap-1 text-xs font-medium text-slate-500 font-mono whitespace-nowrap" dir="ltr">
-                                <span className="whitespace-nowrap">{money(Number(r.fitting_price))}</span>
+                              <div
+                                className="inline-flex items-center justify-center gap-1 text-xs font-medium text-slate-500 font-mono whitespace-nowrap"
+                                dir="ltr"
+                              >
+                                <span className="whitespace-nowrap">
+                                  {money(Number(r.fitting_price))}
+                                </span>
                               </div>
                             ) : (
-                              <span className="text-slate-400 font-medium">-</span>
+                              <span className="text-slate-400 font-medium">
+                                -
+                              </span>
                             )}
                           </td>
 
                           {/* Date */}
                           <td className="py-1.5 px-3 text-xs text-slate-500 whitespace-nowrap">
-                            {r.date || (r as unknown as { created_at?: string }).created_at ? (
-                              formatDateDDMM(r.date || (r as unknown as { created_at?: string }).created_at)
+                            {r.date ||
+                            (r as unknown as { created_at?: string })
+                              .created_at ? (
+                              formatDateDDMM(
+                                r.date ||
+                                  (r as unknown as { created_at?: string })
+                                    .created_at,
+                              )
                             ) : (
-                              <span className="text-slate-400 font-medium">-</span>
+                              <span className="text-slate-400 font-medium">
+                                -
+                              </span>
                             )}
                           </td>
 
@@ -807,7 +1009,10 @@ export default function CheckSupplierModal({
                             <div className="flex items-center justify-center">
                               <button
                                 type="button"
-                                onClick={(e) => { e.stopPropagation(); copyRowData(r); }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  copyRowData(r);
+                                }}
                                 title="Copy row data"
                                 className="p-1 rounded text-slate-400 hover:text-[#008b47] hover:bg-slate-100 transition-colors cursor-pointer"
                               >
@@ -845,7 +1050,10 @@ export default function CheckSupplierModal({
             brand: costHistoryItem.brand || product.brand,
             size: costHistoryItem.size || product.size,
             sizeFull: costHistoryItem.size || product.sizeFull,
-            pattern: costHistoryItem.pattern || costHistoryItem.name || product.pattern,
+            pattern:
+              costHistoryItem.pattern ||
+              costHistoryItem.name ||
+              product.pattern,
             itemCode: costHistoryItem.sku || product.itemCode,
             cost: Number(costHistoryItem.cost) || 0,
             productType: costHistoryItem.product_source || "supplier",
@@ -858,4 +1066,3 @@ export default function CheckSupplierModal({
     </div>
   );
 }
-

@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { notFound } from "next/navigation";
+import { features } from "@/config/features";
 import {
   ShoppingBagIcon,
   MagnifyingGlassIcon,
@@ -45,6 +47,7 @@ import { enrichProducts, type EnrichedProduct } from "@/services/productEnrich";
 import { useCart } from "@/hooks/useCart";
 
 export default function PosProductsPage() {
+  if (!features.products) notFound();
   const cart = useCart();
 
   // `products` is the FULL list loaded into cache so far (grows as background
