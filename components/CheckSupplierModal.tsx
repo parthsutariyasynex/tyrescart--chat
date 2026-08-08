@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * Check Supplier — what the supplier feed holds for one tc-products row.
+ * CheckSupplierModal.tsx
+ * Modal displaying supplier pricing/stock availability matching a product.
  *
  * Reads the already-synced supplier catalogue out of IndexedDB. No network call:
  * the rows are the same ones /supplier-products renders, so this works offline
