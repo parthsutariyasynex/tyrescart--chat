@@ -1009,6 +1009,7 @@ export default function CheckSupplierModal({
                             )}
                           </td>
 
+                          {/* Actions */}
                           {/* <td className="py-1.5 px-3 text-center whitespace-nowrap">
                             <div className="flex items-center justify-center">
                               <button
