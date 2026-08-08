@@ -12,7 +12,7 @@ import {
   BuildingStorefrontIcon,
 } from '@heroicons/react/24/outline';
 import SidebarSyncButton from '@/components/SidebarSyncButton';
-import { features, NAV_FEATURE_MAP, getDefaultRoute } from '@/config/features';
+import { features, NAV_FEATURE_MAP } from '@/config/features';
 
 export interface NavItem {
   name: string;
@@ -21,7 +21,7 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  { name: 'Dashboard', icon: HomeIcon, href: '/dashboard' },
+  // { name: 'Dashboard', icon: HomeIcon, href: '/dashboard' },
   { name: 'Supplier', icon: TruckIcon, href: '/supplier-products' },
   { name: 'TC', icon: BuildingStorefrontIcon, href: '/tc-products' },
   { name: 'Products', icon: ShoppingBagIcon, href: '/products' },
@@ -55,7 +55,7 @@ export default function Sidebar({ theme }: SidebarProps = {}) {
       <div className="flex flex-col items-center gap-6 w-full">
         {/* Logo Badge */}
         <Link
-          href={getDefaultRoute()}
+          href="/supplier-products"
           title="TyresCart POS"
           className="flex items-center justify-center hover:opacity-80 transition-opacity"
         >
