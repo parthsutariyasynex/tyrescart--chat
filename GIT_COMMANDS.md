@@ -30,21 +30,25 @@ git commit -m "Your commit message here"
 git push origin development
 ```
 
-### 🔹 Step 4: Merge to `main` for Production (Vercel) Deployment
+### 🔹 Step 4: Deploying to `main` (Production)
+
+#### Option A: Cherry-Pick a specific commit
+Use this when you only want to push a specific tested commit to `main`:
 ```bash
-# 1. Switch to the main branch
 git checkout main
-
-# 2. Pull the latest changes from main
 git pull origin main
-
-# 3. Merge development changes into main
-git merge development
-
-# 4. Push main branch to trigger Vercel deployment
+git cherry-pick <COMMIT_HASH>
 git push origin main
+git checkout development
+```
 
-# 5. Switch back to development branch for ongoing work
+#### Option B: Merge all development commits
+Use this when all changes on `development` are ready for production:
+```bash
+git checkout main
+git pull origin main
+git merge development
+git push origin main
 git checkout development
 ```
 
@@ -91,6 +95,7 @@ git push origin development
 | `git log -n 5 --oneline` | View concise history of the last 5 commits |
 | `git stash` | Temporarily save uncommitted working directory changes |
 | `git stash pop` | Apply and remove the most recent stashed changes |
+| `git cherry-pick <commit>` | Apply a specific commit from another branch |
 | `git restore <file>` | Discard uncommitted changes in a specific file |
 
 ---
