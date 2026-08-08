@@ -5,7 +5,6 @@ import { createPortal } from "react-dom";
 import {
   XMarkIcon,
   ShoppingBagIcon,
-  InformationCircleIcon,
   TruckIcon,
   ShieldCheckIcon,
   WrenchScrewdriverIcon,
@@ -53,11 +52,7 @@ import { brandLogoUrl } from "@/constants/badges";
  *  identity stable; a new closure each render would resubscribe endlessly. */
 const subscribeNever = () => () => {};
 
-/** Case/whitespace-insensitive compare. Everything else must be identical. */
-function sameValue(a: string, b: string): boolean {
-  const norm = (v: string) => v.trim().toLowerCase().replace(/\s+/g, " ");
-  return norm(a) !== "" && norm(a) === norm(b);
-}
+
 
 /**
  * Decompose the SUPPLIER FEED's own size string into its parts.
@@ -160,7 +155,6 @@ export default function QuickViewModal({
   /** Thumbnail choice, tagged with the product it was made for — see the
    *  derivation further down, next to where `detail` is available. */
   const [imgPick, setImgPick] = useState<{ key: string; index: number }>({ key: "", index: 0 });
-  const [isOpen, setIsOpen] = useState<boolean>(false);
   const [isClosing, setIsClosing] = useState<boolean>(false);
   /** undefined = still loading, null = no storefront product for this sku. */
   const [detail, setDetail] = useState<TcQuickViewProduct | null | undefined>(
@@ -401,10 +395,6 @@ export default function QuickViewModal({
   const totalPrice = unitPrice * payableQty;
   const priceHeading = readAttr(attrs, "price_included_text") || "Price";
 
-  // Offer banner and stock badge render only when the API actually says so.
-  const offerLabel = resolvedOffer;
-  // "1" on products enrolled in the BNPL programme; absent otherwise.
-  const splitPayment = readAttr(attrs, "tabby_payment") === "1";
   const inStock = detail?.stock_status === "IN_STOCK";
 
   /* Reset-on-product-change, derived rather than done in an effect: an effect
