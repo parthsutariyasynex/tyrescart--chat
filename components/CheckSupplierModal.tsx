@@ -31,15 +31,11 @@ import {
   XMarkIcon,
   MagnifyingGlassIcon,
   TruckIcon,
-  ArrowsPointingOutIcon,
-  CheckBadgeIcon,
-  GlobeAltIcon,
   ClipboardDocumentIcon,
 } from "@heroicons/react/24/outline";
 import { fetchSupplierProductsGraphQL } from "@/services/graphql";
 import { searchWithAspectRimFallback } from "@/services/searchFilter";
 import type { SupplierProductItem } from "@/services/types";
-import { SPEC_ICON, splitSupplierSize } from "@/components/QuickViewModal";
 import { buildRowString, stripLoadIndex } from "@/services/productFormatter";
 import CostHistoryModal from "@/components/CostHistoryModal";
 import { CATEGORY_BADGES_SEMANTIC } from "@/constants/badges";
@@ -110,6 +106,7 @@ type SupplierRow = SupplierProductItem & {
 /** Read a row column chosen at runtime. The sort field is a string set by a
  *  header click, so it cannot be narrowed to `keyof SupplierRow`. */
 function readField(row: SupplierRow, field: string): unknown {
+  if (field === "category") return row.category || row.brand_category;
   return (row as unknown as Record<string, unknown>)[field];
 }
 
@@ -153,8 +150,6 @@ const GLOBAL_SEARCH_FIELDS = [
   "runflat",
   "date",
 ] as const;
-
-
 
 export interface CheckSupplierProduct {
   itemCode: string;
@@ -214,8 +209,6 @@ function runflatText(v: boolean | string | number | undefined | null): string {
   if (["1", "y", "yes", "true", "runflat"].includes(s)) return "Runflat";
   return String(v).trim();
 }
-
-
 
 export default function CheckSupplierModal({
   product,
@@ -465,11 +458,7 @@ export default function CheckSupplierModal({
     showToast(`Copied product details to clipboard!`);
   };
 
-  /* ── Spec grid, all of it off the row already in hand ── */
-  const parts = useMemo(
-    () => splitSupplierSize(product.sizeFull || product.size || ""),
-    [product.sizeFull, product.size],
-  );
+
 
   const displayName = (() => {
     const brand = (product.brand || "").trim();
@@ -489,8 +478,6 @@ export default function CheckSupplierModal({
 
   /** "" when the product has no promotion — keeps the header segment out. */
   const offerLabel = validOffer(product.offer);
-
-
 
   const loading = rows === null;
   const empty = !loading && sorted.length === 0;
@@ -864,11 +851,30 @@ export default function CheckSupplierModal({
 
                           {/* Category */}
                           <td className="py-1.5 px-3 whitespace-nowrap">
-                            <span
-                              className={`px-2 py-0.5 text-[10px] font-bold rounded-full border uppercase whitespace-nowrap inline-block ${CATEGORY_BADGES_SEMANTIC[r.category || ""] || "badge-cat-default"}`}
-                            >
-                              {r.category || "—"}
-                            </span>
+                            {(() => {
+                              const cat = (
+                                r.category ||
+                                r.brand_category ||
+                                ""
+                              ).trim();
+                              return cat ? (
+                                <span
+                                  className={`px-2 py-0.5 text-[10px] font-bold rounded-full border uppercase whitespace-nowrap inline-block ${
+                                    CATEGORY_BADGES_SEMANTIC[cat] ||
+                                    CATEGORY_BADGES_SEMANTIC[
+                                      cat.toUpperCase()
+                                    ] ||
+                                    "badge-cat-default"
+                                  }`}
+                                >
+                                  {cat}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 font-normal text-xs">
+                                  —
+                                </span>
+                              );
+                            })()}
                           </td>
 
                           {/* Brand */}

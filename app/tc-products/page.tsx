@@ -3,21 +3,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { notFound } from 'next/navigation';
 import { features } from '@/config/features';
-import Link from 'next/link';
-import {
-  MagnifyingGlassIcon,
-  ArrowPathIcon,
-  ChevronDownIcon,
-  ClipboardDocumentIcon,
-  XMarkIcon,
-  BookmarkIcon,
-  ShoppingCartIcon,
-  TruckIcon,
-  CalendarDaysIcon,
-  EyeIcon,
-  DocumentTextIcon,
-  ChatBubbleLeftRightIcon,
-} from '@heroicons/react/24/outline';
 import BookInquiryModal from "@/components/BookInquiryModal";
 import CheckSupplierModal from "@/components/CheckSupplierModal";
 import CartModal from "@/components/CartModal";
@@ -32,19 +17,15 @@ import { useProductSorting } from '@/hooks/useProductSorting';
 import ChatModal from "@/components/ChatModal";
 import TyresGuideModal from "@/components/TyresGuideModal";
 import ProductTableRow from '@/components/ProductTableRow';
-import { buildRowString, buildBulkCopyString, setOfFourPrice, stripLoadIndex } from "@/services/productFormatter";
+import { buildRowString, buildBulkCopyString, setOfFourPrice } from "@/services/productFormatter";
 import Header from "@/components/Header";
-import HeaderBookInquiry from "@/components/HeaderBookInquiry";
 import HeaderActions from "@/components/HeaderActions";
 import { CATEGORY_BADGES_SEMANTIC, BRAND_BADGES_SEMANTIC } from "@/constants/badges";
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import {
   parseAspectRim,
   parseRimOnly,
-  matchesAspectRim,
-  matchesSearch,
   paginate,
-  searchWithAspectRimFallback,
 } from '@/services/searchFilter';
 import { useCart } from '@/hooks/useCart';
 import {
@@ -109,23 +90,7 @@ const GLOBAL_SEARCH_FIELDS = [
   'offer',
 ] as const;
 
-/** Size-box predicate: full/normalized size, with width-omitted aspect+rim fallback (e.g. "55R16"). */
-function matchesSizeInput(item: { size: string }, s: string): boolean {
-  const ar = parseAspectRim(s);
-  if (ar) return matchesAspectRim(item, ar.aspect, ar.rim, ['size']);
-  return matchesSearch(item, s, ['size'], ['size']);
-}
 
-
-/** WhatsApp mark. Inlined because neither @heroicons nor lucide-react ships a
- *  brand glyph for it; `currentColor` so it follows the button's text colour. */
-function WhatsAppIcon({ className = '' }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
-      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.71.306 1.263.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884a9.82 9.82 0 0 1 6.988 2.896 9.83 9.83 0 0 1 2.893 6.994c-.003 5.45-4.437 9.886-9.885 9.886m8.413-18.297A11.82 11.82 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.88 11.88 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.82 11.82 0 0 0-3.48-8.413Z" />
-    </svg>
-  );
-}
 
 export interface Product {
   id: number;
@@ -184,13 +149,7 @@ interface Toast {
   msg: string;
 }
 
-/**
- * Reused collator for column sorting. `String.prototype.localeCompare` builds a
- * fresh collator on every call, which is fine occasionally but not when a sort
- * is always active: with LATEST? unticked the comparator runs across ~318k rows
- * (~5.7M comparisons). One shared instance is the same ordering, far cheaper.
- */
-const collator = new Intl.Collator();
+
 
 /**
  * Canonicalise the API's own `brand_category` casing (e.g. "tier1" → "Tier 1").
@@ -257,11 +216,14 @@ function mapTcProduct(p: TcApiProduct, maps: TcLabelMaps): Product {
   const size = lbl(maps.size, p.tyre_size);
   const li = (p.load_index ?? '').trim();
   const regular = p.price_range?.minimum_price?.regular_price?.value ?? 0;
-  const tyresCategoryLabel = lbl(maps.tyresCategory, p.tyres_category ?? null);
+  const tyresCategoryFromLabel = lbl(maps.tyresCategory, p.tyres_category ?? null);
+  const tyresCategoryFromList = p.categories?.find(c => c.name && c.name !== 'Default Category' && c.name !== 'Tyres')?.name ?? '';
+  const tyresCategoryLabel = tyresCategoryFromLabel || tyresCategoryFromList;
   // Resolved once and reused by BOTH the Offer column and the Set of 4
   // derivation below, so the price can never disagree with the badge shown
   // next to it.
   const offerLabel = lbl(maps.offers, p.offers) || NO_API_FIELD;
+  const sizeFull = li && !size.includes(li) ? `${size} ${li}`.trim() : size;
 
   return {
     id: Number(p.uid ? parseInt(atob(p.uid), 10) : 0) || 0,
@@ -272,7 +234,7 @@ function mapTcProduct(p: TcApiProduct, maps: TcLabelMaps): Product {
     brand: lbl(maps.brand, p.brand),
     pattern: p.name ?? '',
     size,
-    sizeFull: stripLoadIndex(size),
+    sizeFull,
     runflat: lbl(maps.runflat, p.runflat) !== '',
     // `offers` is an option ID, not a boolean: null and 0 both mean "no offer",
     // any other id is one of the 8 configured promotions. Nothing is defaulted —
@@ -313,36 +275,7 @@ function mapTcProduct(p: TcApiProduct, maps: TcLabelMaps): Product {
 const categoryBadges = CATEGORY_BADGES_SEMANTIC;
 const brandBadges = BRAND_BADGES_SEMANTIC;
 
-const OFFER_COLOR_PALETTE = [
-  { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200/80', dot: 'bg-amber-500' },
-  { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200/80', dot: 'bg-emerald-500' },
-  { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200/80', dot: 'bg-indigo-500' },
-  { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200/80', dot: 'bg-purple-500' },
-  { bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200/80', dot: 'bg-rose-500' },
-  { bg: 'bg-sky-50', text: 'text-sky-700', border: 'border-sky-200/80', dot: 'bg-sky-500' },
-  { bg: 'bg-teal-50', text: 'text-teal-700', border: 'border-teal-200/80', dot: 'bg-teal-500' },
-  { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200/80', dot: 'bg-orange-500' },
-  { bg: 'bg-violet-50', text: 'text-violet-700', border: 'border-violet-200/80', dot: 'bg-violet-500' },
-  { bg: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-cyan-200/80', dot: 'bg-cyan-500' },
-];
 
-function getOfferBadgeStyle(offer: string, offerOptions?: string[]) {
-  if (!offer || offer === NO_API_FIELD) {
-    return { bg: 'bg-slate-50', text: 'text-slate-500', border: 'border-slate-200', dot: 'bg-slate-400' };
-  }
-  let index = -1;
-  if (offerOptions && offerOptions.length > 0) {
-    index = offerOptions.indexOf(offer);
-  }
-  if (index === -1) {
-    let hash = 0;
-    for (let i = 0; i < offer.length; i++) {
-      hash = offer.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    index = Math.abs(hash);
-  }
-  return OFFER_COLOR_PALETTE[index % OFFER_COLOR_PALETTE.length];
-}
 
 export default function TcProductsPage() {
   if (!features.tcProducts) notFound();
@@ -366,7 +299,6 @@ export default function TcProductsPage() {
   /** Offer filter — 'ALL' = show all products, 'HAS_OFFER' = any offer, or specific offer label.
    *  Defaults to 'ALL' so all products are shown when no specific offer is selected. */
   const [offerFilter, setOfferFilter] = useState('ALL');
-  const [isOfferOpen, setIsOfferOpen] = useState(false);
 
   const [pageSize, setPageSize] = useState(15);
   const [currentPage, setCurrentPage] = useState(1);
@@ -375,9 +307,9 @@ export default function TcProductsPage() {
   // `year` branch in useProductSorting). Sorting by 'date' alone ordered the
   // whole catalogue by date and interleaved the years — 2024 rows dated
   // 07-Jul sat above 2026 rows dated 04-Jul.
-  const { sortColumn, sortAsc, handleSort, sortItems } = useProductSorting<Product>('year', false);
+  const { handleSort, sortItems } = useProductSorting<Product>('year', false);
 
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [selectedIds] = useState<Set<number>>(new Set());
   /** Rows the user has added via the Action column. Client-side only — there is
    *  no list/cart endpoint on the API yet, so this is UI state, not fake data. */
   const [listIds, setListIds] = useState<Set<number>>(new Set());
@@ -388,15 +320,15 @@ export default function TcProductsPage() {
   /** Cart panel visibility. Opens on Add to Cart. */
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [quickViewItem, setQuickViewItem] = useState<Product | null>(null);
-  const [inquiryModalItem, setInquiryModalItem] = useState<Product | null>(null);
+  const [inquiryModalItem] = useState<Product | null>(null);
   const [isInquiryModalOpen, setIsInquiryModalOpen] = useState(false);
   const [isQuotationModalOpen, setIsQuotationModalOpen] = useState(false);
   const [isChatModalOpen, setIsChatModalOpen] = useState(false);
   const [isTyresGuideModalOpen, setIsTyresGuideModalOpen] = useState(false);
-  const [density, setDensity] = useState<TableDensity>('comfortable');
+  const [density] = useState<TableDensity>('comfortable');
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const addToast = useCallback((msg: string, _type?: string) => {
+  const addToast = useCallback((msg: string) => {
     const id = Date.now() + Math.floor(Math.random() * 1000);
     setToasts(prev => [...prev, { id, msg }]);
     setTimeout(() => {
@@ -404,7 +336,7 @@ export default function TcProductsPage() {
     }, 2800);
   }, []);
 
-  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+  const [hiddenColumns] = useState<Set<string>>(new Set());
 
   const [isLoading, setIsLoading] = useState(true);
   /** Synchronous latch for the PAGE-scoped sync only. The full catalogue sync
@@ -585,10 +517,11 @@ export default function TcProductsPage() {
     document.documentElement.classList.remove('dark');
     document.body.classList.remove('dark-theme');
     void loadAll();
+    const ref = loadIdRef;
     // Bump the load id on unmount so a background run stops instead of
     // fetching every remaining page into a dead component.
     return () => {
-      loadIdRef.current++;
+      ref.current++;
     };
   }, [loadAll]);
 
@@ -661,16 +594,7 @@ export default function TcProductsPage() {
     };
   }, [allProducts]);
 
-  const filteredBrandOptions = useMemo(() => {
-    if (!brandInput.trim()) return brandOptions;
-    const lastTerm = brandInput.split(',').pop()?.trim().toLowerCase() || '';
-    if (!lastTerm) return brandOptions;
-    return brandOptions.filter(b => b.toLowerCase().includes(lastTerm));
-  }, [brandOptions, brandInput]);
 
-  const selectedBrandList = useMemo(() => {
-    return brandInput.split(',').map(s => s.trim()).filter(Boolean);
-  }, [brandInput]);
 
   const partialSizeInfo = useMemo(() => {
     const q = (searchQuery || sizeInput).trim();
@@ -856,10 +780,7 @@ export default function TcProductsPage() {
     addToast(`Copied product details to clipboard!`);
   };
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    addToast(`Copied "${text}" to clipboard!`);
-  };
+
 
 
   // Single-row copy — unchanged behaviour, now just delegating the formatting.
@@ -922,12 +843,7 @@ export default function TcProductsPage() {
     addToast(`Exported ${filteredProducts.length} items to CSV.`);
   };
 
-  const toggleColumn = (colKey: string) => {
-    const newHidden = new Set(hiddenColumns);
-    if (newHidden.has(colKey)) newHidden.delete(colKey);
-    else newHidden.add(colKey);
-    setHiddenColumns(newHidden);
-  };
+
 
 
   // Cell padding class based on Density mode

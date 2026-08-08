@@ -276,6 +276,7 @@ function resetIntern(): void {
 }
 
 function mapSupplierToProduct(p: CachedSupplierProduct): Product {
+  const fullSize = sizeWithLoadSpeed(p.size ?? '', p.product_name ?? '');
   return {
     // `CachedSupplierProduct.id` is `string | number`. A non-numeric id used to
     // collapse to 0 via `Number(p.id) || 0`, so EVERY such row shared id 0 —
@@ -291,8 +292,8 @@ function mapSupplierToProduct(p: CachedSupplierProduct): Product {
     category: intern(normalizeCategory(p.brand_category)),
     brand: intern(p.brand ?? ''),
     pattern: p.product_name ?? '',
-    size: intern(stripLoadIndex(p.size ?? '')),
-    sizeFull: intern(stripLoadIndex(p.size ?? '')),
+    size: intern(stripLoadIndex(fullSize)),
+    sizeFull: intern(fullSize),
     runflat: p.runflat !== undefined && p.runflat !== null
       ? (typeof p.runflat === 'boolean' ? p.runflat : String(p.runflat).toLowerCase() === 'yes' || String(p.runflat) === '1')
       : /run\s*flat|\bRFT\b|\bZP\b|\bSSR\b|\bMOE\b/i.test(p.product_name ?? ''),
