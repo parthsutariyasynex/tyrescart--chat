@@ -42,6 +42,11 @@ git push origin main
 git checkout development
 ```
 
+**⚡ Quick 1-Line Copy-Paste:**
+```bash
+git checkout main && git pull origin main && git cherry-pick <COMMIT_HASH> && git push origin main && git checkout development
+```
+
 #### Option B: Merge all development commits
 Use this when all changes on `development` are ready for production:
 ```bash
