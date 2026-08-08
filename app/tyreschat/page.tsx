@@ -16,7 +16,7 @@ import QuotationModal from "@/components/QuotationModal";
 import { getTyresChatCached, CACHE_ANY_AGE } from "@/services/cache";
 import type { TyresChatItem } from "@/services/types";
 import { useToast } from "@/components/ToastProvider";
-import { ChatGridSkeleton } from "@/components/Skeletons";
+import { ChatGridSkeleton, Skeleton } from "@/components/Skeletons";
 import Masonry from "react-masonry-css";
 import { registerModuleSync } from "@/services/syncService";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
@@ -232,9 +232,13 @@ export default function TyreGuideChatPage() {
           actions={
             <HeaderActions
               badge={
-                <span className="inline-flex items-center justify-center min-w-[92px] bg-emerald-50 text-emerald-700 text-xs font-semibold px-2.5 py-1 rounded-full border border-emerald-200/80 tabular-nums whitespace-nowrap shadow-2xs">
-                  {shortcuts.length.toLocaleString()} items
-                </span>
+                loading && shortcuts.length === 0 ? (
+                  <Skeleton className="h-7 w-[92px] rounded-full" />
+                ) : (
+                  <span className="inline-flex items-center justify-center min-w-[92px] bg-emerald-50 text-emerald-700 text-xs font-semibold px-2.5 py-1 rounded-full border border-emerald-200/80 tabular-nums whitespace-nowrap shadow-2xs">
+                    {shortcuts.length.toLocaleString()} items
+                  </span>
+                )
               }
               onCopyResult={copyAllResults}
               hasActiveFilter={!!debouncedSearch.trim()}
@@ -277,7 +281,7 @@ export default function TyreGuideChatPage() {
           <div className="min-h-[500px]">
             {/* 1. SKELETON LOADER GRID */}
             {loading && shortcuts.length === 0 ? (
-              <ChatGridSkeleton count={8} />
+              <ChatGridSkeleton count={20} />
             ) : error && shortcuts.length === 0 ? (
               <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center text-red-600 max-w-md mx-auto">
                 <p className="text-xs font-semibold mb-1">Failed to load chat shortcuts from API</p>

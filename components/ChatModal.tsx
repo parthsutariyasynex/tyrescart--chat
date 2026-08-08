@@ -12,7 +12,7 @@ import {
 import { getTyresChatCached, CACHE_ANY_AGE } from "@/services/cache";
 import type { TyresChatItem } from "@/services/types";
 import { useToast } from "@/components/ToastProvider";
-import { ChatGridSkeleton } from "@/components/Skeletons";
+import { ChatGridSkeleton, Skeleton } from "@/components/Skeletons";
 import Masonry from "react-masonry-css";
 
 /** No external store to watch — `mounted` only flips via the server/client
@@ -120,12 +120,16 @@ export default function ChatModal({ isOpen, onClose }: ChatModalProps) {
   }, []);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      const resetTimer = setTimeout(() => {
+        setShortcuts([]);
+        setLoading(true);
+      }, 0);
+      return () => clearTimeout(resetTimer);
+    }
 
     let isMounted = true;
-    // Deferred a tick: a synchronous setState in an effect body cascades an
-    // extra render. Cleared by the cleanup if the effect re-runs first.
-    const spinner = setTimeout(() => {
+    const startTimer = setTimeout(() => {
       if (!isMounted) return;
       setLoading(true);
       setError(null);
@@ -170,7 +174,7 @@ export default function ChatModal({ isOpen, onClose }: ChatModalProps) {
 
     return () => {
       isMounted = false;
-      clearTimeout(spinner);
+      clearTimeout(startTimer);
     };
   }, [isOpen, mapApiItems]);
 
@@ -223,9 +227,13 @@ export default function ChatModal({ isOpen, onClose }: ChatModalProps) {
               <h2 className="text-lg font-extrabold tracking-tight text-slate-900 flex items-center gap-2">
                 Tyre Chat Shortcuts
               </h2>
-              <p className="text-xs text-slate-500 font-medium">
-                1-Click copy responses & customer templates ({shortcuts.length} shortcuts)
-              </p>
+              <div className="text-xs text-slate-500 font-medium flex items-center gap-1">
+                {loading && shortcuts.length === 0 ? (
+                  <Skeleton className="h-3 w-64 rounded inline-block" />
+                ) : (
+                  `1-Click copy responses & customer templates (${shortcuts.length} shortcuts)`
+                )}
+              </div>
             </div>
           </div>
 
@@ -262,7 +270,7 @@ export default function ChatModal({ isOpen, onClose }: ChatModalProps) {
         {/* Scrollable Content Body */}
         <div className="flex-1 min-h-0 overflow-y-auto p-5 sm:p-6">
           {loading && shortcuts.length === 0 ? (
-            <ChatGridSkeleton count={6} />
+            <ChatGridSkeleton count={15} columnsClass="columns-1 sm:columns-2 lg:columns-3" />
           ) : error && shortcuts.length === 0 ? (
             <div className="bg-rose-50 border border-rose-200 rounded-lg p-6 text-center text-rose-600 max-w-md mx-auto my-8">
               <p className="text-xs font-semibold mb-1">Failed to load chat shortcuts</p>

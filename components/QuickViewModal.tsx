@@ -1,6 +1,11 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useSyncExternalStore } from "react";
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useSyncExternalStore,
+} from "react";
 import { createPortal } from "react-dom";
 import {
   XMarkIcon,
@@ -43,16 +48,22 @@ import {
   fetchTcQuickViewMatchesCached,
   fetchTcAttributeLabelsCached,
 } from "@/services/cache";
-import type { TcAttributeItem, TcQuickViewProduct, TcAttributeLabels } from "@/services/types";
-import { setOfFourPrice, stripLoadIndex, calculatePayableQty } from "@/services/productFormatter";
+import type {
+  TcAttributeItem,
+  TcQuickViewProduct,
+  TcAttributeLabels,
+} from "@/services/types";
+import {
+  setOfFourPrice,
+  stripLoadIndex,
+  calculatePayableQty,
+} from "@/services/productFormatter";
 import { brandLogoUrl } from "@/constants/badges";
 
 /** No external store to watch — `mounted` only flips via the server/client
  *  snapshot pair, so the subscription is a no-op. Module scope keeps its
  *  identity stable; a new closure each render would resubscribe endlessly. */
 const subscribeNever = () => () => {};
-
-
 
 /**
  * Decompose the SUPPLIER FEED's own size string into its parts.
@@ -154,7 +165,10 @@ export default function QuickViewModal({
   const [isQtyOpen, setIsQtyOpen] = useState<boolean>(false);
   /** Thumbnail choice, tagged with the product it was made for — see the
    *  derivation further down, next to where `detail` is available. */
-  const [imgPick, setImgPick] = useState<{ key: string; index: number }>({ key: "", index: 0 });
+  const [imgPick, setImgPick] = useState<{ key: string; index: number }>({
+    key: "",
+    index: 0,
+  });
   const [isClosing, setIsClosing] = useState<boolean>(false);
   /** undefined = still loading, null = no storefront product for this sku. */
   const [detail, setDetail] = useState<TcQuickViewProduct | null | undefined>(
@@ -300,9 +314,15 @@ export default function QuickViewModal({
   useEffect(() => {
     let alive = true;
     void fetchTcAttributeLabelsCached()
-      .then((l) => { if (alive) setLabels(l); })
-      .catch(() => { /* leaves PATTERN on its existing fallback */ });
-    return () => { alive = false; };
+      .then((l) => {
+        if (alive) setLabels(l);
+      })
+      .catch(() => {
+        /* leaves PATTERN on its existing fallback */
+      });
+    return () => {
+      alive = false;
+    };
   }, []);
 
   /**
@@ -366,7 +386,8 @@ export default function QuickViewModal({
 
   const apiSize = readAttr(attrs, "tyre_size");
   const rawSizeText = apiSize || product.sizeFull || product.size || UNKNOWN;
-  const fullSizeText = rawSizeText !== UNKNOWN ? stripLoadIndex(rawSizeText) : UNKNOWN;
+  const fullSizeText =
+    rawSizeText !== UNKNOWN ? stripLoadIndex(rawSizeText) : UNKNOWN;
 
   const priceRange = detail?.price_range?.minimum_price;
   const apiPrice =
@@ -389,7 +410,10 @@ export default function QuickViewModal({
   const resolvedOffer =
     (labels && detail?.offers !== null && detail?.offers !== undefined
       ? labels["offers"]?.[String(detail.offers)]
-      : "") || readAttr(attrs, "offers") || product.offer || "";
+      : "") ||
+    readAttr(attrs, "offers") ||
+    product.offer ||
+    "";
   const setOf4Price = setOfFourPrice(unitPrice, resolvedOffer);
   const payableQty = calculatePayableQty(selectedQty, resolvedOffer);
   const totalPrice = unitPrice * payableQty;
@@ -403,7 +427,8 @@ export default function QuickViewModal({
      the product it belongs to makes a stale pick simply not apply. */
   const imgKey = `${product.itemCode ?? ""}|${detail?.sku ?? ""}`;
   const selectedImgIndex = imgPick.key === imgKey ? imgPick.index : 0;
-  const setSelectedImgIndex = (index: number) => setImgPick({ key: imgKey, index });
+  const setSelectedImgIndex = (index: number) =>
+    setImgPick({ key: imgKey, index });
 
   const gallery = useMemo(() => {
     const rawUrls = [
@@ -474,7 +499,11 @@ export default function QuickViewModal({
      `useSyncExternalStore` returns the server snapshot (false) while rendering
      and hydrating, then the client one (true) — same result as a
      setState-on-mount effect, without the effect. */
-  const mounted = useSyncExternalStore(subscribeNever, () => true, () => false);
+  const mounted = useSyncExternalStore(
+    subscribeNever,
+    () => true,
+    () => false,
+  );
 
   if (!mounted) return null;
 
@@ -517,9 +546,7 @@ export default function QuickViewModal({
               <div className="w-full bg-white border border-slate-200 rounded-xl p-2.5 sm:p-3 relative shadow-2xs flex flex-col justify-between overflow-hidden">
                 {/* Stock badge — properly anchored inside top-right of image card */}
                 {inStock && (
-                  <div
-                    className="absolute top-2 right-2 bg-emerald-50 text-[#008b47] border border-emerald-200/90 text-[10px] font-black py-0.5 px-2 uppercase tracking-wider z-20 shadow-2xs flex items-center gap-1.5 rounded-full"
-                  >
+                  <div className="absolute top-2 right-2 bg-emerald-50 text-[#008b47] border border-emerald-200/90 text-[10px] font-black py-0.5 px-2 uppercase tracking-wider z-20 shadow-2xs flex items-center gap-1.5 rounded-full">
                     <span className="w-1.5 h-1.5 rounded-full bg-[#008b47] animate-pulse"></span>
                     <span>In Stock</span>
                   </div>
@@ -583,9 +610,9 @@ export default function QuickViewModal({
                       src={brandLogo}
                       alt={`${brandName} logo`}
                       onError={() => setLogoBroken(true)}
-                    //   className="h-6 w-auto max-w-[120px] object-contain object-left"
-                    // />
-                    className="h-fit-content w-auto max-w-[120px] object-contain object-left"
+                      //   className="h-6 w-auto max-w-[120px] object-contain object-left"
+                      // />
+                      className="h-fit-content w-auto max-w-[120px] object-contain object-left"
                     />
                   ) : (
                     <span className="text-xs font-black uppercase text-[#008b47] tracking-widest flex items-center gap-1">

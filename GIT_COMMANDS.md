@@ -1,103 +1,298 @@
-# 🚀 Daily Git Workflow & Essential Commands Guide
+# ============================================================
+# TYRESCART - GIT COMMANDS & WORKFLOW GUIDE
+# ============================================================
 
-This document outlines the standard Git workflow and essential commands used for daily development in this repository.
+This document serves as the comprehensive reference guide for Git commands, daily workflow, branch management, cherry-picking, and troubleshooting in the TyresCart project.
 
 ---
 
-## 🔄 1. Daily Development Workflow
+## 1. Current Status & History Check
 
-### 🔹 Step 1: Update the `development` branch
-Before starting any new work, switch to the `development` branch and pull the latest changes from remote:
 ```bash
-git checkout development
-git pull origin development
-```
-
-### 🔹 Step 2: Check changes and commit your work
-```bash
-# 1. Check which files have been modified
+# Check working directory and staged status
 git status
 
-# 2. Stage all modified files
-git add .
+# Check current active branch and local branches
+git branch
 
-# 3. Commit your changes with a descriptive message
-git commit -m "Your commit message here"
+# Check current branch name only
+git branch --show-current
+
+# View concise log of last 3 commits
+git log -3 --oneline
+
+# View last 1 commit details
+git log -1 --oneline
 ```
 
-### 🔹 Step 3: Push to `development` branch
+---
+
+## 2. Working on Development Branch
+
 ```bash
+# Switch to development branch
+git checkout development
+
+# Pull the latest changes from remote
+git pull origin development
+
+# Make your code changes...
+```
+
+---
+
+## 3. Checking Changes in Development
+
+```bash
+# Check modified / staged files
+git status
+
+# Review line-by-line diffs
+git diff
+```
+
+---
+
+## 4. Committing & Pushing to Development
+
+```bash
+# Stage all modified and new files
+git add .
+
+# Verify staged files
+git status
+
+# Commit changes with a descriptive message
+git commit -m "Your commit message"
+
+# Push changes to remote development branch
 git push origin development
 ```
 
-### 🔹 Step 4: Merge to `main` for Production (Vercel) Deployment
+---
+
+## 5. Verification After Development Push
+
 ```bash
-# 1. Switch to the main branch
-git checkout main
+# Check working tree status
+git status
 
-# 2. Pull the latest changes from main
-git pull origin main
-
-# 3. Merge development changes into main
-git merge development
-
-# 4. Push main branch to trigger Vercel deployment
-git push origin main
-
-# 5. Switch back to development branch for ongoing work
-git checkout development
+# Verify latest commit log
+git log -3 --oneline
 ```
 
 ---
 
-## ⚠️ 2. Common Errors & Solutions (Troubleshooting)
+## 6. Moving Changes from Development to Main (Production)
 
-### ❓ Error 1: `Your local changes to the following files would be overwritten by checkout`
-**Cause:** Uncommitted local changes exist on the current branch when trying to switch branches.
+### Step A: Switch and Update Main
+```bash
+# Switch to main branch
+git checkout main
+
+# Ensure local main is up to date with remote
+git pull origin main
+
+# View latest commits on development branch
+git log development -3 --oneline
+```
+
+---
+
+## 7. Applying Specific Commits (Cherry-Pick)
+
+When you want to bring only specific tested commits into `main`:
+
+```bash
+# Cherry-pick a specific commit hash from development into main
+git cherry-pick <DEVELOPMENT_COMMIT_HASH>
+
+# Example:
+# git cherry-pick 69bf415
+```
+
+---
+
+## 8. Pushing to Main (Production Release)
+
+```bash
+# Push main branch to trigger Vercel production build
+git push origin main
+```
+
+---
+
+## 9. Verifying Main Branch State
+
+```bash
+git status
+git log -3 --oneline
+
+# Expected output:
+# Your branch is up to date with 'origin/main'.
+# nothing to commit, working tree clean
+```
+
+---
+
+## 💡 Important: Option A vs Option B for Main Deployment
+
+### Option A: Specific Commit (Cherry-Pick)
+Use when only specific commits are ready for production:
+```bash
+git checkout main
+git pull origin main
+git cherry-pick <COMMIT_HASH>
+git push origin main
+```
+
+### Option B: Merge All Development Commits into Main
+Use when all development commits are tested and ready:
+```bash
+git checkout main
+git pull origin main
+git merge development
+git push origin main
+```
+
+---
+
+## 10. Keeping Changes Isolated in Development Only
+
+If a feature or fix should stay in `development` and **NOT** go to `main`:
+
+```bash
+git checkout development
+git add .
+git commit -m "Development feature or test fix"
+git push origin development
+
+# Do NOT switch to main or run cherry-pick / merge.
+```
+
+---
+
+## 11. Discarding Uncommitted Changes (Reset / Clean)
+
+> ⚠️ **WARNING**: The commands below will permanently delete local uncommitted changes and untracked files.
+
+```bash
+# Discard uncommitted changes in tracked files
+git restore .
+
+# Remove all untracked files and directories
+git clean -fd
+```
+
+---
+
+## 12. Handling Committed but Unpushed Changes
+
+```bash
+# Check status to see how many commits local is ahead of remote
+git status
+
+# Push to development
+git push origin development
+
+# Or push to main (if on main)
+git push origin main
+```
+
+---
+
+## 13. Comparing Branches
+
+```bash
+# View commits that are in development but NOT in main
+git log main..development --oneline
+
+# View commits that are in main but NOT in development
+git log development..main --oneline
+```
+
+---
+
+## 14. Remote Branch Sync & Tracking Check
+
+```bash
+# Fetch latest references from remote
+git fetch origin
+
+# Check local vs remote status
+git status
+
+# View detailed branch status with remote tracking info
+git branch -vv
+```
+
+---
+
+## ⚠️ 15. Troubleshooting Common Git Scenarios
+
+### Error: `Your local changes to the following files would be overwritten by checkout`
 **Solution:**
 ```bash
-# 1. Temporarily save (stash) local uncommitted changes
+# 1. Stash local changes temporarily
 git stash
 
-# 2. Switch to the target branch
+# 2. Switch branch
 git checkout development
 
-# 3. Restore your stashed changes on the new branch
+# 3. Restore stashed changes
 git stash pop
 ```
 
-### ❓ Error 2: `[rejected] development -> development (fetch first)`
-**Cause:** Remote repository contains commits that you do not have locally yet.
+### Error: `[rejected] development -> development (fetch first)`
 **Solution:**
 ```bash
-# 1. Fetch remote commits and rebase your local commits on top
+# Rebase local commits on top of remote
 git pull origin development --rebase
-
-# 2. Push your changes again
 git push origin development
 ```
 
 ---
 
-## 🛠️ 3. Quick Reference Table of Essential Git Commands
-
-| Command | Description |
-| :--- | :--- |
-| `git status` | View modified, staged, or untracked files |
-| `git branch -a` | List all local and remote branches |
-| `git checkout <branch-name>` | Switch to a specific branch |
-| `git checkout -b <new-branch>` | Create a new branch and switch to it |
-| `git diff` | View line-by-line file modifications |
-| `git log -n 5 --oneline` | View concise history of the last 5 commits |
-| `git stash` | Temporarily save uncommitted working directory changes |
-| `git stash pop` | Apply and remove the most recent stashed changes |
-| `git restore <file>` | Discard uncommitted changes in a specific file |
+## ⚡ 16. Trigger Empty Vercel Redeployment
+If you need to force a fresh Vercel production deployment without code changes:
+```bash
+git checkout main
+git commit --allow-empty -m "Trigger Vercel redeploy"
+git push origin main
+```
 
 ---
 
-## ⚡ 4. Trigger Empty Vercel Redeployment
-If you need to trigger a fresh Vercel build without making code changes:
+## 🔄 17. Recommended Daily Workflow Summary
+
 ```bash
-git commit --allow-empty -m "Trigger Vercel redeploy"
+# 1. Start on Development & update
+git checkout development
+git pull origin development
+
+# 2. Code & test locally
+
+# 3. Review changes
+git status
+git diff
+
+# 4. Commit & push development
+git add .
+git commit -m "Describe your changes"
+git push origin development
+
+# 5. Verify on development preview
+
+# 6. Deploy to Production (Main)
+git checkout main
+git pull origin main
+git cherry-pick <COMMIT_HASH>   # or git merge development
 git push origin main
+
+# 7. Verify status
+git status
+git log -3 --oneline
+
+# 8. Switch back to development
+git checkout development
 ```

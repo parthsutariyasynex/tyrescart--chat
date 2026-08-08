@@ -93,7 +93,6 @@ export const ProductTableRow = React.memo(function ProductTableRow<T extends Pro
   hiddenColumns,
   cellPaddingClass = "py-0.5 px-2",
   isSelected = false,
-  brandBadges: _brandBadges,
   categoryBadges,
   onCopyRow,
   onQuickView,
