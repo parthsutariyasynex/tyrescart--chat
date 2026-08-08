@@ -1,6 +1,6 @@
 /**
  * Magento GraphQL API Client for TyresCart
- * Target Endpoint: https://www.tyrescart.com/graphql
+ * Target Endpoint: process.env.GRAPHQL_ENDPOINT (server) / /api/graphql (browser)
  *
  * Query strings live in `./queries`; types live in `./types`.
  */
@@ -102,7 +102,26 @@ export async function executeGraphQLQuery(
   variables?: Record<string, unknown>,
 ) {
   const isServer = typeof window === "undefined";
-  const targetUrl = isServer ? "https://www.tyrescart.com/graphql" : "/api/graphql";
+  /* `process.env.GRAPHQL_ENDPOINT` is read INSIDE this branch on purpose. This
+     module ships in the client bundle too, and Next inlines a non-NEXT_PUBLIC_
+     variable as `undefined` there — hoisting it to module scope would bake that
+     undefined into the browser build. The browser never needs it anyway: it
+     posts to our own proxy, which resolves the upstream server-side.
+
+     NO fallback domain: two deployments share this code and differ only by this
+     variable, so defaulting would send one project's traffic to the other's
+     API. Unset config throws a named error rather than guessing. */
+  let targetUrl: string;
+  if (isServer) {
+    if (!process.env.GRAPHQL_ENDPOINT) {
+      throw new Error(
+        "GRAPHQL_ENDPOINT is not configured on this deployment. Set it in the environment (no NEXT_PUBLIC_ prefix) and redeploy.",
+      );
+    }
+    targetUrl = process.env.GRAPHQL_ENDPOINT;
+  } else {
+    targetUrl = "/api/graphql";
+  }
 
   try {
     /* The key is attached ONLY on the server path, which talks to Magento
