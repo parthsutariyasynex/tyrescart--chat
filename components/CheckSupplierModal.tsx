@@ -37,6 +37,8 @@ import { searchWithAspectRimFallback } from "@/services/searchFilter";
 import type { SupplierProductItem } from "@/services/types";
 import { buildRowString, stripLoadIndex } from "@/services/productFormatter";
 import CostHistoryModal from "@/components/CostHistoryModal";
+import Filter from "@/components/Filter";
+import { useProductFilter } from "@/hooks/useProductFilter";
 import { CATEGORY_BADGES_SEMANTIC } from "@/constants/badges";
 import Pagination from "@/components/Pagination";
 
@@ -223,14 +225,104 @@ export default function CheckSupplierModal({
     null,
   );
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  /** Filters the rows in this popup only. Not debounced: the list is capped at
-   *  one API page, so filtering is cheap enough to run on every keystroke. */
+  /** Search and pagination */
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
 
+  // Filter bar controls initialized with product defaults
+  const [categoryFilter, setCategoryFilter] = useState("ALL");
+  const [brandInput, setBrandInput] = useState(product.brand || "");
+  const [sizeInput, setSizeInput] = useState(product.size || "");
+  const [yearInput, setYearInput] = useState(product.year ? String(product.year) : "");
+  const [qtyInput, setQtyInput] = useState("");
+  const [minPriceInput, setMinPriceInput] = useState("");
+  const [maxPriceInput, setMaxPriceInput] = useState("");
+  const [offerFilter, setOfferFilter] = useState("ALL");
+  const [supplierFilter, setSupplierFilter] = useState("ALL");
+
+  useEffect(() => {
+    setBrandInput(product.brand || "");
+    setSizeInput(product.size || "");
+    setYearInput(product.year ? String(product.year) : "");
+  }, [product.brand, product.size, product.year]);
+
   const handleSearchChange = (val: string) => {
     setSearch(val);
+    setCurrentPage(1);
+  };
+
+  const categoryOptions = useMemo(() => {
+    const set = new Set<string>();
+    if (rows) {
+      rows.forEach((r) => {
+        const c = r.category || (r as unknown as Record<string, string>).brand_category;
+        if (c) set.add(c);
+      });
+    }
+    return Array.from(set);
+  }, [rows]);
+
+  const brandOptions = useMemo(() => {
+    const set = new Set<string>();
+    if (product.brand) set.add(product.brand);
+    if (rows) {
+      rows.forEach((r) => {
+        if (r.brand) set.add(r.brand);
+      });
+    }
+    return Array.from(set);
+  }, [rows, product.brand]);
+
+  const supplierOptions = useMemo(() => {
+    const set = new Set<string>();
+    if (rows) {
+      rows.forEach((r) => {
+        const s = r.source_name || r.product_source || r.source;
+        if (s) set.add(s);
+      });
+    }
+    return Array.from(set);
+  }, [rows]);
+
+  const offerOptions = useMemo(() => {
+    const set = new Set<string>();
+    if (rows) {
+      rows.forEach((r) => {
+        const off = (r as unknown as Record<string, string>).offer;
+        if (off) set.add(off);
+      });
+    }
+    return Array.from(set);
+  }, [rows]);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const filteredProducts = useProductFilter<Record<string, any>>({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    allProducts: (rows || []) as Record<string, any>[],
+    searchQuery: search,
+    categoryFilter,
+    brandInput,
+    sizeInput,
+    yearInput,
+    qtyInput,
+    minPriceInput,
+    maxPriceInput,
+    offerFilter,
+    supplierFilter,
+  });
+
+  const handleResetFilters = () => {
+    setCategoryFilter("ALL");
+    setBrandInput(product.brand || "");
+    setSearch("");
+    setSizeInput(product.size || "");
+    setYearInput(product.year ? String(product.year) : "");
+    setQtyInput("");
+    setMinPriceInput("");
+    setMaxPriceInput("");
+    setOfferFilter("ALL");
+    setSupplierFilter("ALL");
     setCurrentPage(1);
   };
 
@@ -328,34 +420,8 @@ export default function CheckSupplierModal({
     }
   };
 
-  const filtered = useMemo(() => {
-    if (!rows) return [];
-    const q = search.trim();
-    if (!q) return rows;
-
-    const tokenMatched = searchWithAspectRimFallback(
-      rows,
-      q,
-      SEARCH_FIELDS,
-      SEARCH_SIZE_FIELDS,
-    );
-    const needle = q.toLowerCase();
-    const already = new Set(tokenMatched);
-    const extra = rows.filter((r) => {
-      if (already.has(r)) return false;
-      return GLOBAL_SEARCH_FIELDS.some((f) => {
-        const v = readField(r, f);
-        if (v === null || v === undefined || v === "") return false;
-        if (String(v).toLowerCase().includes(needle)) return true;
-        // "241" should find a cost stored as 241 and rendered "241.00".
-        return typeof v === "number" && v.toFixed(2).includes(needle);
-      });
-    });
-    return extra.length ? [...tokenMatched, ...extra] : tokenMatched;
-  }, [rows, search]);
-
   const sorted = useMemo(() => {
-    if (!filtered.length) return [];
+    if (!filteredProducts.length) return [];
     const dir = sortOrder === "asc" ? 1 : -1;
     // Same code-unit ordering the `<` / `>` comparison gave — NOT localeCompare,
     // which collates accents and case differently.
@@ -365,7 +431,7 @@ export default function CheckSupplierModal({
       sortField === "qty" ||
       sortField === "year" ||
       sortField === "fitting_price";
-    return [...filtered].sort((a, b) => {
+    return [...(filteredProducts as unknown as SupplierRow[])].sort((a, b) => {
       if (sortField === "year") {
         const getYear = (r: SupplierRow) => {
           const val = readField(r, "year");
@@ -431,7 +497,7 @@ export default function CheckSupplierModal({
         )
       );
     });
-  }, [filtered, sortField, sortOrder, product.year]);
+  }, [filteredProducts, sortField, sortOrder, product.year]);
 
   const totalPages = Math.ceil(sorted.length / pageSize);
 
@@ -619,6 +685,48 @@ export default function CheckSupplierModal({
               {toastMessage}
             </div>
           )}
+
+          {/* Filter Bar Component */}
+          <Filter
+            showSupplierFilter={supplierOptions.length > 0}
+            supplierFilter={supplierFilter}
+            setSupplierFilter={setSupplierFilter}
+            supplierOptions={supplierOptions}
+
+            categoryFilter={categoryFilter}
+            setCategoryFilter={setCategoryFilter}
+            categoryOptions={categoryOptions}
+
+            brandInput={brandInput}
+            setBrandInput={setBrandInput}
+            brandOptions={brandOptions}
+
+            searchQuery={search}
+            setSearchQuery={handleSearchChange}
+
+            sizeInput={sizeInput}
+            setSizeInput={setSizeInput}
+
+            yearInput={yearInput}
+            setYearInput={setYearInput}
+
+            qtyInput={qtyInput}
+            setQtyInput={setQtyInput}
+
+            minPriceInput={minPriceInput}
+            setMinPriceInput={setMinPriceInput}
+
+            maxPriceInput={maxPriceInput}
+            setMaxPriceInput={setMaxPriceInput}
+
+            showOfferFilter={offerOptions.length > 0}
+            offerFilter={offerFilter}
+            setOfferFilter={setOfferFilter}
+            offerOptions={offerOptions}
+
+            onSearch={() => setCurrentPage(1)}
+            onReset={handleResetFilters}
+          />
 
           {/* Supplier rows table */}
           <div
@@ -935,19 +1043,26 @@ export default function CheckSupplierModal({
 
                           {/* Qty */}
                           <td className="py-1.5 px-2 text-center whitespace-nowrap">
-                            {r.qty === 0 || r.qty === "0" ? (
-                              <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-red-50 text-red-600 text-[11px] font-extrabold border border-red-200/60 font-mono">
-                                0
-                              </span>
-                            ) : r.qty ? (
-                              <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-extrabold border border-emerald-200/60 font-mono">
-                                {r.qty}
-                              </span>
-                            ) : (
-                              <span className="text-slate-400 font-medium">
-                                -
-                              </span>
-                            )}
+                            {(() => {
+                              const rec = (r as unknown) as Record<string, unknown>;
+                              const rawQty = rec.qty ?? rec.quantity ?? rec.stock ?? rec.tyre_marking;
+                              if (rawQty === undefined || rawQty === null || rawQty === "") {
+                                return <span className="text-slate-400 font-medium">-</span>;
+                              }
+                              const numQty = Number(rawQty);
+                              if (isNaN(numQty) || numQty === 0) {
+                                return (
+                                  <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-red-50 text-red-600 text-[11px] font-extrabold border border-red-200/60 font-mono">
+                                    0
+                                  </span>
+                                );
+                              }
+                              return (
+                                <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-extrabold border border-emerald-200/60 font-mono">
+                                  {numQty}
+                                </span>
+                              );
+                            })()}
                           </td>
 
                           {/* Cost */}

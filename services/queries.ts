@@ -76,6 +76,8 @@ export function supplierProductsQuery(vars: SupplierProductsQueryVars = {}): str
         year
         is_latest
         runflat
+        qty
+        tyre_marking
         date: source_date
       }
     }
