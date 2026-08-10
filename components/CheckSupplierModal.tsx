@@ -31,6 +31,8 @@ import {
   XMarkIcon,
   MagnifyingGlassIcon,
   TruckIcon,
+  ClipboardDocumentIcon,
+  ArrowTopRightOnSquareIcon,
 } from "@heroicons/react/24/outline";
 import { fetchSupplierProductsGraphQL } from "@/services/graphql";
 import { searchWithAspectRimFallback } from "@/services/searchFilter";
@@ -41,6 +43,7 @@ import Filter from "@/components/Filter";
 import { useProductFilter } from "@/hooks/useProductFilter";
 import { CATEGORY_BADGES_SEMANTIC } from "@/constants/badges";
 import Pagination from "@/components/Pagination";
+import { Skeleton } from "@/components/Skeletons";
 
 const MONTH_NAMES = [
   "Jan",
@@ -314,10 +317,10 @@ export default function CheckSupplierModal({
 
   const handleResetFilters = () => {
     setCategoryFilter("ALL");
-    setBrandInput(product.brand || "");
+    setBrandInput("");
     setSearch("");
-    setSizeInput(product.size || "");
-    setYearInput(product.year ? String(product.year) : "");
+    setSizeInput("");
+    setYearInput("");
     setQtyInput("");
     setMinPriceInput("");
     setMaxPriceInput("");
@@ -357,40 +360,43 @@ export default function CheckSupplierModal({
     let alive = true;
     const searchBrand = product.brand ? product.brand.trim() : undefined;
     const searchSize = product.size ? product.size.trim() : undefined;
+    const plainSize = searchSize ? searchSize.replace(/[^0-9]/g, "") : undefined;
 
-    // Fetch supplier/competitor items matching this product's brand and size from GraphQL API
-    void fetchSupplierProductsGraphQL({
-      brand: searchBrand,
+    // Fetch all competitor and supplier items for size, plain size & brand concurrently
+    const pSize = fetchSupplierProductsGraphQL({
       size: searchSize,
-      pageSize: 100,
-    })
-      .then((res) => {
+      pageSize: 200,
+    });
+    const pPlain = plainSize
+      ? fetchSupplierProductsGraphQL({
+          plain_size: plainSize,
+          pageSize: 200,
+        })
+      : Promise.resolve({ items: [] });
+    const pBrand = searchBrand
+      ? fetchSupplierProductsGraphQL({
+          brand: searchBrand,
+          pageSize: 200,
+        })
+      : Promise.resolve({ items: [] });
+
+    Promise.all([pSize, pPlain, pBrand])
+      .then(([resSize, resPlain, resBrand]) => {
         if (!alive) return;
         setCurrentPage(1);
-        const all = res.items || [];
-        const sku = norm(product.itemCode);
-        const bySku = sku ? all.filter((r) => norm(r.sku) === sku) : [];
-        const brand = norm(product.brand);
-        const size = norm(product.size);
-        const byAttrs =
-          brand && size
-            ? all.filter(
-                (r) => norm(r.brand) === brand && norm(r.size) === size,
-              )
-            : [];
-
-        const matched = [
-          ...new Map(
-            [...bySku, ...byAttrs].map((r) => [String(r.id), r]),
-          ).values(),
+        const combined = [
+          ...(resSize.items || []),
+          ...(resPlain.items || []),
+          ...(resBrand.items || []),
         ];
-        setRows(
-          matched.length > 0
-            ? matched
-            : all.filter(
-                (r) => norm(r.brand) === brand || norm(r.size) === size,
-              ),
-        );
+        const uniqueMap = new Map<string, SupplierRow>();
+        combined.forEach((item) => {
+          if (item && item.id) {
+            uniqueMap.set(String(item.id), item);
+          }
+        });
+        const allRows = Array.from(uniqueMap.values());
+        setRows(allRows);
       })
       .catch(() => {
         if (alive) {
@@ -656,7 +662,7 @@ export default function CheckSupplierModal({
                       </button>
                     )}
                   </div>
-                  <span className="text-xs font-semibold text-slate-500 shrink-0 whitespace-nowrap">
+                  <span className="text-xs font-semibold text-slate-500 shrink-0 whitespace-nowrap min-w-[70px] inline-block text-right">
                     {search.trim()
                       ? `${sorted.length} of ${rows.length}`
                       : `${rows.length} rows`}
@@ -678,7 +684,7 @@ export default function CheckSupplierModal({
         </div>
 
         {/* Body */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-5 sm:px-6 py-4 space-y-4 relative">
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden px-5 sm:px-6 py-3.5 space-y-3 relative">
           {/* Toast Notification */}
           {toastMessage && (
             <div className="absolute top-2 right-6 z-50 bg-slate-900 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-lg animate-in fade-in duration-150">
@@ -686,253 +692,247 @@ export default function CheckSupplierModal({
             </div>
           )}
 
-          {/* Filter Bar Component */}
-          <Filter
-            showSupplierFilter={supplierOptions.length > 0}
-            supplierFilter={supplierFilter}
-            setSupplierFilter={setSupplierFilter}
-            supplierOptions={supplierOptions}
+          {/* Fixed Top Filter Bar Component */}
+          <div className="shrink-0">
+            <Filter
+              showSupplierFilter={true}
+              supplierFilter={supplierFilter}
+              setSupplierFilter={setSupplierFilter}
+              supplierOptions={supplierOptions}
 
-            categoryFilter={categoryFilter}
-            setCategoryFilter={setCategoryFilter}
-            categoryOptions={categoryOptions}
+              categoryFilter={categoryFilter}
+              setCategoryFilter={setCategoryFilter}
+              categoryOptions={categoryOptions}
 
-            brandInput={brandInput}
-            setBrandInput={setBrandInput}
-            brandOptions={brandOptions}
+              brandInput={brandInput}
+              setBrandInput={setBrandInput}
+              brandOptions={brandOptions}
 
-            searchQuery={search}
-            setSearchQuery={handleSearchChange}
+              searchQuery={search}
+              setSearchQuery={handleSearchChange}
 
-            sizeInput={sizeInput}
-            setSizeInput={setSizeInput}
+              sizeInput={sizeInput}
+              setSizeInput={setSizeInput}
 
-            yearInput={yearInput}
-            setYearInput={setYearInput}
+              yearInput={yearInput}
+              setYearInput={setYearInput}
 
-            qtyInput={qtyInput}
-            setQtyInput={setQtyInput}
+              qtyInput={qtyInput}
+              setQtyInput={setQtyInput}
 
-            minPriceInput={minPriceInput}
-            setMinPriceInput={setMinPriceInput}
+              minPriceInput={minPriceInput}
+              setMinPriceInput={setMinPriceInput}
 
-            maxPriceInput={maxPriceInput}
-            setMaxPriceInput={setMaxPriceInput}
+              maxPriceInput={maxPriceInput}
+              setMaxPriceInput={setMaxPriceInput}
 
-            showOfferFilter={offerOptions.length > 0}
-            offerFilter={offerFilter}
-            setOfferFilter={setOfferFilter}
-            offerOptions={offerOptions}
+              showOfferFilter={true}
+              offerFilter={offerFilter}
+              setOfferFilter={setOfferFilter}
+              offerOptions={offerOptions}
 
-            onSearch={() => setCurrentPage(1)}
-            onReset={handleResetFilters}
-          />
+              onSearch={() => setCurrentPage(1)}
+              onReset={handleResetFilters}
+            />
+          </div>
 
           {/* Supplier rows table */}
-          <div
-            className="border border-slate-200 rounded-xl overflow-hidden flex flex-col justify-between"
-            style={{ minHeight: Math.min(pageSize, 15) * 34 + 80 }}
-          >
-            {loading ? (
-              <div
-                className="p-3 space-y-2 flex flex-col justify-start"
-                style={{ minHeight: Math.min(pageSize, 15) * 34 + 32 }}
-              >
-                <div
-                  className="skeleton h-7 rounded-lg w-full mb-1"
-                  aria-hidden="true"
-                />
-                {Array.from({ length: Math.min(pageSize, 12) }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="skeleton h-7 rounded-lg w-full"
-                    aria-hidden="true"
-                  />
-                ))}
-              </div>
-            ) : empty ? (
-              <div
-                className="py-14 text-center px-6 flex flex-col items-center justify-center"
-                style={{ minHeight: Math.min(pageSize, 15) * 34 + 32 }}
-              >
-                {/* Two different empties: nothing was found for this tyre at all,
-                    versus rows exist but the search excluded them. Saying "no
-                    supplier stocks this tyre" while a filter is on would be wrong. */}
-                {search.trim() && rows !== null && rows.length > 0 ? (
-                  <>
-                    <p className="text-sm font-semibold text-slate-500">
-                      No row matches “{search.trim()}”.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setSearch("")}
-                      className="mt-2 text-xs font-semibold text-[#008b47] hover:underline cursor-pointer"
+          <div className="flex-1 min-h-0 border border-slate-200 rounded-xl overflow-hidden flex flex-col justify-between bg-white shadow-2xs">
+            <div className="flex-1 min-h-0 overflow-y-scroll overflow-x-auto relative">
+              <table className="w-full text-xs text-left border-collapse table-fixed min-w-[1000px]">
+                <colgroup>
+                  <col className="w-[7%]" />
+                  <col className="w-[6%]" />
+                  <col className="w-[7%]" />
+                  <col className="w-[7%]" />
+                  <col className="w-[21.5%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[5.5%]" />
+                  <col className="w-[6%]" />
+                  <col className="w-[4%]" />
+                  <col className="w-[4%]" />
+                  <col className="w-[6.5%]" />
+                  <col className="w-[7.5%]" />
+                  <col className="w-[6%]" />
+                  <col className="w-[5.5%]" />
+                </colgroup>
+                <thead className="bg-slate-50 sticky top-0 z-10 border-b border-slate-200">
+                  <tr className="text-[10px] font-bold text-slate-500 uppercase tracking-wider select-none">
+                    <th
+                      onClick={() => handleSort("source")}
+                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
                     >
-                      Clear search to see all {rows.length} rows
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-sm font-semibold text-slate-500">
-                      No supplier stocks this tyre.
-                    </p>
-                    <p className="mt-1 text-xs text-slate-400 max-w-md mx-auto">
-                      Nothing in the synced supplier catalogue matches this SKU,
-                      or this brand and size. If the supplier feed has not been
-                      synced on this device yet, run Sync on the Supplier page
-                      first.
-                    </p>
-                  </>
-                )}
-              </div>
-            ) : (
-              <div
-                className="overflow-x-auto overflow-y-hidden flex-1"
-                style={{ minHeight: Math.min(pageSize, 15) * 34 + 32 }}
-              >
-                <table className="w-full text-xs text-left border-collapse">
-                  <colgroup>
-                    <col className="w-[8.5%]" />
-                    <col className="w-[6.5%]" />
-                    <col className="w-[7.5%]" />
-                    <col className="w-[8%]" />
-                    <col className="w-[20%]" />
-                    <col className="w-[11.5%]" />
-                    <col className="w-[5.5%]" />
-                    <col className="w-[6.5%]" />
-                    <col className="w-[4%]" />
-                    <col className="w-[4.5%]" />
-                    <col className="w-[6.5%]" />
-                    <col className="w-[7.5%]" />
-                    <col className="w-[5.5%]" />
-                    <col className="w-[4.5%]" />
-                  </colgroup>
-                  <thead className="bg-slate-50 sticky top-0 z-10 border-b border-slate-200">
-                    <tr className="text-[10px] font-bold text-slate-500 uppercase tracking-wider select-none">
-                      <th
-                        onClick={() => handleSort("source")}
-                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Source{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("product_source")}
-                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Type{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("category")}
-                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Category{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("brand")}
-                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Brand{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("pattern")}
-                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Tyre Pattern{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("size")}
-                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Size{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("runflat")}
-                        className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        RunFlat{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("country")}
-                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Countries{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("year")}
-                        className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Year{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("qty")}
-                        className="py-2 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Qty{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("cost")}
-                        className="py-2 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Cost{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("fitting_price")}
-                        className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Fitting Price{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("date")}
-                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Date{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      {/* <th className="py-2 px-3 text-center whitespace-nowrap">
-                        Actions
-                      </th> */}
+                      Source{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">
+                        ↑↓
+                      </span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("product_source")}
+                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Type{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">
+                        ↑↓
+                      </span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("category")}
+                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Category{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">
+                        ↑↓
+                      </span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("brand")}
+                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Brand{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">
+                        ↑↓
+                      </span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("pattern")}
+                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Tyre Pattern{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">
+                        ↑↓
+                      </span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("size")}
+                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Size{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">
+                        ↑↓
+                      </span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("runflat")}
+                      className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      RunFlat{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">
+                        ↑↓
+                      </span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("country")}
+                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Countries{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">
+                        ↑↓
+                      </span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("year")}
+                      className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Year{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">
+                        ↑↓
+                      </span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("qty")}
+                      className="py-2 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Qty{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">
+                        ↑↓
+                      </span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("cost")}
+                      className="py-2 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Cost{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">
+                        ↑↓
+                      </span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("fitting_price")}
+                      className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Fitting Price{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">
+                        ↑↓
+                      </span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("date")}
+                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Date{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">
+                        ↑↓
+                      </span>
+                    </th>
+                    <th className="py-2 px-3 text-center whitespace-nowrap">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-sans">
+                  {loading ? (
+                    Array.from({ length: Math.min(pageSize, 15) }).map((_, i) => (
+                      <tr key={i} className="hover:bg-slate-50/50">
+                        <td className="py-2.5 px-3"><Skeleton className="h-4 w-12 rounded" /></td>
+                        <td className="py-2.5 px-3"><Skeleton className="h-4 w-14 rounded" /></td>
+                        <td className="py-2.5 px-3"><Skeleton className="h-4 w-14 rounded" /></td>
+                        <td className="py-2.5 px-3"><Skeleton className="h-4 w-16 rounded" /></td>
+                        <td className="py-2.5 px-3"><Skeleton className="h-4 w-28 rounded" /></td>
+                        <td className="py-2.5 px-3"><Skeleton className="h-4 w-20 rounded" /></td>
+                        <td className="py-2.5 px-3 text-center"><Skeleton className="h-4 w-10 rounded mx-auto" /></td>
+                        <td className="py-2.5 px-3"><Skeleton className="h-4 w-14 rounded" /></td>
+                        <td className="py-2.5 px-3 text-center"><Skeleton className="h-4 w-8 rounded mx-auto" /></td>
+                        <td className="py-2.5 px-3 text-center"><Skeleton className="h-4 w-6 rounded mx-auto" /></td>
+                        <td className="py-2.5 px-3 text-right"><Skeleton className="h-4 w-12 rounded ml-auto" /></td>
+                        <td className="py-2.5 px-3 text-center"><Skeleton className="h-4 w-12 rounded mx-auto" /></td>
+                        <td className="py-2.5 px-3"><Skeleton className="h-4 w-12 rounded" /></td>
+                        <td className="py-2.5 px-3 text-center"><Skeleton className="h-4 w-10 rounded mx-auto" /></td>
+                      </tr>
+                    ))
+                  ) : empty ? (
+                    <tr>
+                      <td colSpan={14} className="py-14 text-center px-6">
+                        {search.trim() && rows !== null && rows.length > 0 ? (
+                          <>
+                            <p className="text-sm font-semibold text-slate-500">
+                              No row matches “{search.trim()}”.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setSearch("")}
+                              className="mt-2 text-xs font-semibold text-[#008b47] hover:underline cursor-pointer"
+                            >
+                              Clear search to see all {rows.length} rows
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-sm font-semibold text-slate-500">
+                              No supplier stocks this tyre.
+                            </p>
+                            <p className="mt-1 text-xs text-slate-400 max-w-md mx-auto">
+                              Nothing in the synced supplier catalogue matches this SKU,
+                              or this brand and size. If the supplier feed has not been
+                              synced on this device yet, run Sync on the Supplier page
+                              first.
+                            </p>
+                          </>
+                        )}
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-sans">
-                    {paginatedRows.map((r, i) => {
+                  ) : (
+                    paginatedRows.map((r, i) => {
                       const runflatVal = runflatText(r.runflat);
 
                       return (
@@ -1125,8 +1125,8 @@ export default function CheckSupplierModal({
                           </td>
 
                           {/* Actions */}
-                          {/* <td className="py-1.5 px-3 text-center whitespace-nowrap">
-                            <div className="flex items-center justify-center">
+                          <td className="py-1.5 px-3 text-center whitespace-nowrap">
+                            <div className="flex items-center justify-center gap-1.5">
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -1134,28 +1134,50 @@ export default function CheckSupplierModal({
                                   copyRowData(r);
                                 }}
                                 title="Copy row data"
-                                className="p-1 rounded text-slate-400 hover:text-[#008b47] hover:bg-slate-100 transition-colors cursor-pointer"
+                                className="p-1 text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors cursor-pointer"
                               >
                                 <ClipboardDocumentIcon className="w-4 h-4" />
                               </button>
+
+                              {(() => {
+                                const rec = (r as unknown) as Record<string, string>;
+                                const url = rec.productUrl || rec.product_url || rec.url || rec.link;
+                                if (!url) return null;
+                                return (
+                                  <a
+                                    href={url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="p-1 text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors cursor-pointer"
+                                    title="Open product page in a new tab"
+                                  >
+                                    <ArrowTopRightOnSquareIcon className="w-4 h-4" />
+                                  </a>
+                                );
+                              })()}
                             </div>
-                          </td> */}
+                          </td>
                         </tr>
                       );
-                    })}
-                  </tbody>
-                </table>
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination bar */}
+            {!loading && !empty && (
+              <div className="shrink-0">
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  onPageChange={setCurrentPage}
+                  pageSize={pageSize}
+                  setPageSize={setPageSize}
+                  pageSizeOptions={[15, 30, 50, 100]}
+                />
               </div>
-            )}
-            {!loading && !empty && totalPages > 1 && (
-              <Pagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                onPageChange={setCurrentPage}
-                pageSize={pageSize}
-                setPageSize={setPageSize}
-                pageSizeOptions={[15, 30, 50, 100]}
-              />
             )}
           </div>
         </div>

@@ -210,19 +210,39 @@ export function useProductFilter<T extends Record<string, any>>({
       });
     }
 
-    // 8. Price / Cost range
+    // 8. Price range — matched against every price the table DISPLAYS
+    //
+    //    Was `item.price ?? item.cost ?? 0`, which read one field and missed
+    //    the other columns entirely. Two things that broke:
+    //
+    //    a) Fitting Price and Set of 4 were never considered.
+    //    b) A row with no price at all collapsed to 0, and `0 <= max` is true,
+    //       so a Max-only filter returned every price-less row (measured: Max
+    //       200 returned 2,137 supplier rows, ~1,877 of them rendering 0.00).
+    //
+    //    Hence `> 0` rather than `!= null`: on this feed a 0 means "no value"
+    //    (fitting_price is populated on 1 row in 8,248), so a zero must not
+    //    participate — it is not a tyre that costs nothing.
     const minPrice = parseFloat(minPriceInput || "");
     const maxPrice = parseFloat(maxPriceInput || "");
-    if (!isNaN(minPrice)) {
+    const hasMin = !isNaN(minPrice);
+    const hasMax = !isNaN(maxPrice);
+    if (hasMin || hasMax) {
       result = result.filter((item) => {
-        const p = item.price ?? item.cost ?? 0;
-        return p >= minPrice;
-      });
-    }
-    if (!isNaN(maxPrice)) {
-      result = result.filter((item) => {
-        const p = item.price ?? item.cost ?? 0;
-        return p <= maxPrice;
+        // Set of 4 is deliberately NOT here. It is always ~4x the unit price,
+        // so including it made every row clear any low Min (Min 300 still
+        // returned all 8,524 tc rows) — the range only means something when it
+        // is read against per-tyre prices.
+        const prices = [item.price, item.cost, item.fittingPrice]
+          .map(Number)
+          .filter((v) => Number.isFinite(v) && v > 0);
+
+        // ONE pass over the values, so a single field has to satisfy both
+        // bounds. Applying min and max as separate filters would let a row
+        // through on cost=50 for the max and setOf4=5000 for the min.
+        return prices.some(
+          (v) => (!hasMin || v >= minPrice) && (!hasMax || v <= maxPrice),
+        );
       });
     }
 
