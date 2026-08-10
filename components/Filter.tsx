@@ -138,6 +138,11 @@ export default function Filter({
   const [isBrandOpen, setIsBrandOpen] = useState(false);
   const [isOfferOpen, setIsOfferOpen] = useState(false);
 
+  // Popover search states
+  const [supplierSearch, setSupplierSearch] = useState("");
+  const [categorySearch, setCategorySearch] = useState("");
+  const [offerSearch, setOfferSearch] = useState("");
+
   // Popover references
   const supplierRef = useRef<HTMLDivElement>(null);
   const categoryRef = useRef<HTMLDivElement>(null);
@@ -261,7 +266,28 @@ export default function Filter({
             </button>
 
             {isSupplierOpen && (
-              <div className="absolute left-0 top-full mt-1.5 min-w-full bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 max-h-60 overflow-y-auto animate-in fade-in zoom-in-95 duration-100">
+              <div className="absolute left-0 top-full mt-1.5 min-w-full w-full bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 max-h-60 overflow-y-auto animate-in fade-in zoom-in-95 duration-100">
+                <div className="px-1.5 pb-1.5 pt-0.5 border-b border-slate-100 sticky top-0 bg-white z-10">
+                  <div className="relative flex items-center">
+                    <MagnifyingGlassIcon className="w-3.5 h-3.5 text-slate-400 absolute left-2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={supplierSearch}
+                      onChange={(e) => setSupplierSearch(e.target.value)}
+                      placeholder="Search..."
+                      className="w-full h-7 pl-7 pr-6 bg-slate-50 border border-slate-200/80 rounded-md text-[11px] text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
+                    />
+                    {supplierSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setSupplierSearch("")}
+                        className="absolute right-1.5 text-slate-400 hover:text-slate-600 p-0.5"
+                      >
+                        <XMarkIcon className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
                 <button
                   type="button"
                   onClick={() => {
@@ -277,24 +303,26 @@ export default function Filter({
                   <span>All</span>
                   {supplierFilter === "ALL" && <span className="text-emerald-600 font-bold">✓</span>}
                 </button>
-                {supplierOptions.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => {
-                      setSupplierFilter(s);
-                      onSearch();
-                      setIsSupplierOpen(false);
-                    }}
-                    className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${supplierFilter === s
-                        ? "text-emerald-700 bg-emerald-50/80 font-bold"
-                        : "text-slate-700 hover:bg-slate-50"
-                      }`}
-                  >
-                    <span className="truncate">{s}</span>
-                    {supplierFilter === s && <span className="text-emerald-600 font-bold">✓</span>}
-                  </button>
-                ))}
+                {supplierOptions
+                  .filter((s) => s.toLowerCase() !== "all" && (!supplierSearch.trim() || s.toLowerCase().includes(supplierSearch.trim().toLowerCase())))
+                  .map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => {
+                        setSupplierFilter(s);
+                        onSearch();
+                        setIsSupplierOpen(false);
+                      }}
+                      className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${supplierFilter === s
+                          ? "text-emerald-700 bg-emerald-50/80 font-bold"
+                          : "text-slate-700 hover:bg-slate-50"
+                        }`}
+                    >
+                      <span className="truncate">{s}</span>
+                      {supplierFilter === s && <span className="text-emerald-600 font-bold">✓</span>}
+                    </button>
+                  ))}
               </div>
             )}
           </div>
@@ -328,7 +356,28 @@ export default function Filter({
           </button>
 
           {isCategoryOpen && (
-            <div className="absolute left-0 top-full mt-1.5 min-w-full bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
+            <div className="absolute left-0 top-full mt-1.5 min-w-full w-full bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 max-h-60 overflow-y-auto animate-in fade-in zoom-in-95 duration-100">
+              <div className="px-1.5 pb-1.5 pt-0.5 border-b border-slate-100 sticky top-0 bg-white z-10">
+                <div className="relative flex items-center">
+                  <MagnifyingGlassIcon className="w-3.5 h-3.5 text-slate-400 absolute left-2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={categorySearch}
+                    onChange={(e) => setCategorySearch(e.target.value)}
+                    placeholder="Search..."
+                    className="w-full h-7 pl-7 pr-6 bg-slate-50 border border-slate-200/80 rounded-md text-[11px] text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
+                  />
+                  {categorySearch && (
+                    <button
+                      type="button"
+                      onClick={() => setCategorySearch("")}
+                      className="absolute right-1.5 text-slate-400 hover:text-slate-600 p-0.5"
+                    >
+                      <XMarkIcon className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
               <button
                 type="button"
                 onClick={() => {
@@ -344,24 +393,26 @@ export default function Filter({
                 <span>All</span>
                 {categoryFilter === "ALL" && <span className="text-emerald-600 font-bold">✓</span>}
               </button>
-              {categoryOptions.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => {
-                    setCategoryFilter(c);
-                    onSearch();
-                    setIsCategoryOpen(false);
-                  }}
-                  className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${categoryFilter === c
-                      ? "text-emerald-700 bg-emerald-50/80 font-bold"
-                      : "text-slate-700 hover:bg-slate-50"
-                    }`}
-                >
-                  <span className="truncate">{c}</span>
-                  {categoryFilter === c && <span className="text-emerald-600 font-bold">✓</span>}
-                </button>
-              ))}
+              {categoryOptions
+                .filter((c) => c.toLowerCase() !== "all" && (!categorySearch.trim() || c.toLowerCase().includes(categorySearch.trim().toLowerCase())))
+                .map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => {
+                      setCategoryFilter(c);
+                      onSearch();
+                      setIsCategoryOpen(false);
+                    }}
+                    className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${categoryFilter === c
+                        ? "text-emerald-700 bg-emerald-50/80 font-bold"
+                        : "text-slate-700 hover:bg-slate-50"
+                      }`}
+                  >
+                    <span className="truncate">{c}</span>
+                    {categoryFilter === c && <span className="text-emerald-600 font-bold">✓</span>}
+                  </button>
+                ))}
             </div>
           )}
         </div>
@@ -647,7 +698,28 @@ export default function Filter({
             </button>
 
             {isOfferOpen && (
-              <div className="absolute left-0 top-full mt-1.5 min-w-full bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 max-h-60 overflow-y-auto animate-in fade-in zoom-in-95 duration-100">
+              <div className="absolute left-0 top-full mt-1.5 min-w-full w-full bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 z-40 max-h-60 overflow-y-auto animate-in fade-in zoom-in-95 duration-100">
+                <div className="px-1.5 pb-1.5 pt-0.5 border-b border-slate-100 sticky top-0 bg-white z-10">
+                  <div className="relative flex items-center">
+                    <MagnifyingGlassIcon className="w-3.5 h-3.5 text-slate-400 absolute left-2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={offerSearch}
+                      onChange={(e) => setOfferSearch(e.target.value)}
+                      placeholder="Search..."
+                      className="w-full h-7 pl-7 pr-6 bg-slate-50 border border-slate-200/80 rounded-md text-[11px] text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-500"
+                    />
+                    {offerSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setOfferSearch("")}
+                        className="absolute right-1.5 text-slate-400 hover:text-slate-600 p-0.5"
+                      >
+                        <XMarkIcon className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
                 <button
                   type="button"
                   onClick={() => {
@@ -667,22 +739,24 @@ export default function Filter({
                   {offerFilter === "ALL" && <span className="text-emerald-600 font-bold">✓</span>}
                 </button>
 
-                {offerOptions.map((off) => {
-                  const style = getOfferBadgeStyle(off, offerOptions);
-                  return (
-                    <button
-                      key={off}
-                      type="button"
-                      onClick={() => {
-                        setOfferFilter(off);
-                        onSearch();
-                        setIsOfferOpen(false);
-                      }}
-                      className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${offerFilter === off
-                          ? "text-emerald-700 bg-emerald-50/80 font-bold"
-                          : "text-slate-700 hover:bg-slate-50"
-                        }`}
-                    >
+                {offerOptions
+                  .filter((off) => off.toLowerCase() !== "all" && (!offerSearch.trim() || off.toLowerCase().includes(offerSearch.trim().toLowerCase())))
+                  .map((off) => {
+                    const style = getOfferBadgeStyle(off, offerOptions);
+                    return (
+                      <button
+                        key={off}
+                        type="button"
+                        onClick={() => {
+                          setOfferFilter(off);
+                          onSearch();
+                          setIsOfferOpen(false);
+                        }}
+                        className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${offerFilter === off
+                            ? "text-emerald-700 bg-emerald-50/80 font-bold"
+                            : "text-slate-700 hover:bg-slate-50"
+                          }`}
+                      >
                       <div className="flex items-center gap-2 truncate">
                         <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${style.dot}`} />
                         <span className="truncate">{off}</span>

@@ -136,28 +136,39 @@ export function useProductFilter<T extends Record<string, any>>({
       }
     }
 
-    // 2. Category exact match
+    // 2. Category exact match (supports category & brand_category)
     if (categoryFilter !== "ALL") {
-      result = result.filter((item) => item.category === categoryFilter);
+      result = result.filter((item) => {
+        const cat = item.category || item.brand_category;
+        return cat === categoryFilter;
+      });
     }
 
-    // 3. Supplier / Source exact match
+    // 3. Supplier / Source exact match (supports supplier, source, source_name, product_source)
     if (supplierFilter !== "ALL") {
-      result = result.filter((item) => item.supplier === supplierFilter || item.source === supplierFilter);
+      result = result.filter((item) => {
+        const src = item.supplier || item.source || item.source_name || item.product_source;
+        return src === supplierFilter;
+      });
     }
 
-    // 4. Brand partial match (comma separated)
+    // 4. Brand partial match (supports token overlap e.g. "ACCELERA TIRES" vs "ACCELERA")
     if (brandInput && brandInput.trim()) {
       const brands = brandInput
         .split(",")
         .map((b) => b.trim().toLowerCase())
         .filter(Boolean);
       if (brands.length) {
-        result = result.filter(
-          (item) =>
-            item.brand &&
-            brands.some((b) => item.brand.toLowerCase().includes(b))
-        );
+        result = result.filter((item) => {
+          if (!item.brand) return false;
+          const itemBrand = String(item.brand).toLowerCase();
+          return brands.some((b) => {
+            if (itemBrand.includes(b) || b.includes(itemBrand)) return true;
+            const bTokens = b.split(/\s+/).filter((t) => t.length > 2);
+            const itemTokens = itemBrand.split(/\s+/).filter((t) => t.length > 2);
+            return bTokens.some((bt) => itemTokens.includes(bt));
+          });
+        });
       }
     }
 
@@ -174,21 +185,29 @@ export function useProductFilter<T extends Record<string, any>>({
       }
     }
 
-    // 6. Year match
+    // 6. Year match (supports number conversion and null/0 fallback for supplier feeds)
     if (yearInput && yearInput.trim()) {
       const years = yearInput
         .split(",")
         .map((y) => parseInt(y.trim(), 10))
         .filter((y) => !isNaN(y));
       if (years.length) {
-        result = result.filter((item) => item.year && years.includes(item.year));
+        result = result.filter((item) => {
+          if (item.year === undefined || item.year === null) return true;
+          const yNum = Number(item.year);
+          if (yNum === 0) return true;
+          return years.includes(yNum);
+        });
       }
     }
 
-    // 7. Qty minimum threshold
+    // 7. Qty minimum threshold (supports qty, quantity, stock, tyre_marking)
     if (qtyInput && qtyInput.trim() && !isNaN(Number(qtyInput))) {
       const n = Number(qtyInput);
-      result = result.filter((item) => (item.qty ?? 0) >= n);
+      result = result.filter((item) => {
+        const itemQty = Number(item.qty ?? item.quantity ?? item.stock ?? item.tyre_marking ?? 0);
+        return itemQty >= n;
+      });
     }
 
     // 8. Price / Cost range
@@ -207,9 +226,12 @@ export function useProductFilter<T extends Record<string, any>>({
       });
     }
 
-    // 9. Offer filter
+    // 9. Offer filter (supports offer & offers)
     if (offerFilter !== "ALL") {
-      result = result.filter((item) => item.offer === offerFilter);
+      result = result.filter((item) => {
+        const off = item.offer || item.offers;
+        return off === offerFilter;
+      });
     }
 
     return result;

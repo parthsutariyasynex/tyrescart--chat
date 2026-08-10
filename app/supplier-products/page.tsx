@@ -92,6 +92,11 @@ export interface Product {
   dateKey: number;
   /** 1 = current/latest record, 0 = historical. Used by the client-side Latest filter. */
   is_latest: number;
+  /** Absolute storefront URL for the row, opened by the Action column's link.
+   *  Present on COMPETITOR rows only — measured on the synced catalogue, all
+   *  4,516 competitor rows carry one and none of the 3,732 supplier rows do —
+   *  so it is `''` on most rows and the link is omitted rather than dead. */
+  productUrl: string;
 }
 
 interface Toast {
@@ -286,6 +291,14 @@ function mapSupplierToProduct(p: CachedSupplierProduct): Product {
     date: intern(p.date ?? ''),
     dateKey: dateSortKey(p.date),
     is_latest: Number(p.is_latest) === 1 ? 1 : 0,
+    /* Trimmed and kept only when it is a real http(s) link. A relative or
+       malformed value would render an anchor that navigates nowhere, which is
+       worse than no icon at all — the Action cell omits the link when this
+       is ''. */
+    productUrl: (() => {
+      const raw = String(p.product_url ?? '').trim();
+      return /^https?:\/\//i.test(raw) ? raw : '';
+    })(),
   };
 }
 
@@ -1228,7 +1241,7 @@ export default function SupplierProductsPage() {
                           )}
 
                           <td className={`${cellPaddingClass} text-center`}>
-                            <div className="flex items-center justify-center">
+                            <div className="flex items-center justify-center gap-1">
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -1241,6 +1254,25 @@ export default function SupplierProductsPage() {
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
                                 </svg>
                               </button>
+
+                              {/* An anchor, not a button + window.open: middle-click and
+                                  "open in new tab" keep working, and the popup blocker
+                                  leaves a real link alone. stopPropagation stops the
+                                  row's copy-on-click from also firing. */}
+                              {item.productUrl && (
+                                <a
+                                  href={item.productUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="p-1 text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors"
+                                  title="Open product page in a new tab"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                  </svg>
+                                </a>
+                              )}
                             </div>
                           </td>
                         </tr>
