@@ -72,6 +72,10 @@ export interface SupplierProductItem {
   year?: number;
   is_latest?: number;
   runflat?: boolean | string | number;
+  qty?: number | string;
+  quantity?: number | string;
+  stock?: number | string;
+  tyre_marking?: string | number;
   date?: string;
 }
 

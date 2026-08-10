@@ -3,30 +3,16 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { notFound } from 'next/navigation';
 import { features } from '@/config/features';
-import Link from 'next/link';
-import {
-  MagnifyingGlassIcon,
-  ArrowPathIcon,
-  ChevronDownIcon,
-  XMarkIcon,
-  ChatBubbleLeftRightIcon,
-  DocumentTextIcon,
-  ClipboardDocumentIcon,
-} from '@heroicons/react/24/outline';
 import { buildRowString, buildBulkCopyString, stripLoadIndex } from "@/services/productFormatter";
 import Header from '@/components/Header';
-import HeaderBookInquiry from '@/components/HeaderBookInquiry';
 import HeaderActions from '@/components/HeaderActions';
-import { CATEGORY_BADGES_SEMANTIC, BRAND_BADGES_TAILWIND } from "@/constants/badges";
+import { CATEGORY_BADGES_SEMANTIC } from "@/constants/badges";
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import {
   parseAspectRim,
   parseRimOnly,
-  matchesAspectRim,
-  matchesSearch,
   paginate,
-  searchWithAspectRimFallback,
 } from '@/services/searchFilter';
 import { Skeleton } from '@/components/Skeletons';
 import CostHistoryModal from '@/components/CostHistoryModal';
@@ -35,11 +21,9 @@ import QuotationModal from '@/components/QuotationModal';
 import Filter from '@/components/Filter';
 import ChatModal from "@/components/ChatModal";
 import TyresGuideModal from "@/components/TyresGuideModal";
-import ProductTableRow from "@/components/ProductTableRow";
 import Pagination from "@/components/Pagination";
 import ToastContainer from "@/components/ToastContainer";
 type TableDensity = 'compact' | 'comfortable' | 'breathable';
-import PageSizeMenu from "@/components/PageSizeMenu";
 import { useProductFilter } from '@/hooks/useProductFilter';
 import { useProductSorting } from '@/hooks/useProductSorting';
 import {
@@ -78,12 +62,7 @@ const SEARCH_FIELDS = ['pattern', 'itemCode', 'brand', 'category', 'country', 's
 /** Numeric tokens are matched against the size ONLY — never name or SKU. */
 const SEARCH_SIZE_FIELDS = ['size'] as const;
 
-/** Size-box predicate: full/normalized size, with width-omitted aspect+rim fallback (e.g. "55R16"). */
-function matchesSizeInput(item: { size: string }, s: string): boolean {
-  const ar = parseAspectRim(s);
-  if (ar) return matchesAspectRim(item, ar.aspect, ar.rim, ['size']);
-  return matchesSearch(item, s, ['size'], ['size']);
-}
+
 
 
 export interface Product {
@@ -122,13 +101,7 @@ interface Toast {
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-/**
- * Reused collator for column sorting. `String.prototype.localeCompare` builds a
- * fresh collator on every call, which is fine occasionally but not when a sort
- * is always active: with LATEST? unticked the comparator runs across ~318k rows
- * (~5.7M comparisons). One shared instance is the same ordering, far cheaper.
- */
-const collator = new Intl.Collator();
+
 
 /**
  * "2026-07-20" → 20260720, so dates sort as plain integers.
@@ -300,7 +273,10 @@ function mapSupplierToProduct(p: CachedSupplierProduct): Product {
     year: Number(p.year) || 0,
     country: intern(p.country ?? ''),
     flag: '',
-    qty: 0,
+    qty: (() => {
+      const rec = (p as unknown) as Record<string, unknown>;
+      return Number(rec.qty ?? rec.quantity ?? rec.stock ?? rec.tyre_marking) || 0;
+    })(),
     cost: Number(p.cost) || Number(p.price) || 0,
     // Was hardcoded to 0. `fitting_price` is a real API field and is populated
     // on some rows, so the column showed 0.00 for every product regardless.
@@ -316,7 +292,6 @@ function mapSupplierToProduct(p: CachedSupplierProduct): Product {
 /** Badge classes now live in constants/badges.ts; aliased so the JSX below
  *  is untouched and this page keeps its own variant. */
 const categoryBadges = CATEGORY_BADGES_SEMANTIC;
-const brandBadges = BRAND_BADGES_TAILWIND;
 
 export default function SupplierProductsPage() {
   if (!features.supplierProducts) notFound();
@@ -377,10 +352,10 @@ export default function SupplierProductsPage() {
   const [isQuotationModalOpen, setIsQuotationModalOpen] = useState(false);
   const [isChatModalOpen, setIsChatModalOpen] = useState(false);
   const [isTyresGuideModalOpen, setIsTyresGuideModalOpen] = useState(false);
-  const [density, setDensity] = useState<TableDensity>('comfortable');
+  const [density] = useState<TableDensity>('comfortable');
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+  const [hiddenColumns] = useState<Set<string>>(new Set());
 
   const [isLoading, setIsLoading] = useState(true);
   /** Synchronous latch for the PAGE-scoped sync only. The full catalogue sync
@@ -770,17 +745,6 @@ export default function SupplierProductsPage() {
     };
   }, [allProducts]);
 
-  const filteredBrandOptions = useMemo(() => {
-    if (!brandInput.trim()) return brandOptions;
-    const lastTerm = brandInput.split(',').pop()?.trim().toLowerCase() || '';
-    if (!lastTerm) return brandOptions;
-    return brandOptions.filter(b => b.toLowerCase().includes(lastTerm));
-  }, [brandOptions, brandInput]);
-
-  const selectedBrandList = useMemo(() => {
-    return brandInput.split(',').map(s => s.trim()).filter(Boolean);
-  }, [brandInput]);
-
   const partialSizeInfo = useMemo(() => {
     const q = (dSearchQuery || dSizeInput).trim();
     if (!q) return null;
@@ -874,7 +838,6 @@ export default function SupplierProductsPage() {
      but deriving the page instead would desync the "Page X of Y" readout from
      the rows — a pagination change, out of scope here. */
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (currentPage > totalPages) setCurrentPage(totalPages);
     else if (currentPage < 1) setCurrentPage(1);
   }, [currentPage, totalPages]);
@@ -898,11 +861,6 @@ export default function SupplierProductsPage() {
 
 
 
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    addToast(`Copied "${text}" to clipboard!`);
-  };
 
   const copyRowData = (item: Product) => {
     const rowString = buildRowString(item);
@@ -942,13 +900,6 @@ export default function SupplierProductsPage() {
     link.click();
     document.body.removeChild(link);
     addToast(`Exported ${filteredProducts.length} items to CSV.`);
-  };
-
-  const toggleColumn = (colKey: string) => {
-    const newHidden = new Set(hiddenColumns);
-    if (newHidden.has(colKey)) newHidden.delete(colKey);
-    else newHidden.add(colKey);
-    setHiddenColumns(newHidden);
   };
 
 

@@ -88,6 +88,7 @@ export interface FilterOptions<T> {
   globalSearchFields?: readonly string[];
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function useProductFilter<T extends Record<string, any>>({
   allProducts,
   searchQuery,
@@ -113,7 +114,9 @@ export function useProductFilter<T extends Record<string, any>>({
       const tokenMatched = searchWithAspectRimFallback(
         result,
         trimmed,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         searchFields as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         searchSizeFields as any
       );
 
