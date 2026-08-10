@@ -11,7 +11,7 @@
  * this modal, so it does not slow the first paint of the supplier table.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { XMarkIcon } from "@heroicons/react/24/outline";
 import {
@@ -68,10 +68,13 @@ export default function CostHistoryModal({
     return () => clearTimeout(timer);
   }, []);
 
-  const handleClose = () => {
+  /* useCallback so the Escape-key effect can depend on it honestly. Without a
+     stable identity the effect would re-subscribe on every render, which is why
+     it had been left off the dependency list. */
+  const handleClose = useCallback(() => {
     setIsClosing(true);
     setTimeout(() => onCloseAction(), 700);
-  };
+  }, [onCloseAction]);
 
   useEffect(() => {
     let alive = true;
@@ -92,7 +95,7 @@ export default function CostHistoryModal({
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") handleClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [handleClose]);
 
   const dateSeries = useMemo(() => toDateSeries(history ?? []), [history]);
   const stats = useMemo(() => summarise(history ?? []), [history]);

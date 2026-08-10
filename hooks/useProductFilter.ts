@@ -233,7 +233,16 @@ export function useProductFilter<T extends Record<string, any>>({
         // so including it made every row clear any low Min (Min 300 still
         // returned all 8,524 tc rows) — the range only means something when it
         // is read against per-tyre prices.
-        const prices = [item.price, item.cost, item.fittingPrice]
+        // Both spellings on purpose: the pages filter MAPPED rows
+        // (`fittingPrice`), while CheckSupplierModal filters the RAW feed rows
+        // straight out of the cache (`fitting_price`). Only one is ever
+        // defined on a given row, so listing both costs nothing.
+        const prices = [
+          item.price,
+          item.cost,
+          item.fittingPrice,
+          item.fitting_price,
+        ]
           .map(Number)
           .filter((v) => Number.isFinite(v) && v > 0);
 
