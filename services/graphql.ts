@@ -1,6 +1,6 @@
 /**
  * Magento GraphQL API Client for TyresCart
- * Target Endpoint: process.env.GRAPHQL_ENDPOINT (server) / /api/graphql (browser)
+ * Target Endpoint: https://www.tyrescart.com/graphql
  *
  * Query strings live in `./queries`; types live in `./types`.
  */
@@ -102,26 +102,9 @@ export async function executeGraphQLQuery(
   variables?: Record<string, unknown>,
 ) {
   const isServer = typeof window === "undefined";
-  /* `process.env.GRAPHQL_ENDPOINT` is read INSIDE this branch on purpose. This
-     module ships in the client bundle too, and Next inlines a non-NEXT_PUBLIC_
-     variable as `undefined` there — hoisting it to module scope would bake that
-     undefined into the browser build. The browser never needs it anyway: it
-     posts to our own proxy, which resolves the upstream server-side.
-
-     NO fallback domain: two deployments share this code and differ only by this
-     variable, so defaulting would send one project's traffic to the other's
-     API. Unset config throws a named error rather than guessing. */
-  let targetUrl: string;
-  if (isServer) {
-    if (!process.env.GRAPHQL_ENDPOINT) {
-      throw new Error(
-        "GRAPHQL_ENDPOINT is not configured on this deployment. Set it in the environment (no NEXT_PUBLIC_ prefix) and redeploy.",
-      );
-    }
-    targetUrl = process.env.GRAPHQL_ENDPOINT;
-  } else {
-    targetUrl = "/api/graphql";
-  }
+  const targetUrl = isServer
+    ? "https://www.tyrescart.com/graphql"
+    : "/api/graphql";
 
   try {
     /* The key is attached ONLY on the server path, which talks to Magento
@@ -131,7 +114,7 @@ export async function executeGraphQLQuery(
        bundle) is involved. */
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      "Accept": "application/json",
+      Accept: "application/json",
     };
     if (isServer && process.env.KLEVER_API_KEY) {
       headers["X-Klever-Api-Key"] = process.env.KLEVER_API_KEY;
@@ -161,7 +144,6 @@ export async function executeGraphQLQuery(
         `GraphQL HTTP error! Status: ${res.status}`;
       throw new GraphQLRequestError(errMsg, res.status);
     }
-
 
     // A 200 carrying `errors[]` is a query-level fault (bad field, bad filter).
     // Status 200 → `retryable` is false, so the sync fails it fast instead of
@@ -195,7 +177,7 @@ export async function executeGraphQLQuery(
  *   products(search: "dunlop", pageSize: 20, currentPage: 1, sort: { name: ASC })
  */
 export async function fetchProductsGraphQL(
-  params: FetchProductsParams = {}
+  params: FetchProductsParams = {},
 ): Promise<ProductsResponse> {
   const query = productsQuery(params);
 
@@ -209,18 +191,40 @@ export async function fetchProductsGraphQL(
  * supplierProducts(filter: { brand: "...", plain_size: "..." }, pageSize: 10, currentPage: 1, sort: { field: "price", direction: ASC })
  */
 export async function fetchSupplierProductsGraphQL(
-  params: FetchSupplierProductsParams = {}
+  params: FetchSupplierProductsParams = {},
 ): Promise<SupplierProductsResponse> {
   const {
-    brand, plain_size, is_latest = 1, year, country, source_name,
-    brand_category, product_name, sku, size,
-    pageSize = 24, currentPage = 1, sortField, sortDirection,
+    brand,
+    plain_size,
+    is_latest = 1,
+    year,
+    country,
+    source_name,
+    brand_category,
+    product_name,
+    sku,
+    size,
+    pageSize = 24,
+    currentPage = 1,
+    sortField,
+    sortDirection,
   } = params;
 
   const query = supplierProductsQuery({
-    brand, plain_size, is_latest, year, country, source_name,
-    brand_category, product_name, sku, size,
-    pageSize, currentPage, sortField, sortDirection,
+    brand,
+    plain_size,
+    is_latest,
+    year,
+    country,
+    source_name,
+    brand_category,
+    product_name,
+    sku,
+    size,
+    pageSize,
+    currentPage,
+    sortField,
+    sortDirection,
   });
 
   const data = await executeGraphQLQuery(query);
@@ -232,11 +236,13 @@ export async function fetchSupplierProductsGraphQL(
  * Query matching user's exact specification:
  * tyresChat(filter: { category: "car_tyres", status: 1 }, pageSize: 50)
  */
-export async function fetchTyresChatGraphQL(params: {
-  category?: string;
-  status?: number;
-  pageSize?: number;
-} = {}): Promise<TyresChatResponse> {
+export async function fetchTyresChatGraphQL(
+  params: {
+    category?: string;
+    status?: number;
+    pageSize?: number;
+  } = {},
+): Promise<TyresChatResponse> {
   const { category, status = 1, pageSize = 200 } = params;
 
   const query = tyresChatQuery({ category, status, pageSize });
@@ -279,7 +285,8 @@ export async function fetchTcAttributeLabelsGraphQL(): Promise<TcAttributeLabels
   for (const item of data?.customAttributeMetadata?.items ?? []) {
     if (!item?.attribute_code) continue;
     const map: Record<string, string> = {};
-    for (const opt of item.attribute_options ?? []) map[String(opt.value)] = opt.label;
+    for (const opt of item.attribute_options ?? [])
+      map[String(opt.value)] = opt.label;
     out[item.attribute_code] = map;
   }
   return out;
@@ -290,10 +297,14 @@ export async function fetchTcAttributeLabelsGraphQL(): Promise<TcAttributeLabels
  * has no storefront product — the caller shows an empty state rather than a
  * half-populated panel.
  */
-export async function fetchTcQuickViewGraphQL(sku: string): Promise<TcQuickViewProduct | null> {
+export async function fetchTcQuickViewGraphQL(
+  sku: string,
+): Promise<TcQuickViewProduct | null> {
   try {
     const data = await executeGraphQLQuery(tcQuickViewQuery(sku));
-    return (data?.products?.items?.[0] as TcQuickViewProduct | undefined) ?? null;
+    return (
+      (data?.products?.items?.[0] as TcQuickViewProduct | undefined) ?? null
+    );
   } catch (err) {
     /* Fall back to whatever DID resolve.
        `custom_attributesV2` returns "Internal server error" on products that
@@ -304,10 +315,14 @@ export async function fetchTcQuickViewGraphQL(sku: string): Promise<TcQuickViewP
        had everything it needed to show a picture and a price.
        The spec cells stay "-" because those genuinely did not resolve. */
     if (err instanceof GraphQLRequestError && err.partialData) {
-      const partial = (err.partialData as { products?: { items?: TcQuickViewProduct[] } })
-        ?.products?.items?.[0];
+      const partial = (
+        err.partialData as { products?: { items?: TcQuickViewProduct[] } }
+      )?.products?.items?.[0];
       if (partial) {
-        console.warn(`[QuickView] partial response used for SKU "${sku}":`, err.message);
+        console.warn(
+          `[QuickView] partial response used for SKU "${sku}":`,
+          err.message,
+        );
         return partial;
       }
     }
@@ -318,12 +333,17 @@ export async function fetchTcQuickViewGraphQL(sku: string): Promise<TcQuickViewP
 
 /** Candidate products for the Quick View attribute fallback. Never used raw — the
  *  caller must confirm a single exact attribute match before showing one. */
-export async function fetchTcQuickViewMatchesGraphQL(terms: string): Promise<TcQuickViewProduct[]> {
+export async function fetchTcQuickViewMatchesGraphQL(
+  terms: string,
+): Promise<TcQuickViewProduct[]> {
   try {
     const data = await executeGraphQLQuery(tcQuickViewMatchQuery(terms));
     return (data?.products?.items as TcQuickViewProduct[] | undefined) ?? [];
   } catch (err) {
-    console.warn(`[QuickView] GraphQL matches query failed for terms "${terms}":`, err);
+    console.warn(
+      `[QuickView] GraphQL matches query failed for terms "${terms}":`,
+      err,
+    );
     return [];
   }
 }
@@ -334,7 +354,11 @@ export async function fetchSupplierPriceHistoryGraphQL(
   source: string,
 ): Promise<SupplierPriceHistoryPoint[]> {
   const data = await executeGraphQLQuery(supplierPriceHistoryQuery(id, source));
-  return (data?.supplierProductPriceHistory as SupplierPriceHistoryPoint[] | undefined) ?? [];
+  return (
+    (data?.supplierProductPriceHistory as
+      | SupplierPriceHistoryPoint[]
+      | undefined) ?? []
+  );
 }
 
 /**
@@ -342,7 +366,9 @@ export async function fetchSupplierPriceHistoryGraphQL(
  * automatically — a duplicate call creates a duplicate booking, and there is no
  * delete mutation to clean one up.
  */
-export async function createCrmBookingGraphQL(input: CrmBookingInput): Promise<CrmBookingResult> {
+export async function createCrmBookingGraphQL(
+  input: CrmBookingInput,
+): Promise<CrmBookingResult> {
   const data = await executeGraphQLQuery(createCrmBookingMutation(input));
   const res = data?.createCrmBooking as CrmBookingResult | undefined;
   if (!res) throw new Error("Booking failed: the server returned no result.");
@@ -364,12 +390,16 @@ export async function createCrmBookingGraphQL(input: CrmBookingInput): Promise<C
  * a single request. Returns [] rather than throwing when the field answers with
  * nothing, so the table renders its empty state instead of an error.
  */
-export async function fetchCrmRecentBookingsGraphQL(): Promise<CrmRecentBooking[]> {
+export async function fetchCrmRecentBookingsGraphQL(): Promise<
+  CrmRecentBooking[]
+> {
   const data = await executeGraphQLQuery(crmRecentBookingsQuery());
   return (data?.crmRecentBookings as CrmRecentBooking[] | undefined) ?? [];
 }
 
-export async function fetchCrmCustomerByPhoneGraphQL(phone: string): Promise<CrmCustomer | null> {
+export async function fetchCrmCustomerByPhoneGraphQL(
+  phone: string,
+): Promise<CrmCustomer | null> {
   const trimmed = (phone ?? "").trim();
   if (!trimmed) return null; // the API answers "Phone number is required."
   try {
@@ -398,7 +428,9 @@ export async function fetchCrmCustomerByPhoneGraphQL(phone: string): Promise<Crm
  * there is no query to read a quote back — so the caller must persist whatever
  * it needs from the returned record.
  */
-export async function createKleverQuote(input: KleverQuoteInput): Promise<KleverQuote> {
+export async function createKleverQuote(
+  input: KleverQuoteInput,
+): Promise<KleverQuote> {
   const data = await executeGraphQLQuery(CREATE_KLEVER_QUOTE, { input });
   const res = data?.createKleverQuote as KleverQuote | undefined;
   if (!res) throw new Error("Quotation failed: the server returned no record.");
@@ -416,7 +448,8 @@ export async function addKleverQuoteHistory(
 ): Promise<KleverQuoteHistory> {
   const data = await executeGraphQLQuery(ADD_QUOTE_HISTORY, { input });
   const res = data?.addKleverQuoteHistory as KleverQuoteHistory | undefined;
-  if (!res) throw new Error("Quote history failed: the server returned no record.");
+  if (!res)
+    throw new Error("Quote history failed: the server returned no record.");
   return res;
 }
 
@@ -430,6 +463,7 @@ export async function fetchKleverVehicleSearchGraphQL(
 ): Promise<KleverVehicleItem[]> {
   const query = kleverVehicleSearchQuery(width, height, rim);
   const data = await executeGraphQLQuery(query);
-  return (data?.kleverVehicleSearch?.data as KleverVehicleItem[] | undefined) ?? [];
+  return (
+    (data?.kleverVehicleSearch?.data as KleverVehicleItem[] | undefined) ?? []
+  );
 }
-

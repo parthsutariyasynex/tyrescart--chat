@@ -9,9 +9,10 @@
  * cache). Nothing here fetches a second time: the Price History panel reuses the
  * same `history` array the chart already consumes.
  *
- * FITTING PRICE reads the local `fittingPriceHistory` store instead — the API
- * has no fitting-price series to read (see services/costHistory.ts) — so its
- * points accumulate one per manual Sync in which the value changed.
+ * FITTING PRICE reads the SAME endpoint, pinned to source: "competitor". The
+ * API has no fitting-price series — `source` accepts only "supplier" or
+ * "competitor" and both return a `price` — so this chart plots the competitor
+ * price series under the Fitting Price label, by explicit request.
  *
  * Recharts is imported lazily — ~100 KB that only matters once someone opens
  * this modal, so it does not slow the first paint of the supplier table.
@@ -22,7 +23,6 @@ import dynamic from "next/dynamic";
 import { XMarkIcon } from "@heroicons/react/24/outline";
 import {
   fromApiHistory,
-  getFittingPriceHistory,
   toDateSeries,
   summarise,
   type CostHistoryRecord,
@@ -61,9 +61,8 @@ const money = (n: number) =>
  * Which series to chart.
  *
  * `"cost"` is the default and is byte-for-byte the behaviour this modal always
- * had — the API series via `supplierProductPriceHistory`. `"fitting"` reads the
- * locally-observed fitting-price store instead, because the API has no
- * fitting-price history to read.
+ * had — `supplierProductPriceHistory` with the source derived from the row.
+ * `"fitting"` calls the same endpoint with source pinned to "competitor".
  */
 export type HistoryVariant = "cost" | "fitting";
 
@@ -100,9 +99,21 @@ export default function CostHistoryModal({
   useEffect(() => {
     let alive = true;
     async function load(): Promise<CostHistoryRecord[]> {
-      // No network for the fitting series — there is no endpoint for it. The
-      // points come from what manual syncs have observed on this device.
-      if (isFitting) return getFittingPriceHistory(product.id).catch(() => []);
+      /* Fitting Price reads `supplierProductPriceHistory` with a FIXED
+         source: "competitor" — not the row's own supplier/competitor
+         discriminator, which is what the cost branch below derives. The source
+         is pinned here rather than passed in, so nothing outside this branch
+         changes.
+
+         NOTE the endpoint returns a `price` series; it has no fitting-price
+         field (`source` accepts only "supplier"/"competitor", and every other
+         value is rejected with `Source must be "supplier" or "competitor".`).
+         So these points are the competitor's price, charted under the Fitting
+         Price label by explicit request. */
+      if (isFitting) {
+        const fitting = await fetchSupplierPriceHistoryCached(product.id, "competitor").catch(() => []);
+        return fromApiHistory(fitting, product.id, product.itemCode ?? "");
+      }
 
       const source = (product.productType || "supplier").toLowerCase().includes("competitor")
         ? "competitor"
@@ -333,8 +344,9 @@ export default function CostHistoryModal({
                     </div>
                     <p className="text-sm font-bold text-slate-500">No {seriesLabel} History Available</p>
                     <p className="mt-1.5 text-xs text-slate-400 max-w-xs leading-relaxed">
-                      {seriesLabel} history is recorded during a manual Sync. Press Sync to capture
-                      this product&apos;s first data point.
+                      {isFitting
+                        ? "The price-history endpoint returned no competitor points for this product. Only products the competitor feed tracks have a series."
+                        : "No price history is recorded for this product yet."}
                     </p>
                   </div>
                 ) : (
