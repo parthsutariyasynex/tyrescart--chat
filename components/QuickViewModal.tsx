@@ -726,49 +726,44 @@ export default function QuickViewModal({
 
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <div className="text-2xl font-black text-slate-900 tracking-tight flex items-baseline gap-1">
-                      <span>
-                        {currency}{" "}
-                        {unitPrice.toLocaleString("en-US", {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </span>
-                      <span className="text-xs font-semibold text-slate-500">
-                        / Per Pcs
-                      </span>
-                    </div>
-                    <div className="text-xs font-semibold text-slate-600 mt-0.5 flex gap-3">
-                      <span>
-                        Set of 2 :{" "}
-                        <strong className="text-slate-900">
-                          {currency}{" "}
-                          {setOf2Price.toLocaleString("en-US", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
-                        </strong>
-                      </span>
-                      {/* The real Set of 4 PRICE, from the project-wide rule in
-                          services/productFormatter — the same figure the TC
-                          table, CSV export, Check Supplier header and clipboard
-                          string show. This used to render `Set of {selectedQty}`
-                          with the quantity subtotal, which merely happened to
-                          read "Set of 4" at the default qty and disagreed with
-                          the table whenever a free-tyre offer applied. The
-                          quantity total is unchanged and still shown on the Add
-                          to Cart button. */}
-                      <span>
-                        Set of 4 :{" "}
-                        <strong className="text-slate-900">
-                          {currency}{" "}
-                          {setOf4Price.toLocaleString("en-US", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
-                        </strong>
-                      </span>
-                    </div>
+                    {unitPrice > 0 ? (
+                      <>
+                        <div className="text-2xl font-black text-slate-900 tracking-tight flex items-baseline gap-1">
+                          <span>
+                            {currency}{" "}
+                            {unitPrice.toLocaleString("en-US", {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </span>
+                          <span className="text-xs font-semibold text-slate-500">
+                            / Per Pcs
+                          </span>
+                        </div>
+                        <div className="text-xs font-semibold text-slate-600 mt-0.5 flex gap-3">
+                          <span>
+                            Set of 2 :{" "}
+                            <strong className="text-slate-900">
+                              {currency}{" "}
+                              {setOf2Price.toLocaleString("en-US", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </strong>
+                          </span>
+                          <span>
+                            Set of 4 :{" "}
+                            <strong className="text-slate-900">
+                              {currency}{" "}
+                              {setOf4Price.toLocaleString("en-US", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </strong>
+                          </span>
+                        </div>
+                      </>
+                    ) : null}
                   </div>
 
                   {/* Actions: Qty Select + Add to Cart Button & Split Payment */}

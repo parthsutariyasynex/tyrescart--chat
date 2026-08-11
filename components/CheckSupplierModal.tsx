@@ -468,6 +468,7 @@ export default function CheckSupplierModal({
       // takes a number. Under `any` this mismatch passed through unnoticed.
       qty: item.qty == null ? null : Number(item.qty) || 0,
       cost: Number(item.cost) || 0,
+      fitting_price: Number(item.fitting_price) || 0,
     });
     navigator.clipboard.writeText(rowString);
     showToast(`Copied product details to clipboard!`);
@@ -875,9 +876,7 @@ export default function CheckSupplierModal({
                       return (
                         <tr
                           key={`${r.id}-${i}`}
-                          onClick={() => copyRowData(r)}
-                          title="Click row to copy details"
-                          className="hover:bg-slate-50/80 transition-colors cursor-pointer border-b border-slate-100 last:border-0"
+                          className="hover:bg-slate-50/80 transition-colors border-b border-slate-100 last:border-0"
                         >
                           {/* Source */}
                           <td className="py-1.5 px-3 whitespace-nowrap">

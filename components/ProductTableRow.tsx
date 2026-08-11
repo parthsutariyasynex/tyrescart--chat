@@ -6,6 +6,7 @@ import {
   ShoppingCartIcon,
   TruckIcon,
   ClockIcon,
+  DocumentDuplicateIcon,
 } from "@heroicons/react/24/outline";
 import { getOfferBadgeStyle, NO_API_FIELD } from "@/constants/badges";
 import { features } from "@/config/features";
@@ -107,9 +108,7 @@ export const ProductTableRow = React.memo(function ProductTableRow<T extends Pro
 }: ProductTableRowProps<T>) {
   return (
     <tr
-      onClick={() => onCopyRow(item)}
-      title="Click row to view details"
-      className={`transition-colors duration-150 hover:bg-emerald-50/50 cursor-pointer group ${
+      className={`transition-colors duration-150 hover:bg-emerald-50/50 group ${
         isSelected ? "bg-emerald-50/70" : ""
       }`}
     >
@@ -218,17 +217,21 @@ export const ProductTableRow = React.memo(function ProductTableRow<T extends Pro
       {/* Price / Cost Column */}
       {type === "tc" && !hiddenColumns.has("price") && (
         <td className={`${cellPaddingClass} text-right whitespace-nowrap`}>
-          <div className="inline-flex items-center justify-end text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap" dir="ltr">
-            <span>{(item.price || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-          </div>
+          {item.price && item.price > 0 ? (
+            <div className="inline-flex items-center justify-end text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap" dir="ltr">
+              <span>{item.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+          ) : null}
         </td>
       )}
 
       {type === "supplier" && !hiddenColumns.has("cost") && (
         <td className={`${cellPaddingClass} text-right whitespace-nowrap`}>
-          <div className="inline-flex items-center justify-end text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap" dir="ltr">
-            <span>{(item.cost || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-          </div>
+          {item.cost && item.cost > 0 ? (
+            <div className="inline-flex items-center justify-end text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap" dir="ltr">
+              <span>{item.cost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+          ) : null}
         </td>
       )}
 
@@ -251,9 +254,11 @@ export const ProductTableRow = React.memo(function ProductTableRow<T extends Pro
       {/* TC Specific: Set of 4 Price Column */}
       {type === "tc" && !hiddenColumns.has("setOf4Price") && (
         <td className={`${cellPaddingClass} text-right whitespace-nowrap`}>
-          <div className="inline-flex items-center justify-end text-xs font-semibold text-slate-600 font-mono whitespace-nowrap" dir="ltr">
-            <span>{(item.setOf4Price || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-          </div>
+          {item.setOf4Price && item.setOf4Price > 0 ? (
+            <div className="inline-flex items-center justify-end text-xs font-semibold text-slate-600 font-mono whitespace-nowrap" dir="ltr">
+              <span>{item.setOf4Price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+          ) : null}
         </td>
       )}
 
@@ -338,6 +343,20 @@ export const ProductTableRow = React.memo(function ProductTableRow<T extends Pro
               className="w-6 h-6 aspect-square shrink-0 flex items-center justify-center rounded-md border transition-colors active:opacity-80 bg-white text-[#25D366] border-[#25D366]/40 hover:bg-[#25D366]/10"
             >
               <WhatsAppIcon className="w-3 h-3" />
+            </button>
+          )}
+
+          {onCopyRow && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onCopyRow(item);
+              }}
+              title="Copy row details"
+              aria-label="Copy row details"
+              className="w-6 h-6 aspect-square shrink-0 flex items-center justify-center rounded-md border transition-colors active:opacity-80 bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-emerald-600 hover:border-emerald-300"
+            >
+              <DocumentDuplicateIcon className="w-3 h-3" />
             </button>
           )}
 

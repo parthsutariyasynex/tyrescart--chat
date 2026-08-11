@@ -360,6 +360,7 @@ export default function SupplierProductsPage() {
 
   /** Product whose Cost History modal is open, or null. */
   const [costHistoryItem, setCostHistoryItem] = useState<Product | null>(null);
+  const [fittingHistoryItem, setFittingHistoryItem] = useState<Product | null>(null);
   /** Product whose Quick View modal is open, or null. */
   const [quickViewItem, setQuickViewItem] = useState<Product | null>(null);
   const [isQuotationModalOpen, setIsQuotationModalOpen] = useState(false);
@@ -1126,9 +1127,7 @@ export default function SupplierProductsPage() {
                       return (
                         <tr
                           key={item.id}
-                          onClick={() => copyRowData(item)}
-                          title="Click row to copy details"
-                          className="hover:bg-slate-50/70 transition-colors cursor-pointer group"
+                          className="hover:bg-slate-50/70 transition-colors group"
                         >
                           {!hiddenColumns.has('source') && (
                             <td className={`${cellPaddingClass} whitespace-nowrap`}>
@@ -1210,23 +1209,33 @@ export default function SupplierProductsPage() {
 
                           {!hiddenColumns.has('cost') && (
                             <td className={`${cellPaddingClass} text-right whitespace-nowrap`}>
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); setCostHistoryItem(item); }}
-                                title="View cost history"
-                                className="inline-flex items-center justify-end gap-1 text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap rounded px-1 -mx-1 hover:text-emerald-700 hover:underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors cursor-pointer"
-                                dir="ltr"
-                              >
-                                <span className="whitespace-nowrap">{item.cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                              </button>
+                              {item.cost && item.cost > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); setCostHistoryItem(item); }}
+                                  title="View cost history"
+                                  className="inline-flex items-center justify-end gap-1 text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap rounded px-1 -mx-1 hover:text-emerald-700 hover:underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors cursor-pointer"
+                                  dir="ltr"
+                                >
+                                  <span className="whitespace-nowrap">{item.cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                </button>
+                              ) : null}
                             </td>
                           )}
 
                           {!hiddenColumns.has('fittingPrice') && (
                             <td className={`${cellPaddingClass} text-center whitespace-nowrap`}>
-                              <div className="inline-flex items-center justify-center gap-1 text-xs font-medium text-slate-500 font-mono whitespace-nowrap" dir="ltr">
-                                <span className="whitespace-nowrap">{item.fittingPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                              </div>
+                              {item.fittingPrice && item.fittingPrice > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); setFittingHistoryItem(item); }}
+                                  title="View fitting price history"
+                                  className="inline-flex items-center justify-center gap-1 text-xs font-medium text-slate-500 font-mono whitespace-nowrap rounded px-1 -mx-1 hover:text-emerald-700 hover:underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors cursor-pointer"
+                                  dir="ltr"
+                                >
+                                  <span className="whitespace-nowrap">{item.fittingPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                </button>
+                              ) : null}
                             </td>
                           )}
 
@@ -1315,6 +1324,30 @@ export default function SupplierProductsPage() {
             year: costHistoryItem.year,
           }}
           onCloseAction={() => setCostHistoryItem(null)}
+        />
+      )}
+
+      {/* Fitting Price History — same modal, `variant` swaps the series it reads
+          and the labels. Separate state so opening one never closes the other
+          mid-animation. */}
+      {fittingHistoryItem && (
+        <CostHistoryModal
+          key={`fitting-${String(fittingHistoryItem.id)}`}
+          variant="fitting"
+          product={{
+            id: fittingHistoryItem.id,
+            brand: fittingHistoryItem.brand,
+            size: fittingHistoryItem.size,
+            sizeFull: fittingHistoryItem.sizeFull,
+            pattern: fittingHistoryItem.pattern,
+            itemCode: fittingHistoryItem.itemCode,
+            source: fittingHistoryItem.source,
+            cost: fittingHistoryItem.fittingPrice,
+            productType: fittingHistoryItem.productType,
+            country: fittingHistoryItem.country,
+            year: fittingHistoryItem.year,
+          }}
+          onCloseAction={() => setFittingHistoryItem(null)}
         />
       )}
 

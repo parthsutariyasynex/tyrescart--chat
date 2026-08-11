@@ -1,11 +1,17 @@
 "use client";
 
 /**
- * Cost History modal — opened by clicking a Cost value in the supplier table.
+ * Price history modal — opened by clicking a Cost or Fitting Price value in the
+ * supplier table. `variant` selects which series is shown; the layout, the Date
+ * Wise / Month Wise behaviour and the summary tiles are shared.
  *
- * Reads exclusively from the API price-history endpoint (via cache). Nothing
- * here fetches a second time: the Price History panel reuses the same
- * `history` array the chart already consumes.
+ * COST (default) reads exclusively from the API price-history endpoint (via
+ * cache). Nothing here fetches a second time: the Price History panel reuses the
+ * same `history` array the chart already consumes.
+ *
+ * FITTING PRICE reads the local `fittingPriceHistory` store instead — the API
+ * has no fitting-price series to read (see services/costHistory.ts) — so its
+ * points accumulate one per manual Sync in which the value changed.
  *
  * Recharts is imported lazily — ~100 KB that only matters once someone opens
  * this modal, so it does not slow the first paint of the supplier table.
@@ -16,6 +22,7 @@ import dynamic from "next/dynamic";
 import { XMarkIcon } from "@heroicons/react/24/outline";
 import {
   fromApiHistory,
+  getFittingPriceHistory,
   toDateSeries,
   summarise,
   type CostHistoryRecord,
@@ -50,15 +57,29 @@ export interface CostHistoryProduct {
 const money = (n: number) =>
   n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+/**
+ * Which series to chart.
+ *
+ * `"cost"` is the default and is byte-for-byte the behaviour this modal always
+ * had — the API series via `supplierProductPriceHistory`. `"fitting"` reads the
+ * locally-observed fitting-price store instead, because the API has no
+ * fitting-price history to read.
+ */
+export type HistoryVariant = "cost" | "fitting";
+
 export interface CostHistoryModalProps {
   product: CostHistoryProduct;
   onCloseAction: () => void;
+  variant?: HistoryVariant;
 }
 
 export default function CostHistoryModal({
   product,
   onCloseAction,
+  variant = "cost",
 }: CostHistoryModalProps) {
+  const isFitting = variant === "fitting";
+  const seriesLabel = isFitting ? "Fitting Price" : "Cost";
   const [history, setHistory] = useState<CostHistoryRecord[] | null>(null);
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [isClosing, setIsClosing] = useState<boolean>(false);
@@ -79,6 +100,10 @@ export default function CostHistoryModal({
   useEffect(() => {
     let alive = true;
     async function load(): Promise<CostHistoryRecord[]> {
+      // No network for the fitting series — there is no endpoint for it. The
+      // points come from what manual syncs have observed on this device.
+      if (isFitting) return getFittingPriceHistory(product.id).catch(() => []);
+
       const source = (product.productType || "supplier").toLowerCase().includes("competitor")
         ? "competitor"
         : "supplier";
@@ -89,7 +114,7 @@ export default function CostHistoryModal({
       .then((rows) => { if (alive) setHistory(rows); })
       .catch(() => { if (alive) setHistory([]); });
     return () => { alive = false; };
-  }, [product.id, product.productType, product.itemCode]);
+  }, [product.id, product.productType, product.itemCode, isFitting]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") handleClose(); };
@@ -209,7 +234,7 @@ export default function CostHistoryModal({
                 </svg>
               </div>
               <h2 className="text-base font-extrabold text-slate-900 tracking-tight leading-tight whitespace-nowrap">
-                Cost History
+                {seriesLabel} History
               </h2>
             </div>
 
@@ -288,7 +313,7 @@ export default function CostHistoryModal({
                 {!loading && !empty && (
                   <div className="flex items-center gap-1.5">
                     <div className="w-3 h-0.5 rounded bg-emerald-500" />
-                    <span className="text-[10px] text-slate-500 font-medium">Cost</span>
+                    <span className="text-[10px] text-slate-500 font-medium">{seriesLabel}</span>
                   </div>
                 )}
               </div>
@@ -306,9 +331,9 @@ export default function CostHistoryModal({
                           d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                       </svg>
                     </div>
-                    <p className="text-sm font-bold text-slate-500">No Cost History Available</p>
+                    <p className="text-sm font-bold text-slate-500">No {seriesLabel} History Available</p>
                     <p className="mt-1.5 text-xs text-slate-400 max-w-xs leading-relaxed">
-                      Cost history is recorded during a manual Sync. Press Sync to capture
+                      {seriesLabel} history is recorded during a manual Sync. Press Sync to capture
                       this product&apos;s first data point.
                     </p>
                   </div>

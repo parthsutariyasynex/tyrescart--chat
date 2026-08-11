@@ -16,7 +16,13 @@
  * button sets; every other path leaves history untouched.
  */
 
-import { idbGetAll, idbPutAll, idbGetAllByIndex, STORE_COST_HISTORY } from "./db";
+import {
+  idbGetAll,
+  idbPutAll,
+  idbGetAllByIndex,
+  STORE_COST_HISTORY,
+  STORE_FITTING_HISTORY,
+} from "./db";
 
 /** One observation. Written only when `cost` differs from the previous record. */
 export interface CostHistoryRecord {
@@ -129,6 +135,133 @@ export async function recordCostChanges(
     );
   }
   return additions.length;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   FITTING PRICE HISTORY  (local observation only)
+
+   The API has NO fitting-price history. `PriceHistoryItem` exposes exactly
+   `date` and `price`; `fitting_price`, `fittingPrice`, `fitting`, `cost`,
+   `installation_price` and `service_price` are all rejected on that type, no
+   `*FittingPriceHistory` root field exists (12 candidate names probed), and
+   `supplierProductPriceHistory` takes no field/type selector argument.
+
+   So the series is built the way cost history was built before its endpoint
+   existed: observe `fitting_price` on each MANUAL sync and stamp it when it
+   changes. Nothing here invents a past — the line starts at the first sync
+   after this shipped, and a product's chart is empty until then.
+
+   Deliberately a separate store and separate functions from the cost path, so
+   cost history keeps behaving exactly as it does today.
+───────────────────────────────────────────────────────────── */
+
+/** One observation. Written only when `fittingPrice` differs from the previous. */
+export interface FittingHistoryRecord {
+  /** Auto-increment key. Absent until IndexedDB assigns it. */
+  id?: number;
+  productId: string | number;
+  sku: string;
+  fittingPrice: number;
+  /** Calendar day of the sync, `YYYY-MM-DD`. */
+  syncDate: string;
+  /** Exact moment, ms epoch. Ordering key. */
+  syncTimestamp: number;
+}
+
+/** The most recent fitting price recorded per product, in one pass. */
+async function lastFittingByProduct(): Promise<Map<string, { price: number; ts: number }>> {
+  const all = await idbGetAll<FittingHistoryRecord>(STORE_FITTING_HISTORY).catch(() => []);
+  const last = new Map<string, { price: number; ts: number }>();
+  for (const rec of all) {
+    const key = String(rec.productId);
+    const prev = last.get(key);
+    if (!prev || rec.syncTimestamp > prev.ts) {
+      last.set(key, { price: rec.fittingPrice, ts: rec.syncTimestamp });
+    }
+  }
+  return last;
+}
+
+/**
+ * Append a point for every product whose fitting price CHANGED since last time.
+ *
+ * Only a real, positive fitting price is recorded: the feed sends 0 for "no
+ * fitting price", and charting that would draw a product dropping to zero
+ * rather than simply having no data. A first sighting gets one baseline point,
+ * so a later change has something to draw a line from.
+ *
+ * Returns how many records were written.
+ */
+export async function recordFittingPriceChanges(
+  rows: { id: string | number; sku?: string; fitting_price?: number | string }[],
+): Promise<number> {
+  if (!rows.length) return 0;
+
+  const last = await lastFittingByProduct();
+  const now = Date.now();
+  const syncDate = localDay(now);
+  const additions: FittingHistoryRecord[] = [];
+  const seen = new Set<string>();
+
+  for (const row of rows) {
+    if (row.id === undefined || row.id === null || row.id === "") continue;
+    const key = String(row.id);
+    if (seen.has(key)) continue; // a product listed twice in one sync
+
+    const price = Number(row.fitting_price);
+    // `> 0` not `isFinite`: 0 and blank both mean "no fitting price on this row".
+    if (!Number.isFinite(price) || price <= 0) continue;
+
+    const prev = last.get(key);
+    if (prev && prev.price === price) continue; // unchanged → no duplicate point
+
+    seen.add(key);
+    additions.push({
+      productId: row.id,
+      sku: String(row.sku ?? ""),
+      fittingPrice: price,
+      syncDate,
+      syncTimestamp: now,
+    });
+  }
+
+  if (additions.length) {
+    await idbPutAll(STORE_FITTING_HISTORY, additions).catch((e) =>
+      console.error("[fittingHistory] failed to persist:", e),
+    );
+  }
+  return additions.length;
+}
+
+/**
+ * One product's fitting-price history, oldest first, in the shape the existing
+ * chart consumes — `cost` carries the fitting price, so `toDateSeries`,
+ * `toMonthSeries` and `summarise` all work unchanged.
+ */
+export async function getFittingPriceHistory(
+  productId: string | number,
+): Promise<CostHistoryRecord[]> {
+  // Both id forms, for the same reason getCostHistory reads both: the
+  // catalogue's `id` is `string | number` and a mismatch would silently miss.
+  const [byRaw, byString] = await Promise.all([
+    idbGetAllByIndex<FittingHistoryRecord>(STORE_FITTING_HISTORY, "productId", productId).catch(() => []),
+    typeof productId === "number"
+      ? idbGetAllByIndex<FittingHistoryRecord>(STORE_FITTING_HISTORY, "productId", String(productId)).catch(() => [])
+      : Promise.resolve([] as FittingHistoryRecord[]),
+  ]);
+
+  const merged = new Map<number | string, FittingHistoryRecord>();
+  for (const r of [...byRaw, ...byString]) merged.set(r.id ?? `${r.productId}:${r.syncTimestamp}`, r);
+
+  return [...merged.values()]
+    .sort((a, b) => a.syncTimestamp - b.syncTimestamp)
+    .map((r) => ({
+      productId: r.productId,
+      sku: r.sku,
+      cost: r.fittingPrice,
+      syncDate: r.syncDate,
+      syncTimestamp: r.syncTimestamp,
+    }));
 }
 
 /* ─────────────────────────────────────────────────────────────
