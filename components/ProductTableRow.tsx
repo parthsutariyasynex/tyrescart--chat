@@ -6,7 +6,6 @@ import {
   ShoppingCartIcon,
   TruckIcon,
   ClockIcon,
-  DocumentDuplicateIcon,
 } from "@heroicons/react/24/outline";
 import { getOfferBadgeStyle, NO_API_FIELD } from "@/constants/badges";
 import { features } from "@/config/features";
@@ -346,19 +345,7 @@ export const ProductTableRow = React.memo(function ProductTableRow<T extends Pro
             </button>
           )}
 
-          {onCopyRow && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onCopyRow(item);
-              }}
-              title="Copy row details"
-              aria-label="Copy row details"
-              className="w-6 h-6 aspect-square shrink-0 flex items-center justify-center rounded-md border transition-colors active:opacity-80 bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-emerald-600 hover:border-emerald-300"
-            >
-              <DocumentDuplicateIcon className="w-3 h-3" />
-            </button>
-          )}
+
 
           {features.checkSupplier && onCheckSupplier && (
             <button
