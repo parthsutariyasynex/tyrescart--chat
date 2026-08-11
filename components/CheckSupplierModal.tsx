@@ -172,6 +172,9 @@ export default function CheckSupplierModal({
   const [costHistoryItem, setCostHistoryItem] = useState<SupplierRow | null>(
     null,
   );
+  const [fittingHistoryItem, setFittingHistoryItem] = useState<SupplierRow | null>(
+    null,
+  );
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   /** Search and pagination */
   const [search, setSearch] = useState("");
@@ -1052,14 +1055,20 @@ export default function CheckSupplierModal({
                           {/* Fitting Price */}
                           <td className="py-1.5 px-3 text-center whitespace-nowrap">
                             {Number(r.fitting_price) > 0 ? (
-                              <div
-                                className="inline-flex items-center justify-center gap-1 text-xs font-medium text-slate-500 font-mono whitespace-nowrap"
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setFittingHistoryItem(r);
+                                }}
+                                title="View fitting price history"
+                                className="inline-flex items-center justify-center gap-1 text-xs font-medium text-slate-500 font-mono whitespace-nowrap rounded px-1 -mx-1 hover:text-emerald-700 hover:underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors cursor-pointer"
                                 dir="ltr"
                               >
                                 <span className="whitespace-nowrap">
                                   {money(Number(r.fitting_price))}
                                 </span>
-                              </div>
+                              </button>
                             ) : null}
                           </td>
 
@@ -1149,7 +1158,7 @@ export default function CheckSupplierModal({
       {/* Cost History Modal */}
       {costHistoryItem && (
         <CostHistoryModal
-          key={String(costHistoryItem.id)}
+          key={`cost-${String(costHistoryItem.id)}`}
           product={{
             id: costHistoryItem.id,
             brand: costHistoryItem.brand || product.brand,
@@ -1160,12 +1169,36 @@ export default function CheckSupplierModal({
               costHistoryItem.name ||
               product.pattern,
             itemCode: costHistoryItem.sku || product.itemCode,
-            cost: Number(costHistoryItem.cost) || 0,
+            cost: Number(costHistoryItem.cost || costHistoryItem.price) || 0,
             productType: costHistoryItem.product_source || "supplier",
             country: costHistoryItem.country || product.country,
             year: costHistoryItem.year || product.year,
           }}
           onCloseAction={() => setCostHistoryItem(null)}
+        />
+      )}
+
+      {/* Fitting Price History Modal */}
+      {fittingHistoryItem && (
+        <CostHistoryModal
+          key={`fitting-${String(fittingHistoryItem.id)}`}
+          variant="fitting"
+          product={{
+            id: fittingHistoryItem.id,
+            brand: fittingHistoryItem.brand || product.brand,
+            size: fittingHistoryItem.size || product.size,
+            sizeFull: fittingHistoryItem.size || product.sizeFull,
+            pattern:
+              fittingHistoryItem.pattern ||
+              fittingHistoryItem.name ||
+              product.pattern,
+            itemCode: fittingHistoryItem.sku || product.itemCode,
+            cost: Number(fittingHistoryItem.fitting_price) || 0,
+            productType: fittingHistoryItem.product_source || "supplier",
+            country: fittingHistoryItem.country || product.country,
+            year: fittingHistoryItem.year || product.year,
+          }}
+          onCloseAction={() => setFittingHistoryItem(null)}
         />
       )}
     </div>

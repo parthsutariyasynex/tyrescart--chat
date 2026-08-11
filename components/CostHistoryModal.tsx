@@ -110,15 +110,19 @@ export default function CostHistoryModal({
          value is rejected with `Source must be "supplier" or "competitor".`).
          So these points are the competitor's price, charted under the Fitting
          Price label by explicit request. */
-      if (isFitting) {
-        const fitting = await fetchSupplierPriceHistoryCached(product.id, "competitor").catch(() => []);
-        return fromApiHistory(fitting, product.id, product.itemCode ?? "");
+      const primarySource = isFitting
+        ? "competitor"
+        : (product.productType || product.source || "supplier").toLowerCase().includes("competitor")
+          ? "competitor"
+          : "supplier";
+
+      let api = await fetchSupplierPriceHistoryCached(product.id, primarySource).catch(() => []);
+      
+      // Fallback: If primary source returned no data, try "supplier" source
+      if ((!api || api.length === 0) && primarySource !== "supplier") {
+        api = await fetchSupplierPriceHistoryCached(product.id, "supplier").catch(() => []);
       }
 
-      const source = (product.productType || "supplier").toLowerCase().includes("competitor")
-        ? "competitor"
-        : "supplier";
-      const api = await fetchSupplierPriceHistoryCached(product.id, source).catch(() => []);
       return fromApiHistory(api, product.id, product.itemCode ?? "");
     }
     void load()
