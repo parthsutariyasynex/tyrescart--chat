@@ -129,14 +129,14 @@ export default function CartModal({ onCloseAction, onCheckoutAction }: CartModal
                       lines.map((l) => (
                         <tr key={l.id} className="bg-sky-50/30 hover:bg-sky-50/60 transition-colors">
                           <td className="p-2 border-b border-slate-100">
-                            <input
+                            <input autoComplete="off"
                               readOnly
                               value={[l.brand, l.name, l.size].filter(Boolean).join(" ")}
                               className="w-full h-9 px-3 text-[13px] text-slate-700 bg-white border border-slate-200 rounded-lg focus:outline-none font-medium truncate"
                             />
                           </td>
                           <td className="p-2 border-b border-slate-100">
-                            <input
+                            <input autoComplete="off"
                               type="number"
                               min={1}
                               value={l.qty}
@@ -149,14 +149,14 @@ export default function CartModal({ onCloseAction, onCheckoutAction }: CartModal
                             />
                           </td>
                           <td className="p-2 border-b border-slate-100">
-                            <input
+                            <input autoComplete="off"
                               readOnly
                               value={money(l.price)}
                               className="w-full h-9 px-2 text-[13px] text-slate-600 bg-slate-50/80 border border-slate-200 rounded-lg text-center focus:outline-none"
                             />
                           </td>
                           <td className="p-2 border-b border-slate-100">
-                            <input
+                            <input autoComplete="off"
                               readOnly
                               value={money(l.price * (1 + VAT_RATE))}
                               className="w-full h-9 px-2 text-[13px] text-slate-600 bg-slate-50/80 border border-slate-200 rounded-lg text-center focus:outline-none"

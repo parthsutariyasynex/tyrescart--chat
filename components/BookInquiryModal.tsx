@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useSyncExternalStore } from "react";
+import React, { useState, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import {
   XMarkIcon,
@@ -25,6 +25,8 @@ import {
 } from "@/services/inquiryStorage";
 import { createCrmBookingGraphQL, fetchCrmCustomerByPhoneGraphQL, fetchCrmRecentBookingsGraphQL } from "@/services/graphql";
 import type { CrmCustomer, CrmRecentBooking } from "@/services/types";
+import { matchesSizeInput } from "@/hooks/useProductFilter";
+import { idbGetAll, STORE_SUPPLIER_PRODUCTS } from "@/services/db";
 
 /** No external store to watch — `mounted` only ever flips via the server/client
  *  snapshot pair, so the subscription is a no-op. Module scope keeps its
@@ -39,12 +41,14 @@ interface BookInquiryModalProps {
     size?: string;
     pattern?: string;
   } | null;
+  sizeOptions?: string[];
 }
 
 export default function BookInquiryModal({
   isOpen,
   onClose,
   initialProduct,
+  sizeOptions,
 }: BookInquiryModalProps) {
   // Inquiry list state
   const [inquiries, setInquiries] = useState<Inquiry[]>([]);
@@ -66,6 +70,86 @@ export default function BookInquiryModal({
   const [year, setYear] = useState("");
   const [note, setNote] = useState("");
   const [status, setStatus] = useState<Inquiry["status"]>("Pending");
+
+  // Size Autocomplete Suggestions state & refs
+  const [loadedSizes, setLoadedSizes] = useState<string[]>([]);
+  const [isFrontSizeOpen, setIsFrontSizeOpen] = useState(false);
+  const [isRearSizeOpen, setIsRearSizeOpen] = useState(false);
+  const frontSizeRef = useRef<HTMLDivElement>(null);
+  const rearSizeRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    idbGetAll<{ size?: string; sizeFull?: string }>(STORE_SUPPLIER_PRODUCTS)
+      .then((items) => {
+        const set = new Set<string>();
+        items.forEach((p) => {
+          const sz = p.size || p.sizeFull;
+          if (sz) set.add(sz);
+        });
+        if (set.size > 0) {
+          setLoadedSizes(Array.from(set).sort());
+        }
+      })
+      .catch(() => {});
+  }, [isOpen]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (frontSizeRef.current && !frontSizeRef.current.contains(e.target as Node)) {
+        setIsFrontSizeOpen(false);
+      }
+      if (rearSizeRef.current && !rearSizeRef.current.contains(e.target as Node)) {
+        setIsRearSizeOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const allAvailableSizes = useMemo(() => {
+    const set = new Set<string>();
+    if (sizeOptions) sizeOptions.forEach((s) => s && set.add(s));
+    loadedSizes.forEach((s) => s && set.add(s));
+    if (initialProduct?.size) set.add(initialProduct.size);
+    return Array.from(set).sort();
+  }, [sizeOptions, loadedSizes, initialProduct]);
+
+  const matchingFrontSizes = useMemo(() => {
+    const input = tireSize1.trim();
+    if (!input || allAvailableSizes.length === 0) return [];
+    const lower = input.toLowerCase();
+    const results: string[] = [];
+    for (const sz of allAvailableSizes) {
+      if (!sz) continue;
+      if (
+        sz.toLowerCase().includes(lower) ||
+        matchesSizeInput({ size: sz, sizeFull: sz }, input)
+      ) {
+        results.push(sz);
+        if (results.length >= 12) break;
+      }
+    }
+    return results;
+  }, [tireSize1, allAvailableSizes]);
+
+  const matchingRearSizes = useMemo(() => {
+    const input = tireSize2.trim();
+    if (!input || allAvailableSizes.length === 0) return [];
+    const lower = input.toLowerCase();
+    const results: string[] = [];
+    for (const sz of allAvailableSizes) {
+      if (!sz) continue;
+      if (
+        sz.toLowerCase().includes(lower) ||
+        matchesSizeInput({ size: sz, sizeFull: sz }, input)
+      ) {
+        results.push(sz);
+        if (results.length >= 12) break;
+      }
+    }
+    return results;
+  }, [tireSize2, allAvailableSizes]);
 
   // Validation state
   const [errors, setErrors] = useState<{ name?: string; phone?: string }>({});
@@ -654,7 +738,7 @@ export default function BookInquiryModal({
                 )}
               </div>
 
-              <form onSubmit={handleSubmit} className="space-y-2.5">
+              <form autoComplete="off" onSubmit={handleSubmit} className="space-y-2.5">
                 {/* Name & Phone (Required) */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
@@ -663,7 +747,7 @@ export default function BookInquiryModal({
                     </label>
                     <div className="relative">
                       <UserIcon className="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" />
-                      <input
+                      <input autoComplete="off"
                         type="text"
                         value={name}
                         onChange={(e) => {
@@ -691,7 +775,7 @@ export default function BookInquiryModal({
                     </label>
                     <div className="relative">
                       <PhoneIcon className="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" />
-                      <input
+                      <input autoComplete="off"
                         type="text"
                         value={phone}
                         onChange={(e) => {
@@ -724,7 +808,7 @@ export default function BookInquiryModal({
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Email Address</label>
                     <div className="relative">
                       <EnvelopeIcon className="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" />
-                      <input
+                      <input autoComplete="off"
                         type="email"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
@@ -736,7 +820,7 @@ export default function BookInquiryModal({
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">City</label>
-                    <input
+                    <input autoComplete="off"
                       type="text"
                       value={city}
                       onChange={(e) => setCity(e.target.value)}
@@ -748,26 +832,74 @@ export default function BookInquiryModal({
 
                 {/* Tire Sizes */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Tire Size 1</label>
-                    <input
+                  <div ref={frontSizeRef} className="relative">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Front Size</label>
+                    <input autoComplete="off"
                       type="text"
                       value={tireSize1}
-                      onChange={(e) => setTireSize1(e.target.value)}
+                      onChange={(e) => {
+                        setTireSize1(e.target.value);
+                        setIsFrontSizeOpen(true);
+                      }}
+                      onFocus={() => setIsFrontSizeOpen(true)}
                       placeholder="e.g. 265/65 R17"
                       className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                     />
+                    {isFrontSizeOpen && matchingFrontSizes.length > 0 && (
+                      <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-emerald-200 rounded-lg shadow-xl z-[999] max-h-48 overflow-y-auto py-1">
+                        {matchingFrontSizes.map((sz) => (
+                          <button
+                            key={sz}
+                            type="button"
+                            onClick={() => {
+                              setTireSize1(sz);
+                              setIsFrontSizeOpen(false);
+                            }}
+                            className="w-full text-left px-3 py-1.5 text-xs font-mono text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 transition-colors flex items-center justify-between cursor-pointer"
+                          >
+                            <span>{sz}</span>
+                            {tireSize1 === sz && (
+                              <span className="text-emerald-600 font-bold text-xs">✓</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Tire Size 2 (Rear)</label>
-                    <input
+                  <div ref={rearSizeRef} className="relative">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Rear Size</label>
+                    <input autoComplete="off"
                       type="text"
                       value={tireSize2}
-                      onChange={(e) => setTireSize2(e.target.value)}
+                      onChange={(e) => {
+                        setTireSize2(e.target.value);
+                        setIsRearSizeOpen(true);
+                      }}
+                      onFocus={() => setIsRearSizeOpen(true)}
                       placeholder="e.g. 285/60 R18"
                       className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                     />
+                    {isRearSizeOpen && matchingRearSizes.length > 0 && (
+                      <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-emerald-200 rounded-lg shadow-xl z-[999] max-h-48 overflow-y-auto py-1">
+                        {matchingRearSizes.map((sz) => (
+                          <button
+                            key={sz}
+                            type="button"
+                            onClick={() => {
+                              setTireSize2(sz);
+                              setIsRearSizeOpen(false);
+                            }}
+                            className="w-full text-left px-3 py-1.5 text-xs font-mono text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 transition-colors flex items-center justify-between cursor-pointer"
+                          >
+                            <span>{sz}</span>
+                            {tireSize2 === sz && (
+                              <span className="text-emerald-600 font-bold text-xs">✓</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -777,7 +909,7 @@ export default function BookInquiryModal({
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Plate Number</label>
                     <div className="relative">
                       <TruckIcon className="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" />
-                      <input
+                      <input autoComplete="off"
                         type="text"
                         value={vehiclePlateNumber}
                         onChange={(e) => setVehiclePlateNumber(e.target.value)}
@@ -789,7 +921,7 @@ export default function BookInquiryModal({
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Make</label>
-                    <input
+                    <input autoComplete="off"
                       type="text"
                       value={make}
                       onChange={(e) => setMake(e.target.value)}
@@ -803,7 +935,7 @@ export default function BookInquiryModal({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Model</label>
-                    <input
+                    <input autoComplete="off"
                       type="text"
                       value={model}
                       onChange={(e) => setModel(e.target.value)}
@@ -814,7 +946,7 @@ export default function BookInquiryModal({
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Year</label>
-                    <input
+                    <input autoComplete="off"
                       type="text"
                       value={year}
                       onChange={(e) => setYear(e.target.value)}
@@ -933,7 +1065,7 @@ export default function BookInquiryModal({
                 <div className="flex items-center gap-2 flex-1">
                   <div className="relative flex-1">
                     <MagnifyingGlassIcon className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
-                    <input
+                    <input autoComplete="off"
                       type="text"
                       value={searchQuery}
                       onChange={(e) => {

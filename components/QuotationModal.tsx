@@ -398,14 +398,14 @@ export default function QuotationModal({
                         cart.lines.map((l) => (
                           <tr key={l.id} className="hover:bg-slate-50/80 transition-colors">
                             <td className="py-2 px-3">
-                              <input
+                              <input autoComplete="off"
                                 readOnly
                                 value={[l.brand, l.name, l.size].filter(Boolean).join(" ")}
                                 className="w-full h-8 px-2.5 text-xs font-semibold text-slate-800 bg-white border border-slate-200 rounded-lg focus:outline-none truncate"
                               />
                             </td>
                             <td className="py-2 px-2">
-                              <input
+                              <input autoComplete="off"
                                 type="number"
                                 min={1}
                                 value={l.qty === 0 ? "" : l.qty}
@@ -436,7 +436,7 @@ export default function QuotationModal({
                               />
                             </td>
                             <td className="py-2 px-2">
-                              <input
+                              <input autoComplete="off"
                                 type="number"
                                 step="any"
                                 min={0}
@@ -546,7 +546,7 @@ export default function QuotationModal({
             </div>
 
             {/* Right Column: Customer Information Form Panel */}
-            <form id="quotation-form" onSubmit={(e) => { e.preventDefault(); handleCheckout(); }} className="bg-white border border-slate-200/90 rounded-xl p-4 sm:p-5 shadow-2xs flex flex-col">
+            <form autoComplete="off" id="quotation-form" onSubmit={(e) => { e.preventDefault(); handleCheckout(); }} className="bg-white border border-slate-200/90 rounded-xl p-4 sm:p-5 shadow-2xs flex flex-col">
               <h2 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-3 mb-4 shrink-0">
                 Customer Information
               </h2>
@@ -558,7 +558,7 @@ export default function QuotationModal({
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Customer Name <span className="text-rose-500">*</span>
                   </label>
-                  <input
+                  <input autoComplete="off"
                     type="text"
                     name="customerName"
                     value={formData.customerName}
@@ -573,7 +573,7 @@ export default function QuotationModal({
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Date <span className="text-rose-500">*</span>
                   </label>
-                  <input
+                  <input autoComplete="off"
                     type="date"
                     name="date"
                     value={formData.date}
@@ -587,7 +587,7 @@ export default function QuotationModal({
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Phone Number
                   </label>
-                  <input
+                  <input autoComplete="off"
                     type="text"
                     name="phone"
                     value={formData.phone}
@@ -601,7 +601,7 @@ export default function QuotationModal({
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Email
                   </label>
-                  <input
+                  <input autoComplete="off"
                     type="email"
                     name="email"
                     value={formData.email}
@@ -616,7 +616,7 @@ export default function QuotationModal({
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     City
                   </label>
-                  <input
+                  <input autoComplete="off"
                     type="text"
                     name="city"
                     value={formData.city}
@@ -643,7 +643,7 @@ export default function QuotationModal({
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     VAT No
                   </label>
-                  <input
+                  <input autoComplete="off"
                     type="text"
                     name="vatNo"
                     value={formData.vatNo}
@@ -657,7 +657,7 @@ export default function QuotationModal({
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Plate
                   </label>
-                  <input
+                  <input autoComplete="off"
                     type="text"
                     name="plate"
                     value={formData.plate}
@@ -672,7 +672,7 @@ export default function QuotationModal({
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Make
                   </label>
-                  <input
+                  <input autoComplete="off"
                     type="text"
                     name="make"
                     value={formData.make}
@@ -686,7 +686,7 @@ export default function QuotationModal({
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Model
                   </label>
-                  <input
+                  <input autoComplete="off"
                     type="text"
                     name="model"
                     value={formData.model}
@@ -700,7 +700,7 @@ export default function QuotationModal({
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Year
                   </label>
-                  <input
+                  <input autoComplete="off"
                     type="text"
                     name="year"
                     value={formData.year}
@@ -714,7 +714,7 @@ export default function QuotationModal({
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Paid Amount
                   </label>
-                  <input
+                  <input autoComplete="off"
                     type="text"
                     name="paidAmount"
                     value={formData.paidAmount}

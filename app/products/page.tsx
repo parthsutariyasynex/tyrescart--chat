@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { notFound } from "next/navigation";
 import { features } from "@/config/features";
@@ -9,7 +8,6 @@ import {
   MagnifyingGlassIcon,
   PlusIcon,
   XMarkIcon,
-  ChatBubbleLeftRightIcon,
 } from "@heroicons/react/24/outline";
 import Header from "@/components/Header";
 import HeaderActions from "@/components/HeaderActions";
@@ -42,9 +40,19 @@ import Image from "next/image";
 import { registerModuleSync } from "@/services/syncService";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
-import { queryProducts, parseAspectRim } from "@/services/searchFilter";
+import { queryProducts } from "@/services/searchFilter";
 import { enrichProducts, type EnrichedProduct } from "@/services/productEnrich";
 import { useCart } from "@/hooks/useCart";
+
+/* How many products each GraphQL request pulls into the cache.
+   Shared with tc-products; see STOREFRONT_PAGE_SIZE for why it is not 1000.
+
+   MODULE scope, not component scope: as a component-level `const` it was a
+   reactive value exhaustive-deps required in `loadGraphQLProducts`, and listing
+   it there would rebuild that callback on every render — which the mount effect
+   depends on, so the loader would re-run too. Out here its identity is fixed
+   and the dependency disappears. */
+const BATCH_SIZE = STOREFRONT_PAGE_SIZE;
 
 export default function PosProductsPage() {
   if (!features.products) notFound();
@@ -98,10 +106,6 @@ export default function PosProductsPage() {
   void brands;
   void tyresChatItems;
   void activeBrand;
-
-  // How many products each GraphQL request pulls into the cache.
-  // Shared with tc-products; see STOREFRONT_PAGE_SIZE for why it is not 1000.
-  const BATCH_SIZE = STOREFRONT_PAGE_SIZE;
 
   /** Split a seeded flat list back into its batch slots, so the first live batch
    *  replaces its own slice instead of the whole list. */
@@ -297,8 +301,13 @@ export default function PosProductsPage() {
   useEffect(() => {
     loadGraphQLProducts();
     loadTyresChat();
+    // The ref OBJECT is captured, never `loadIdRef.current` — this bumps the
+    // generation counter at unmount so an in-flight load stops applying state.
+    // Copying `.current` into a variable (the fix this warning suggests) would
+    // increment a stale generation and let a late resolve through.
+    const generation = loadIdRef;
     return () => {
-      loadIdRef.current++;
+      generation.current++;
     };
   }, [loadGraphQLProducts, loadTyresChat]);
 
@@ -339,7 +348,7 @@ export default function PosProductsPage() {
             <div className="flex items-center gap-3 flex-1 max-w-2xl">
               <div className="relative flex-1">
                 <MagnifyingGlassIcon className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
+                <input autoComplete="off"
                   type="text"
                   placeholder="Search product, brand, size..."
                   value={searchQuery}
@@ -377,40 +386,6 @@ export default function PosProductsPage() {
 
         {/* MAIN CONTENT CONTAINER */}
         <div className="flex-1 flex flex-col p-6 overflow-hidden">
-
-          {/* Width-omitted (aspect+rim) fallback notice — only for partial size matches */}
-          {view.isPartialSizeMatch && (
-            <div className="mb-3 p-3 text-sm bg-amber-50 text-amber-900 border border-amber-200 rounded-xl flex flex-wrap items-center justify-between gap-3 shadow-2xs">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-                <span>
-                  Showing tyres matching <strong className="font-bold text-amber-950">{view.matchedPattern}</strong>. Select width for a more accurate result:
-                </span>
-              </div>
-
-              {view.availableWidths && view.availableWidths.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-xs font-semibold text-amber-800 mr-1">Widths:</span>
-                  {view.availableWidths.map((w) => (
-                    <button
-                      key={w}
-                      onClick={() => {
-                        const ar = parseAspectRim(searchQuery);
-                        if (ar) {
-                          setSearchQuery(`${w}/${ar.aspect}R${ar.rim}`);
-                        } else {
-                          setSearchQuery(`${w}/${view.matchedPattern.replace('***/', '')}`);
-                        }
-                      }}
-                      className="px-2.5 py-1 text-xs bg-white text-amber-900 font-bold border border-amber-300 rounded-lg hover:bg-amber-100 hover:border-amber-400 transition-all shadow-2xs cursor-pointer active:scale-95"
-                    >
-                      {w}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
 
           {/* DYNAMIC GRAPHQL PRODUCT GRID CONTAINER */}
           <div className="flex-1 overflow-y-auto pr-1 [scrollbar-gutter:stable]">

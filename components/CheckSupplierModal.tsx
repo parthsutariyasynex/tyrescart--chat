@@ -241,6 +241,18 @@ export default function CheckSupplierModal({
     return Array.from(set);
   }, [rows]);
 
+  const sizeOptions = useMemo(() => {
+    const set = new Set<string>();
+    if (product.size) set.add(product.size);
+    if (rows) {
+      rows.forEach((r) => {
+        const sz = r.size || (r as unknown as Record<string, string>).sizeFull;
+        if (sz) set.add(sz);
+      });
+    }
+    return Array.from(set);
+  }, [rows, product.size]);
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const filteredProducts = useProductFilter<Record<string, any>>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -586,7 +598,7 @@ export default function CheckSupplierModal({
                   <span className="text-slate-300 font-light shrink-0">|</span>
                   <div className="relative shrink-0 w-64 sm:w-80">
                     <MagnifyingGlassIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <input
+                    <input autoComplete="off"
                       type="text"
                       value={search}
                       onChange={(e) => handleSearchChange(e.target.value)}
@@ -653,6 +665,7 @@ export default function CheckSupplierModal({
               setSearchQuery={handleSearchChange}
               sizeInput={sizeInput}
               setSizeInput={setSizeInput}
+              sizeOptions={sizeOptions}
               yearInput={yearInput}
               setYearInput={setYearInput}
               qtyInput={qtyInput}

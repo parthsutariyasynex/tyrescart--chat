@@ -23,8 +23,6 @@ import HeaderActions from "@/components/HeaderActions";
 import { CATEGORY_BADGES_SEMANTIC, BRAND_BADGES_SEMANTIC } from "@/constants/badges";
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import {
-  parseAspectRim,
-  parseRimOnly,
   paginate,
 } from '@/services/searchFilter';
 import { useCart } from '@/hooks/useCart';
@@ -577,78 +575,28 @@ export default function TcProductsPage() {
     return sortItems(filteredProductsRaw);
   }, [filteredProductsRaw, sortItems]);
 
-  // Extract category, brand, and offer dropdown lists in ONE pass.
-  const { categoryOptions, brandOptions, offerOptions } = useMemo(() => {
+  // Extract category, brand, offer, and size dropdown lists in ONE pass.
+  const { categoryOptions, brandOptions, offerOptions, sizeOptions } = useMemo(() => {
     const categories = new Set<string>();
     const brands = new Set<string>();
     const offers = new Set<string>();
+    const sizes = new Set<string>();
     for (const p of allProducts) {
       if (p.category) categories.add(normalizeCategory(p.category));
       if (p.brand) brands.add(p.brand);
       if (p.offer && p.offer !== NO_API_FIELD) offers.add(p.offer);
+      const sz = p.size || p.sizeFull;
+      if (sz) sizes.add(sz);
     }
     return {
       categoryOptions: Array.from(categories).sort(),
       brandOptions: Array.from(brands).sort(),
       offerOptions: Array.from(offers).sort(),
+      sizeOptions: Array.from(sizes).sort(),
     };
   }, [allProducts]);
 
 
-
-  const partialSizeInfo = useMemo(() => {
-    const q = (searchQuery || sizeInput).trim();
-    if (!q) return null;
-
-    // Work out which of the three size components the query actually pinned
-    // down. Whatever is left unspecified is masked, so the banner mirrors the
-    // search back: width `***`, aspect `**`, rim `**`.
-    //   R13        → ***/**R13     (rim only)
-    //   13         → ***/**R13     (bare rim)
-    //   80         → ***/80R**     (aspect only)
-    //   195        → 195/**R**     (width only)
-    //   80R13      → ***/80R13     (aspect + rim, unchanged)
-    let width: string | null = null;
-    let aspect: string | null = null;
-    let rim: string | null = null;
-
-    const ar = parseAspectRim(q);
-    if (ar) {
-      aspect = ar.aspect;
-      rim = ar.rim;
-    } else {
-      const rimOnly = parseRimOnly(q);
-      if (rimOnly) {
-        rim = rimOnly;
-      } else if (/^\d{3}$/.test(q)) {
-        width = q;            // 3 digits → a tyre width
-      } else if (/^\d{2}$/.test(q)) {
-        // A bare 2-digit number is ambiguous, so split it by the ranges the two
-        // components actually occupy: rims run ~12-24 inches, aspect ratios
-        // ~25-85. So "13"/"17" read as a rim, "55"/"80" as an aspect ratio.
-        if (Number(q) <= 24) rim = q;
-        else aspect = q;
-      }
-    }
-    // Nothing identifiable, or a fully-specified size — no banner.
-    if (!width && !aspect && !rim) return null;
-
-    const widths = new Set<string>();
-    for (const item of filteredProducts) {
-      const m = item.size.match(/\b(\d{3})\s*[\/\s]/);
-      if (m) widths.add(m[1]);
-    }
-    return {
-      matchedPattern: `${width ?? '***'}/${aspect ?? '**'}R${rim ?? '**'}`,
-      // Only offer the width picker when the width is the missing piece.
-      // Searching a width already answers that question, so the chip row would
-      // just echo the query back.
-      availableWidths: width ? [] : Array.from(widths).sort((a, b) => Number(a) - Number(b)),
-      hasWidth: width !== null,
-      aspect: aspect ?? '',
-      rim: rim ?? '',
-    };
-  }, [searchQuery, sizeInput, filteredProducts]);
 
   // Count & page slice come entirely from the cached (IndexedDB) dataset — for
   // BOTH Latest and All Products modes. No server-side fetch anywhere.
@@ -896,40 +844,6 @@ export default function TcProductsPage() {
         {/* SCROLLABLE INNER DASHBOARD BODY */}
         <div className="flex-1 min-h-0 flex flex-col p-4 sm:p-5 pb-4 gap-3.5 w-full mx-auto overflow-hidden">
 
-          {/* Width-omitted (aspect+rim) fallback notice banner */}
-          {partialSizeInfo && (
-            <div className="shrink-0 p-3 text-sm bg-amber-50 text-amber-900 border border-amber-200 rounded-xl flex flex-wrap items-center justify-between gap-3 shadow-2xs">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-                <span>
-                  Showing tyres matching <strong className="font-bold text-amber-950">{partialSizeInfo.matchedPattern}</strong>.
-                  {!partialSizeInfo.hasWidth && ' Select width for a more accurate result:'}
-                </span>
-              </div>
-
-              {partialSizeInfo.availableWidths.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-xs font-semibold text-amber-800 mr-1">Widths:</span>
-                  {partialSizeInfo.availableWidths.map((w) => (
-                    <button
-                      key={w}
-                      onClick={() => {
-                        if (searchQuery) {
-                          setSearchQuery(`${w}/${partialSizeInfo.aspect}R${partialSizeInfo.rim}`);
-                        } else if (sizeInput) {
-                          setSizeInput(`${w}/${partialSizeInfo.aspect}R${partialSizeInfo.rim}`);
-                        }
-                      }}
-                      className="px-2.5 py-1 text-xs bg-white text-amber-900 font-bold border border-amber-300 rounded-lg hover:bg-amber-100 hover:border-amber-400 transition-all shadow-2xs cursor-pointer active:scale-95"
-                    >
-                      {w}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
           <Filter
             categoryFilter={categoryFilter}
             setCategoryFilter={setCategoryFilter}
@@ -944,6 +858,7 @@ export default function TcProductsPage() {
 
             sizeInput={sizeInput}
             setSizeInput={setSizeInput}
+            sizeOptions={sizeOptions}
 
             yearInput={yearInput}
             setYearInput={setYearInput}
@@ -1126,6 +1041,7 @@ export default function TcProductsPage() {
       <BookInquiryModal
         isOpen={isInquiryModalOpen}
         onClose={() => setIsInquiryModalOpen(false)}
+        sizeOptions={sizeOptions}
         initialProduct={
           inquiryModalItem
             ? {

@@ -211,7 +211,7 @@ export default function TyreGuideChatPage() {
             <div className="flex items-center gap-3 flex-1 max-w-2xl">
               <div className="relative flex-1">
                 <MagnifyingGlassIcon className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
+                <input autoComplete="off"
                   type="text"
                   placeholder="Search shortcut or description..."
                   value={searchQuery}

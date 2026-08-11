@@ -240,7 +240,7 @@ export default function ChatModal({ isOpen, onClose }: ChatModalProps) {
           {/* Search Field */}
           <div className="relative flex-1 max-w-md mx-4">
             <MagnifyingGlassIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
+            <input autoComplete="off"
               type="text"
               placeholder="Search shortcut..."
               value={searchQuery}

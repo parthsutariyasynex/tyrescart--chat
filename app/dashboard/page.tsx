@@ -246,7 +246,7 @@ export default function DashboardPage() {
             <div className="hidden md:flex flex-1 max-w-md mx-4 min-w-0">
               <div className="relative w-full">
                 <MagnifyingGlassIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
+                <input autoComplete="off"
                   type="search"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
