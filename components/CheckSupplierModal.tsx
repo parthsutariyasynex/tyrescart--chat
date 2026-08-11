@@ -1031,7 +1031,7 @@ export default function CheckSupplierModal({
 
                           {/* Cost */}
                           <td className="py-1.5 px-3 text-right whitespace-nowrap">
-                            {r.cost || r.price ? (
+                            {Number(r.cost || r.price) > 0 ? (
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -1046,16 +1046,12 @@ export default function CheckSupplierModal({
                                   {money(Number(r.cost || r.price))}
                                 </span>
                               </button>
-                            ) : (
-                              <span className="text-slate-400 font-medium">
-                                -
-                              </span>
-                            )}
+                            ) : null}
                           </td>
 
                           {/* Fitting Price */}
                           <td className="py-1.5 px-3 text-center whitespace-nowrap">
-                            {r.fitting_price ? (
+                            {Number(r.fitting_price) > 0 ? (
                               <div
                                 className="inline-flex items-center justify-center gap-1 text-xs font-medium text-slate-500 font-mono whitespace-nowrap"
                                 dir="ltr"
@@ -1064,11 +1060,7 @@ export default function CheckSupplierModal({
                                   {money(Number(r.fitting_price))}
                                 </span>
                               </div>
-                            ) : (
-                              <span className="text-slate-400 font-medium">
-                                -
-                              </span>
-                            )}
+                            ) : null}
                           </td>
 
                           {/* Date */}
