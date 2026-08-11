@@ -1104,7 +1104,7 @@ export default function CheckSupplierModal({
                                 );
                               })()}
                             </div>
-                          </td> */}
+                          </td>
                         </tr>
                       );
                     })
