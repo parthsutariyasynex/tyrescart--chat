@@ -1092,33 +1092,29 @@ export default function SupplierProductsPage() {
                             <td className={`${cellPaddingClass} text-center whitespace-nowrap`}>
                               {item.runflat ? (
                                 <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded border border-emerald-200 whitespace-nowrap inline-block">Runflat</span>
-                              ) : (
-                                <span className="text-slate-400 font-medium">-</span>
-                              )}
+                              ) : null}
                             </td>
                           )}
 
                           {!hiddenColumns.has('country') && (
                             <td className={`${cellPaddingClass} whitespace-nowrap`}>
                               <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 whitespace-nowrap">
-                                {item.country && item.country.trim() ? item.country : <span className="text-slate-400 font-medium">-</span>}
+                                {item.country && item.country.trim() && item.country !== '-' ? item.country : null}
                               </div>
                             </td>
                           )}
 
                           {!hiddenColumns.has('year') && (
                             <td className={`${cellPaddingClass} text-center text-xs font-medium text-slate-600 whitespace-nowrap`}>
-                              {item.year && item.year > 0 ? item.year : <span className="text-slate-400 font-medium">-</span>}
+                              {item.year && item.year > 0 ? item.year : null}
                             </td>
                           )}
 
                           {!hiddenColumns.has('qty') && (
                             <td className={`${cellPaddingClass} text-center`}>
-                              {item.qty === 0 ? (
-                                <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-red-50 text-red-600 text-[11px] font-extrabold border border-red-200/60 font-mono">0</span>
-                              ) : (
+                              {item.qty && Number(item.qty) > 0 ? (
                                 <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-extrabold border border-emerald-200/60 font-mono">{item.qty}</span>
-                              )}
+                              ) : null}
                             </td>
                           )}
 

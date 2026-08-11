@@ -19,14 +19,12 @@ import {
   ClockIcon,
   ChevronDownIcon,
 } from "@heroicons/react/24/outline";
-import {
-  Inquiry,
-  updateInquiry,
-} from "@/services/inquiryStorage";
+import { Inquiry, clearInquiries } from "@/services/inquiryStorage";
 import { createCrmBookingGraphQL, fetchCrmCustomerByPhoneGraphQL, fetchCrmRecentBookingsGraphQL } from "@/services/graphql";
 import type { CrmCustomer, CrmRecentBooking } from "@/services/types";
 import { matchesSizeInput } from "@/hooks/useProductFilter";
 import { idbGetAll, STORE_SUPPLIER_PRODUCTS } from "@/services/db";
+import Pagination from "@/components/Pagination";
 
 /** No external store to watch — `mounted` only ever flips via the server/client
  *  snapshot pair, so the subscription is a no-op. Module scope keeps its
@@ -174,9 +172,7 @@ export default function BookInquiryModal({
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 15;
-
-  // Custom Dropdown Open States (replacing native HTML select elements to eliminate browser blue highlights)
+  const [pageSize, setPageSize] = useState(15);
   const [isFormStatusOpen, setIsFormStatusOpen] = useState(false);
 
   // Animation states matching QuickViewModal / CostHistoryModal
@@ -306,11 +302,25 @@ export default function BookInquiryModal({
     let alive = true;
     void Promise.resolve().then(() => {
       if (!alive) return;
+      setInquiries([]);
+      /* Start every session with no search result. The modal is rendered
+         unconditionally (`isOpen` only toggles visibility), so it never
+         unmounts and this state would otherwise survive a close/reopen and
+         show the PREVIOUS customer's rows before any new query is made. */
+      setSearchQuery("");
+      setCrmCustomer(null);
+      setCurrentPage(1);
       // Prefill from the row the modal was opened on — the product's own size.
       if (initialProduct?.size) setTireSize1(initialProduct.size);
     });
     return () => { alive = false; };
   }, [isOpen, initialProduct]);
+
+  /* Book Inquiry keeps nothing locally. Any records written by an earlier
+     build are purged once, on mount, so the key cannot linger. */
+  useEffect(() => {
+    clearInquiries();
+  }, []);
 
   // Toast notification timer
   useEffect(() => {
@@ -372,22 +382,12 @@ export default function BookInquiryModal({
     }
 
     if (editingId) {
-      const updated = updateInquiry(editingId, {
-        name: name.trim(),
-        phone: phone.trim(),
-        email: email.trim(),
-        city: city.trim(),
-        tireSize1: tireSize1.trim(),
-        tireSize2: tireSize2.trim(),
-        vehiclePlateNumber: vehiclePlateNumber.trim(),
-        make: make.trim(),
-        model: model.trim(),
-        year: year.trim(),
-        note: note.trim(),
-        status,
-      });
-      setInquiries(updated);
-      setToastMessage(`Inquiry ${editingId} updated successfully!`);
+      /* No localStorage write. The schema has no updateCrmBooking mutation, so
+         an edit has nowhere to be persisted — saying so beats silently storing
+         it locally where the backend-only list will never show it. */
+      setToastMessage(
+        `Inquiry ${editingId} cannot be saved — the CRM has no update endpoint.`,
+      );
     } else {
       /* A NEW enquiry is filed in the CRM first. Only once the mutation confirms
          it do we mirror it locally, stamped with the ids the API returned — so
@@ -415,17 +415,22 @@ export default function BookInquiryModal({
           return;
         }
 
-        /* No local row is written. The CRM is the only store, so the list is
-           refreshed by re-reading the customer we just filed against — the new
-           booking then appears through the same crmCustomerByPhone path as
-           everything else in the table. */
         const submittedPhone = phone.trim();
+        /* Nothing is mirrored to localStorage. The CRM holds the enquiry, and
+           the two refreshes below re-read it from there, so the row appears in
+           the list from the backend rather than from a local copy. */
+
         const refreshed = await fetchCrmCustomerByPhoneGraphQL(submittedPhone).catch(() => null);
         if (refreshed) {
           setCrmCustomer(refreshed);
           setSearchQuery(submittedPhone);
           setCurrentPage(1);
         }
+
+        // Also refresh recent CRM bookings list so the newly submitted booking appears in the main table
+        void fetchCrmRecentBookingsGraphQL()
+          .then((rows) => setRecentBookings(rows))
+          .catch(() => null);
         setToastMessage(
           res.message ||
             `Enquiry ${res.booking?.entity_id ?? ""} created in the CRM.`.replace("  ", " "),
@@ -473,7 +478,7 @@ export default function BookInquiryModal({
     if (matches.length > 0) setErrors({});
 
     const digits = targetQuery.replace(/[^\d]/g, "");
-    if (digits.length >= 7) {
+    if (digits.length >= 1 || targetQuery.length >= 1) {
       void fetchCrmCustomerByPhoneGraphQL(targetQuery)
         .then((c) => {
           // Only feeds the list (via crmRows). The form is left alone.
@@ -517,16 +522,15 @@ export default function BookInquiryModal({
    * These rows are read-only: edit and delete act on the local store, and there
    * is no update or delete mutation to push such a change back.
    */
-  /* Load the CRM's recent enquiries once when the modal opens. One request, not
-     cached: an enquiry log is only useful current. A failure leaves the list
-     empty rather than blocking the form, which is the modal's real job. */
+  /* Load the CRM's recent enquiries every time the modal opens. */
   useEffect(() => {
+    if (!isOpen) return;
     let alive = true;
     void fetchCrmRecentBookingsGraphQL()
       .then((rows) => { if (alive) setRecentBookings(rows); })
       .catch(() => { if (alive) setRecentBookings([]); });
     return () => { alive = false; };
-  }, []);
+  }, [isOpen]);
 
   /**
    * `crmRecentBookings` shaped as list rows.
@@ -567,51 +571,94 @@ export default function BookInquiryModal({
   }, [recentBookings]);
 
   const crmRows: (Inquiry & { fromCrm: true })[] = useMemo(() => {
-    if (!crmCustomer?.bookings?.length) return [];
-    return crmCustomer.bookings.map((b, i) => ({
-      id: `CRM-${String(b.entity_id ?? i)}`,
+    if (!crmCustomer) return [];
+    if (crmCustomer.bookings && crmCustomer.bookings.length > 0) {
+      return crmCustomer.bookings.map((b, i) => ({
+        id: `CRM-${String(b.entity_id ?? i)}`,
+        fromCrm: true as const,
+        name: crmCustomer.name ?? "",
+        phone: crmCustomer.phone ?? "",
+        email: crmCustomer.email ?? "",
+        tireSize1: b.tire_size_1 ?? "",
+        tireSize2: "",
+        vehiclePlateNumber: b.vehicle?.plant_number ?? crmCustomer.vehicles?.[0]?.plant_number ?? "",
+        make: b.vehicle?.make ?? crmCustomer.vehicles?.[0]?.make ?? "",
+        model: b.vehicle?.model ?? crmCustomer.vehicles?.[0]?.model ?? "",
+        year: b.vehicle?.year ?? crmCustomer.vehicles?.[0]?.year ?? "",
+        note: b.detail ?? b.notes ?? "",
+        // The CRM's status is a numeric code with no published mapping, so it is
+        // not forced into the local Pending/Contacted/Closed vocabulary.
+        status: "Pending" as Inquiry["status"],
+        createdAt: b.enquiry_date ?? "",
+        crmBookingId: b.entity_id ?? undefined,
+        crmCustomerId: crmCustomer.entity_id ?? undefined,
+        crmStatus: b.status == null ? null : String(b.status),
+        crmPriority: b.priority == null ? null : String(b.priority),
+        crmEnquiryDate: b.enquiry_date ?? null,
+      }));
+    }
+
+    // Customer exists in CRM but has 0 past bookings — show customer & vehicle record row
+    const v = crmCustomer.vehicles?.[0];
+    return [{
+      id: `CRM-CUST-${String(crmCustomer.entity_id || '0')}`,
       fromCrm: true as const,
       name: crmCustomer.name ?? "",
       phone: crmCustomer.phone ?? "",
       email: crmCustomer.email ?? "",
-      tireSize1: b.tire_size_1 ?? "",
-      tireSize2: "",
-      vehiclePlateNumber: b.vehicle?.plant_number ?? "",
-      make: b.vehicle?.make ?? "",
-      model: b.vehicle?.model ?? "",
-      year: b.vehicle?.year ?? "",
-      note: b.detail ?? b.notes ?? "",
-      // The CRM's status is a numeric code with no published mapping, so it is
-      // not forced into the local Pending/Contacted/Closed vocabulary.
+      tireSize1: v?.tire_size_1 ?? "",
+      tireSize2: v?.tire_size_2 ?? "",
+      vehiclePlateNumber: v?.plant_number ?? "",
+      make: v?.make ?? "",
+      model: v?.model ?? "",
+      year: v?.year ?? "",
+      note: "",
       status: "Pending" as Inquiry["status"],
-      createdAt: b.enquiry_date ?? "",
-      crmBookingId: b.entity_id ?? undefined,
+      createdAt: "",
       crmCustomerId: crmCustomer.entity_id ?? undefined,
-      crmStatus: b.status == null ? null : String(b.status),
-      crmPriority: b.priority == null ? null : String(b.priority),
-      crmEnquiryDate: b.enquiry_date ?? null,
-    }));
+    }];
   }, [crmCustomer]);
 
+  const allInquirySource = useMemo(() => {
+    const map = new Map<string, Inquiry>();
+    // 1. Add CRM recent rows
+    recentRows.forEach((r) => map.set(r.id, r));
+    // 2. Add searched CRM customer rows
+    crmRows.forEach((r) => map.set(r.id, r));
+
+    /* The list is BACKEND-ONLY: `crmRecentBookings` on open, plus the bookings
+       a `crmCustomerByPhone` search returns. The localStorage mirror is
+       deliberately NOT merged in — it used to append local-only rows and, worse,
+       spread its fields over a CRM row and win. A booking created here still
+       appears because submit re-reads the customer from the CRM. */
+    return Array.from(map.values());
+  }, [recentRows, crmRows]);
+
   const filteredInquiries = useMemo(() => {
-    // CRM rows first, then local ones — with anything already mirrored locally
-    // dropped so a booking filed from this browser is not listed twice.
-    // CRM rows only. Nothing from localStorage reaches the table.
-    // A phone lookup narrows the table to that customer; with no lookup active
-    // the CRM's recent enquiries are shown. Deduped by row id so a booking that
-    // appears in both windows is listed once.
-    const source = crmRows.length
-      ? [...new Map([...crmRows, ...recentRows].map((r) => [r.id, r])).values()]
-      : recentRows;
-    return source.filter((item) => {
-      const q = searchQuery.toLowerCase().trim();
+    /* Digits-only view of a value, so punctuation cannot decide a match.
+       The CRM stores "0501234567" while an operator types "050 123 4567" or
+       "050-123-4567" — the endpoint accepts both, and before this the row it
+       returned was then filtered straight back out here. */
+    const digitsOf = (v?: string | null) => String(v ?? "").replace(/\D/g, "");
+
+    const q = searchQuery.toLowerCase().trim();
+    const qDigits = digitsOf(q);
+    /* Digit matching runs only for an all-digits query. A size like "R17"
+       would otherwise reduce to "17" and match every phone containing 17. */
+    const numericQuery = qDigits.length > 0 && !/[a-z]/i.test(q);
+
+    return allInquirySource.filter((item) => {
       const matchesSearch =
         !q ||
         item.id.toLowerCase().includes(q) ||
         item.name.toLowerCase().includes(q) ||
         item.phone.toLowerCase().includes(q) ||
+        (numericQuery && digitsOf(item.phone).includes(qDigits)) ||
         (item.vehiclePlateNumber && item.vehiclePlateNumber.toLowerCase().includes(q)) ||
-        (item.tireSize1 && item.tireSize1.toLowerCase().includes(q));
+        (numericQuery && digitsOf(item.vehiclePlateNumber).includes(qDigits)) ||
+        (numericQuery && digitsOf(item.id).includes(qDigits)) ||
+        (item.tireSize1 && item.tireSize1.toLowerCase().includes(q)) ||
+        (item.tireSize2 && item.tireSize2.toLowerCase().includes(q));
 
       const matchesStatus =
         statusFilter === "ALL" ||
@@ -620,15 +667,12 @@ export default function BookInquiryModal({
 
       return matchesSearch && matchesStatus;
     });
-  }, [crmRows, recentRows, searchQuery, statusFilter]);
+  }, [allInquirySource, searchQuery, statusFilter]);
 
   // Count items by status for tab badges
   const statusCounts = useMemo(() => {
-    const source = crmRows.length
-      ? [...new Map([...crmRows, ...recentRows].map((r) => [r.id, r])).values()]
-      : recentRows;
-    const counts = { ALL: source.length, Pending: 0, Contacted: 0, Closed: 0 };
-    for (const item of source) {
+    const counts = { ALL: allInquirySource.length, Pending: 0, Contacted: 0, Closed: 0 };
+    for (const item of allInquirySource) {
       const st = String(item.status || "Pending").toLowerCase();
       if (st === "pending") counts.Pending++;
       else if (st === "contacted") counts.Contacted++;
@@ -636,7 +680,7 @@ export default function BookInquiryModal({
       else counts.Pending++;
     }
     return counts;
-  }, [crmRows, recentRows]);
+  }, [allInquirySource]);
 
   // Pagination logic
   const totalPages = Math.ceil(filteredInquiries.length / pageSize) || 1;
@@ -1242,10 +1286,6 @@ export default function BookInquiryModal({
                               >
                                 <PencilSquareIcon className="w-4 h-4" />
                               </button>
-                              {/* Delete removed: the schema has no deleteCrmBooking
-                                  or cancelCrmBooking, so the control could only ever
-                                  have removed a local copy while leaving the CRM
-                                  record in place. */}
                             </div>
                           </td>
                         </tr>
@@ -1257,32 +1297,18 @@ export default function BookInquiryModal({
             </div>
 
             {/* Pagination Controls */}
-            <div className="mt-1 pt-1 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-              <span>
-                Showing <strong className="text-slate-800">{paginatedInquiries.length}</strong> of{" "}
-                <strong className="text-slate-800">{filteredInquiries.length}</strong> inquiries
-              </span>
-
-              <div className="flex items-center gap-1.5">
-                <button
-                  disabled={currentPage <= 1}
-                  onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-                  className="px-2.5 py-1 text-xs font-semibold rounded border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  Previous
-                </button>
-                <span className="font-mono px-2 py-0.5 text-xs text-slate-600">
-                  {currentPage} / {totalPages}
-                </span>
-                <button
-                  disabled={currentPage >= totalPages}
-                  onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
-                  className="px-2.5 py-1 text-xs font-semibold rounded border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  Next
-                </button>
+            {filteredInquiries.length > 0 && (
+              <div className="shrink-0 mt-1">
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  onPageChange={setCurrentPage}
+                  pageSize={pageSize}
+                  setPageSize={setPageSize}
+                  pageSizeOptions={[15, 25, 50, 100]}
+                />
               </div>
-            </div>
+            )}
           </div>
         </div>
 
@@ -1371,15 +1397,19 @@ export default function BookInquiryModal({
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <span className="text-slate-500 text-[11px] block">Tire Size 1 (Front)</span>
-                      <span className="font-mono font-bold text-slate-900 bg-white px-2.5 py-1 rounded-lg border border-emerald-200/80 inline-block mt-0.5 shadow-2xs">
-                        {viewingInquiry.tireSize1 || "-"}
-                      </span>
+                      {viewingInquiry.tireSize1 ? (
+                        <span className="font-mono font-bold text-slate-900 bg-white px-2.5 py-1 rounded-lg border border-emerald-200/80 inline-block mt-0.5 shadow-2xs">
+                          {viewingInquiry.tireSize1}
+                        </span>
+                      ) : null}
                     </div>
                     <div>
                       <span className="text-slate-500 text-[11px] block">Tire Size 2 (Rear)</span>
-                      <span className="font-mono font-bold text-slate-900 bg-white px-2.5 py-1 rounded-lg border border-emerald-200/80 inline-block mt-0.5 shadow-2xs">
-                        {viewingInquiry.tireSize2 || "-"}
-                      </span>
+                      {viewingInquiry.tireSize2 ? (
+                        <span className="font-mono font-bold text-slate-900 bg-white px-2.5 py-1 rounded-lg border border-emerald-200/80 inline-block mt-0.5 shadow-2xs">
+                          {viewingInquiry.tireSize2}
+                        </span>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -1390,30 +1420,23 @@ export default function BookInquiryModal({
                   <div className="grid grid-cols-4 gap-2">
                     <div>
                       <span className="text-slate-500 text-[11px] block">Make</span>
-                      <span className="font-semibold text-slate-800">{viewingInquiry.make || "-"}</span>
+                      <span className="font-semibold text-slate-800">{viewingInquiry.make || null}</span>
                     </div>
                     <div>
                       <span className="text-slate-500 text-[11px] block">Model</span>
-                      <span className="font-semibold text-slate-800">{viewingInquiry.model || "-"}</span>
+                      <span className="font-semibold text-slate-800">{viewingInquiry.model || null}</span>
                     </div>
                     <div>
                       <span className="text-slate-500 text-[11px] block">Year</span>
-                      <span className="font-semibold text-slate-800">{viewingInquiry.year || "-"}</span>
+                      <span className="font-semibold text-slate-800">{viewingInquiry.year || null}</span>
                     </div>
                     <div>
                       <span className="text-slate-500 text-[11px] block">Plate</span>
-                      {/* Plate chip: slate text on amber, not amber-on-amber.
-                          `text-slate-900` was already winning over a
-                          `text-amber-900` that sat alongside it — verified in
-                          the browser, slate wins whatever the class order — so
-                          the dead class is dropped and the badge is unchanged. */}
                       {viewingInquiry.vehiclePlateNumber ? (
                         <span className="font-mono font-bold text-slate-900 bg-amber-100/90 px-2 py-0.5 rounded border border-amber-300/80 inline-block text-[11px]">
                           {viewingInquiry.vehiclePlateNumber}
                         </span>
-                      ) : (
-                        <span className="text-slate-400">-</span>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                 </div>

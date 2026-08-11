@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useSyncExternalStore } from "react";
+import React, { useState, useEffect, useRef, useCallback, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type { KleverQuoteHistory } from "@/services/types";
-import { XMarkIcon, ClockIcon, ChevronDownIcon, CheckIcon, ShoppingCartIcon, TrashIcon, PlusIcon, MinusIcon, DocumentTextIcon } from "@heroicons/react/24/outline";
+import { XMarkIcon, ChevronDownIcon, CheckIcon, ShoppingCartIcon, TrashIcon, DocumentTextIcon } from "@heroicons/react/24/outline";
 import { useCart } from "@/hooks/useCart";
 
 /** No external store to watch — `mounted` only flips via the server/client
@@ -28,11 +28,6 @@ const INSTALLER_OPTIONS = [
   { label: "Sharjah Service Center", value: "Sharjah Service Center" },
 ];
 
-const ORDER_FROM_OPTIONS = [
-  { label: "Manual", value: "Manual" },
-  { label: "Website", value: "Website" },
-  { label: "POS", value: "POS" },
-];
 
 const STATUS_OPTIONS = [
   { label: "Draft", value: "Draft" },
@@ -189,7 +184,6 @@ export default function QuotationModal({
   isOpen,
   onClose,
   onSave,
-  history = [],
 }: QuotationModalProps) {
   /* Client-only guard for the portal: `document` does not exist during SSR.
      `useSyncExternalStore` returns the server snapshot (false) while rendering
@@ -236,7 +230,7 @@ export default function QuotationModal({
     return () => clearTimeout(t);
   }, [isOpen]);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     setIsClosing(true);
     setIsSlideOpen(false);
     closeTimer.current = setTimeout(() => {
@@ -244,7 +238,7 @@ export default function QuotationModal({
       // Cleared at the end of the close, not on the next open — see ChatModal.
       setIsClosing(false);
     }, 500);
-  };
+  }, [onClose]);
 
   useEffect(() => {
     return () => {
@@ -260,7 +254,7 @@ export default function QuotationModal({
       window.addEventListener("keydown", handleKeyDown);
     }
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen]);
+  }, [isOpen, handleClose]);
 
   if (!mounted) return null;
   if (!isOpen && !isClosing) return null;

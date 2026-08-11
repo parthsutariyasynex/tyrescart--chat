@@ -896,9 +896,11 @@ export default function CheckSupplierModal({
                         >
                           {/* Source */}
                           <td className="py-1.5 px-3 whitespace-nowrap">
-                            <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-bold rounded border border-indigo-200 uppercase whitespace-nowrap inline-block">
-                              {r.source_name || r.source || "—"}
-                            </span>
+                            {r.source_name || r.source ? (
+                              <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-bold rounded border border-indigo-200 uppercase whitespace-nowrap inline-block">
+                                {r.source_name || r.source}
+                              </span>
+                            ) : null}
                           </td>
 
                           {/* Type */}
@@ -928,19 +930,17 @@ export default function CheckSupplierModal({
                                 >
                                   {cat}
                                 </span>
-                              ) : (
-                                <span className="text-slate-400 font-normal text-xs">
-                                  —
-                                </span>
-                              );
+                              ) : null;
                             })()}
                           </td>
 
                           {/* Brand */}
                           <td className="py-1.5 px-3 text-xs font-semibold text-slate-800 whitespace-nowrap">
-                            <span className="px-2 py-0.5 text-[10px] font-bold rounded uppercase whitespace-nowrap inline-block bg-slate-100 text-slate-700">
-                              {r.brand || product.brand || "—"}
-                            </span>
+                            {r.brand || product.brand ? (
+                              <span className="px-2 py-0.5 text-[10px] font-bold rounded uppercase whitespace-nowrap inline-block bg-slate-100 text-slate-700">
+                                {r.brand || product.brand}
+                              </span>
+                            ) : null}
                           </td>
 
                           {/* Tyre Pattern */}
@@ -950,14 +950,14 @@ export default function CheckSupplierModal({
                                 r.product_name ||
                                 r.name ||
                                 product.pattern ||
-                                "—"}
+                                ""}
                             </span>
                           </td>
 
                           {/* Size */}
                           <td className="py-1.5 px-3 text-xs font-mono text-slate-700 whitespace-nowrap">
                             {stripLoadIndex(r.size || product.size || "") ||
-                              "—"}
+                              ""}
                           </td>
 
                           {/* RunFlat */}
@@ -966,31 +966,17 @@ export default function CheckSupplierModal({
                               <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded border border-emerald-200 whitespace-nowrap inline-block">
                                 Runflat
                               </span>
-                            ) : (
-                              <span className="text-slate-400 font-medium">
-                                -
-                              </span>
-                            )}
+                            ) : null}
                           </td>
 
                           {/* Countries */}
                           <td className="py-1.5 px-3 whitespace-nowrap text-xs font-semibold text-slate-700">
-                            {r.country || product.country || (
-                              <span className="text-slate-400 font-medium">
-                                -
-                              </span>
-                            )}
+                            {r.country || product.country || null}
                           </td>
 
                           {/* Year */}
                           <td className="py-1.5 px-3 text-center text-xs font-medium text-slate-600 whitespace-nowrap">
-                            {r.year && Number(r.year) > 0 ? (
-                              r.year
-                            ) : (
-                              <span className="text-slate-400 font-medium">
-                                -
-                              </span>
-                            )}
+                            {r.year && Number(r.year) > 0 ? r.year : null}
                           </td>
 
                           {/* Qty */}
@@ -1010,19 +996,11 @@ export default function CheckSupplierModal({
                                 rawQty === null ||
                                 rawQty === ""
                               ) {
-                                return (
-                                  <span className="text-slate-400 font-medium">
-                                    -
-                                  </span>
-                                );
+                                return null;
                               }
                               const numQty = Number(rawQty);
-                              if (isNaN(numQty) || numQty === 0) {
-                                return (
-                                  <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-red-50 text-red-600 text-[11px] font-extrabold border border-red-200/60 font-mono">
-                                    0
-                                  </span>
-                                );
+                              if (isNaN(numQty) || numQty <= 0) {
+                                return null;
                               }
                               return (
                                 <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-extrabold border border-emerald-200/60 font-mono">
@@ -1076,17 +1054,13 @@ export default function CheckSupplierModal({
                           <td className="py-1.5 px-3 text-xs text-slate-500 whitespace-nowrap">
                             {r.date ||
                             (r as unknown as { created_at?: string })
-                              .created_at ? (
-                              formatDateDDMM(
-                                r.date ||
-                                  (r as unknown as { created_at?: string })
-                                    .created_at,
-                              )
-                            ) : (
-                              <span className="text-slate-400 font-medium">
-                                -
-                              </span>
-                            )}
+                              .created_at
+                              ? formatDateDDMM(
+                                  r.date ||
+                                    (r as unknown as { created_at?: string })
+                                      .created_at,
+                                )
+                              : null}
                           </td>
 
                           {/* Actions */}

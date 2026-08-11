@@ -9,8 +9,6 @@ import {
   TruckIcon,
   CheckCircleIcon,
   SparklesIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
 } from "@heroicons/react/24/outline";
 import { fetchKleverVehicleSearchGraphQL } from "../services/graphql";
 import type { KleverVehicleItem } from "../services/types";
@@ -143,7 +141,6 @@ export default function TyresGuideModal({
   }, [filteredVehicles, validCurrentPage, pageSize]);
 
   const startRecord = totalItems === 0 ? 0 : (validCurrentPage - 1) * pageSize + 1;
-  const endRecord = Math.min(validCurrentPage * pageSize, totalItems);
 
   if (!mounted) return null;
   if (!isOpen && !isClosing) return null;

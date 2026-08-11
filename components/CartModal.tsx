@@ -7,7 +7,7 @@
  * - Right side (4 cols): Order Summary & Checkout actions card
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback} from "react";
 import { XMarkIcon, TrashIcon, ShoppingBagIcon } from "@heroicons/react/24/outline";
 import { useCart } from "@/hooks/useCart";
 
@@ -36,17 +36,19 @@ export default function CartModal({ onCloseAction, onCheckoutAction }: CartModal
     return () => clearTimeout(t);
   }, []);
 
-  const handleClose = () => {
+  /* useCallback so the Escape effect below can list it honestly; without a
+     stable identity that effect would re-subscribe on every render. */
+  const handleClose = useCallback(() => {
     setIsClosing(true);
     closeTimer.current = setTimeout(onCloseAction, 700);
-  };
+  }, [onCloseAction]);
   useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current); }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") handleClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [handleClose]);
 
   const totals = useMemo(() => {
     const subtotal = lines.reduce((n, l) => n + l.price * l.qty, 0);
