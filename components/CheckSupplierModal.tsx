@@ -1034,7 +1034,7 @@ export default function CheckSupplierModal({
 
                           {/* Cost */}
                           <td className="py-1.5 px-3 text-right whitespace-nowrap">
-                            {Number(r.cost || r.price) > 0 ? (
+                            {Number(r.cost) > 0 ? (
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -1046,7 +1046,7 @@ export default function CheckSupplierModal({
                                 dir="ltr"
                               >
                                 <span className="whitespace-nowrap">
-                                  {money(Number(r.cost || r.price))}
+                                  {money(Number(r.cost))}
                                 </span>
                               </button>
                             ) : null}

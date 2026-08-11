@@ -280,7 +280,7 @@ function mapSupplierToProduct(p: CachedSupplierProduct): Product {
       const rec = (p as unknown) as Record<string, unknown>;
       return Number(rec.qty ?? rec.quantity ?? rec.stock ?? rec.tyre_marking) || 0;
     })(),
-    cost: Number(p.cost) || Number(p.price) || 0,
+    cost: Number(p.cost) || 0,
     // Was hardcoded to 0. `fitting_price` is a real API field and is populated
     // on some rows, so the column showed 0.00 for every product regardless.
     // Rows cached before it was added to the query have no value → 0, until a
