@@ -25,10 +25,10 @@ export interface Product {
   supplier?: string;
   date?: string;
   dateKey?: number;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
-export function parseDateSortKey(dateVal?: any, yearVal?: any): number {
+export function parseDateSortKey(dateVal?: unknown, yearVal?: unknown): number {
   if (typeof dateVal === "number" && dateVal !== 0) return dateVal;
 
   if (dateVal && typeof dateVal === "string") {
@@ -53,7 +53,41 @@ export function parseDateSortKey(dateVal?: any, yearVal?: any): number {
   return 0;
 }
 
-export function useProductSorting<T extends Record<string, any>>(
+/**
+ * The fields the sorter reads BY NAME, rather than through `sortColumn`.
+ *
+ * Structural rather than `Record<string, unknown>`: the page row types are
+ * interfaces, and an interface gets no implicit index signature, so it does not
+ * satisfy a mapped record. (`Record<string, any>` only worked because
+ * assignability to an `any`-valued index signature is a special case.)
+ */
+export interface SortableRow {
+  date?: string | number | null;
+  dateKey?: number;
+  year?: string | number | null;
+}
+
+/**
+ * Generic value comparison, lifted out so the column branch does not need an
+ * `any`-typed row. Semantics unchanged: nullish sorts last, two strings use
+ * `localeCompare`, anything else compares relationally — the cast makes explicit
+ * what the `any` was doing silently.
+ */
+function compareValues(aVal: unknown, bVal: unknown, asc: boolean): number {
+  if (aVal === bVal) return 0;
+  if (aVal === null || aVal === undefined) return 1;
+  if (bVal === null || bVal === undefined) return -1;
+
+  if (typeof aVal === "string" && typeof bVal === "string") {
+    return asc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+  }
+
+  const x = aVal as number;
+  const y = bVal as number;
+  return asc ? (x < y ? -1 : 1) : (x > y ? -1 : 1);
+}
+
+export function useProductSorting<T extends SortableRow>(
   defaultColumn: keyof T | null = "date",
   defaultAsc: boolean = false
 ) {
@@ -119,18 +153,7 @@ export function useProductSorting<T extends Record<string, any>>(
           return bKey - aKey;
         }
 
-        const aVal = a[sortColumn];
-        const bVal = b[sortColumn];
-
-        if (aVal === bVal) return 0;
-        if (aVal === null || aVal === undefined) return 1;
-        if (bVal === null || bVal === undefined) return -1;
-
-        if (typeof aVal === "string" && typeof bVal === "string") {
-          return sortAsc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-        }
-
-        return sortAsc ? (aVal < bVal ? -1 : 1) : (aVal > bVal ? -1 : 1);
+        return compareValues(a[sortColumn], b[sortColumn], sortAsc);
       });
     },
     [sortColumn, sortAsc]

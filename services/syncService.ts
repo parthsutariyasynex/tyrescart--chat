@@ -64,24 +64,6 @@ export function registerModuleSync(mod: SyncModule, fn: Refresher): () => void {
   };
 }
 
-/* ── Data-layer module sync ──
-   Refreshes a module's IndexedDB cache even when its page isn't mounted. */
-function runCached(
-  start: (cbs: { onFresh: () => void; onError: (e: Error) => void }) => void,
-): Promise<void> {
-  return new Promise<void>((resolve) => {
-    let settled = false;
-    const done = () => {
-      if (!settled) {
-        settled = true;
-        resolve();
-      }
-    };
-    start({ onFresh: done, onError: done });
-    // Safety net: never hang the sync spinner if no callback fires.
-    setTimeout(done, 10000);
-  });
-}
 
 /** What a module sync actually managed to load. */
 export interface ModuleSyncOutcome {

@@ -7,7 +7,7 @@ import React from "react";
 
 /** Base skeleton block — compose with width/height utility classes. */
 export function Skeleton({ className = "" }: { className?: string }) {
-  return <div className={`skeleton ${className}`} aria-hidden="true" />;
+  return <span className={`skeleton block ${className}`} aria-hidden="true" />;
 }
 
 /**
@@ -48,37 +48,97 @@ export function ProductGridSkeleton({ count = 24 }: { count?: number }) {
 }
 
 /**
- * A single chat-shortcut card placeholder. Mirrors the real card EXACTLY.
+ * A single chat-shortcut card placeholder. Mirrors the real card layout with varied heights.
  */
-export function ChatCardSkeleton() {
+export function ChatCardSkeleton({ variant = 0 }: { variant?: number }) {
+  const descLines = [
+    ["w-full", "w-5/6"],
+    ["w-full", "w-11/12", "w-2/3"],
+    ["w-full", "w-4/5"],
+    ["w-full", "w-full", "w-3/4", "w-1/2"],
+    ["w-full", "w-3/4"],
+    ["w-full", "w-full", "w-4/5"],
+  ];
+  const lines = descLines[variant % descLines.length];
+
   return (
-    <div className="bg-white border border-gray-200/80 rounded-lg p-3.5 shadow-2xs break-inside-avoid mb-4">
+    <div className="bg-white border border-gray-200/80 rounded-lg p-3 shadow-2xs flex flex-col justify-between">
       <div>
         {/* category (left) + index (right) */}
-        <div className="flex items-start justify-between mb-2">
-          <Skeleton className="h-3.5 w-24 rounded" />
-          <Skeleton className="h-3 w-6 rounded" />
+        <div className="flex items-center justify-between gap-2 mb-1.5">
+          <Skeleton className="h-3 w-20 rounded" />
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Skeleton className="h-3 w-6 rounded" />
+            <Skeleton className="h-3.5 w-3.5 rounded" />
+          </div>
         </div>
         {/* title */}
-        <Skeleton className="h-4 w-3/4 rounded mb-2" />
+        <Skeleton className="h-4 w-4/5 rounded mb-1.5" />
         {/* description */}
-        <div className="space-y-1.5 mt-2">
-          <Skeleton className="h-3 w-full rounded" />
-          <Skeleton className="h-3 w-5/6 rounded" />
-          <Skeleton className="h-3 w-2/3 rounded" />
+        <div className="space-y-1.5">
+          {lines.map((w, i) => (
+            <Skeleton key={i} className={`h-3 ${w} rounded-xs`} />
+          ))}
         </div>
       </div>
     </div>
   );
 }
 
-/** Grid of chat-shortcut skeletons. */
-export function ChatGridSkeleton({ count = 12 }: { count?: number }) {
+/** Grid of chat-shortcut skeletons matching the page's/modal's responsive columns. */
+export function ChatGridSkeleton({
+  count = 20,
+  columnsClass = "columns-1 sm:columns-2 lg:columns-3 xl:columns-4",
+}: {
+  count?: number;
+  columnsClass?: string;
+}) {
   return (
-    <div className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-4 space-y-4">
+    <div className={`${columnsClass} gap-4 space-y-4`}>
       {Array.from({ length: count }).map((_, i) => (
-        <ChatCardSkeleton key={i} />
+        <div key={i} className="break-inside-avoid mb-4">
+          <ChatCardSkeleton variant={i} />
+        </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Route-level loading skeleton for the Tyre Chat page.
+ * Mirrors Header + Subheader + Chat Grid layout.
+ */
+export function TyresChatPageSkeleton() {
+  return (
+    <div className="flex h-full w-full overflow-hidden bg-[#f4f6f9] text-gray-800 font-sans relative">
+      <main className="flex-1 flex flex-col min-w-0 bg-[#f8fafc] overflow-hidden">
+        {/* Top Header Bar */}
+        <header className="h-16 flex-none bg-white border-b border-gray-200 px-6 flex items-center justify-between gap-4 shadow-xs">
+          <Skeleton className="h-10 flex-1 max-w-2xl rounded-lg" />
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-7 w-[92px] rounded-full" />
+            <Skeleton className="h-8 w-28 rounded-lg" />
+            <Skeleton className="h-8 w-8 rounded-lg" />
+          </div>
+        </header>
+
+        {/* Workspace Body Skeleton */}
+        <div className="flex-1 p-6 overflow-y-auto">
+          {/* Heading Bar Skeleton */}
+          <div className="flex items-center justify-between border-b border-gray-200 pb-3 mb-6">
+            <div className="flex items-center gap-3">
+              <Skeleton className="w-8 h-8 rounded-lg" />
+              <div className="space-y-1.5">
+                <Skeleton className="h-5 w-48 rounded" />
+                <Skeleton className="h-3 w-72 rounded" />
+              </div>
+            </div>
+          </div>
+
+          {/* Cards Grid Skeleton */}
+          <ChatGridSkeleton count={20} />
+        </div>
+      </main>
     </div>
   );
 }

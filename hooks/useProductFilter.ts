@@ -136,28 +136,39 @@ export function useProductFilter<T extends Record<string, any>>({
       }
     }
 
-    // 2. Category exact match
+    // 2. Category exact match (supports category & brand_category)
     if (categoryFilter !== "ALL") {
-      result = result.filter((item) => item.category === categoryFilter);
+      result = result.filter((item) => {
+        const cat = item.category || item.brand_category;
+        return cat === categoryFilter;
+      });
     }
 
-    // 3. Supplier / Source exact match
+    // 3. Supplier / Source exact match (supports supplier, source, source_name, product_source)
     if (supplierFilter !== "ALL") {
-      result = result.filter((item) => item.supplier === supplierFilter || item.source === supplierFilter);
+      result = result.filter((item) => {
+        const src = item.supplier || item.source || item.source_name || item.product_source;
+        return src === supplierFilter;
+      });
     }
 
-    // 4. Brand partial match (comma separated)
+    // 4. Brand partial match (supports token overlap e.g. "ACCELERA TIRES" vs "ACCELERA")
     if (brandInput && brandInput.trim()) {
       const brands = brandInput
         .split(",")
         .map((b) => b.trim().toLowerCase())
         .filter(Boolean);
       if (brands.length) {
-        result = result.filter(
-          (item) =>
-            item.brand &&
-            brands.some((b) => item.brand.toLowerCase().includes(b))
-        );
+        result = result.filter((item) => {
+          if (!item.brand) return false;
+          const itemBrand = String(item.brand).toLowerCase();
+          return brands.some((b) => {
+            if (itemBrand.includes(b) || b.includes(itemBrand)) return true;
+            const bTokens = b.split(/\s+/).filter((t) => t.length > 2);
+            const itemTokens = itemBrand.split(/\s+/).filter((t) => t.length > 2);
+            return bTokens.some((bt) => itemTokens.includes(bt));
+          });
+        });
       }
     }
 
@@ -174,42 +185,82 @@ export function useProductFilter<T extends Record<string, any>>({
       }
     }
 
-    // 6. Year match
+    // 6. Year match (supports number conversion and null/0 fallback for supplier feeds)
     if (yearInput && yearInput.trim()) {
       const years = yearInput
         .split(",")
         .map((y) => parseInt(y.trim(), 10))
         .filter((y) => !isNaN(y));
       if (years.length) {
-        result = result.filter((item) => item.year && years.includes(item.year));
+        result = result.filter((item) => {
+          if (item.year === undefined || item.year === null) return true;
+          const yNum = Number(item.year);
+          if (yNum === 0) return true;
+          return years.includes(yNum);
+        });
       }
     }
 
-    // 7. Qty minimum threshold
+    // 7. Qty minimum threshold (supports qty, quantity, stock, tyre_marking)
     if (qtyInput && qtyInput.trim() && !isNaN(Number(qtyInput))) {
       const n = Number(qtyInput);
-      result = result.filter((item) => (item.qty ?? 0) >= n);
+      result = result.filter((item) => {
+        const itemQty = Number(item.qty ?? item.quantity ?? item.stock ?? item.tyre_marking ?? 0);
+        return itemQty >= n;
+      });
     }
 
-    // 8. Price / Cost range
+    // 8. Price range — matched against every price the table DISPLAYS
+    //
+    //    Was `item.price ?? item.cost ?? 0`, which read one field and missed
+    //    the other columns entirely. Two things that broke:
+    //
+    //    a) Fitting Price and Set of 4 were never considered.
+    //    b) A row with no price at all collapsed to 0, and `0 <= max` is true,
+    //       so a Max-only filter returned every price-less row (measured: Max
+    //       200 returned 2,137 supplier rows, ~1,877 of them rendering 0.00).
+    //
+    //    Hence `> 0` rather than `!= null`: on this feed a 0 means "no value"
+    //    (fitting_price is populated on 1 row in 8,248), so a zero must not
+    //    participate — it is not a tyre that costs nothing.
     const minPrice = parseFloat(minPriceInput || "");
     const maxPrice = parseFloat(maxPriceInput || "");
-    if (!isNaN(minPrice)) {
+    const hasMin = !isNaN(minPrice);
+    const hasMax = !isNaN(maxPrice);
+    if (hasMin || hasMax) {
       result = result.filter((item) => {
-        const p = item.price ?? item.cost ?? 0;
-        return p >= minPrice;
-      });
-    }
-    if (!isNaN(maxPrice)) {
-      result = result.filter((item) => {
-        const p = item.price ?? item.cost ?? 0;
-        return p <= maxPrice;
+        // Set of 4 is deliberately NOT here. It is always ~4x the unit price,
+        // so including it made every row clear any low Min (Min 300 still
+        // returned all 8,524 tc rows) — the range only means something when it
+        // is read against per-tyre prices.
+        // Both spellings on purpose: the pages filter MAPPED rows
+        // (`fittingPrice`), while CheckSupplierModal filters the RAW feed rows
+        // straight out of the cache (`fitting_price`). Only one is ever
+        // defined on a given row, so listing both costs nothing.
+        const prices = [
+          item.price,
+          item.cost,
+          item.fittingPrice,
+          item.fitting_price,
+        ]
+          .map(Number)
+          .filter((v) => Number.isFinite(v) && v > 0);
+
+        // ONE pass over the values, so a single field has to satisfy both
+        // bounds. Applying min and max as separate filters would let a row
+        // through on cost=50 for the max and setOf4=5000 for the min.
+        return prices.some(
+          (v) => (!hasMin || v >= minPrice) && (!hasMax || v <= maxPrice),
+        );
       });
     }
 
-    // 9. Offer filter
+    // 9. Offer filter (supports offer & offers)
     if (offerFilter !== "ALL") {
-      result = result.filter((item) => item.offer === offerFilter);
+      result = result.filter((item) => {
+        const off = item.offer || item.offers;
+        return off === offerFilter;
+      });
     }
 
     return result;

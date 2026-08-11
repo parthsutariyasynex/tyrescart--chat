@@ -24,33 +24,39 @@ export interface Inquiry {
   createdAt: string;
 }
 
-const STORAGE_KEY = "tc_book_inquiries_v1";
-
-/**
- * Local mirror of enquiries submitted from this browser.
- *
- * Starts EMPTY. It previously shipped three invented customers ("Ahmed
- * Al-Mansoor", "Fatima Al-Zahra", "Mohammed Hassan") which were written into
- * localStorage on first load and were indistinguishable from real enquiries.
- *
- * This is a convenience list only — the CRM is the system of record, and
- * `createCrmBooking` is what actually files an enquiry. Rows here carry the
- * booking id the API returned, so the two can be reconciled.
- */
-const SEED_INQUIRIES: Inquiry[] = [];
+const STORAGE_KEY = "tc_book_inquiries_v2";
 
 export function getInquiries(): Inquiry[] {
-  if (typeof window === "undefined") return SEED_INQUIRIES;
+  if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(SEED_INQUIRIES));
-      return SEED_INQUIRIES;
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Remove the Book Inquiry store entirely.
+ *
+ * Book Inquiry is backend-only: the list comes from `crmRecentBookings` and
+ * `crmCustomerByPhone`, and nothing is written locally any more. Records left
+ * by earlier builds are deleted rather than kept around as a stale shadow copy.
+ */
+export function clearInquiries(): void {
+  if (typeof window === "undefined") return;
+  try {
+    // The current key AND the retired one. A device that ran an earlier build
+    // still holds records under `tc_book_inquiries_v1`; removing only the
+    // current key would leave those behind forever, since nothing reads or
+    // rewrites them any more.
+    for (const key of [STORAGE_KEY, "tc_book_inquiries_v1"]) {
+      localStorage.removeItem(key);
     }
-    return JSON.parse(raw);
   } catch (err) {
-    console.error("Error reading inquiries from localStorage", err);
-    return SEED_INQUIRIES;
+    console.error("Error clearing inquiries from localStorage", err);
   }
 }
 

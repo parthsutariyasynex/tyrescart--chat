@@ -28,14 +28,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  XMarkIcon,
-  MagnifyingGlassIcon,
-  TruckIcon,
-  ClipboardDocumentIcon,
-} from "@heroicons/react/24/outline";
+import { XMarkIcon, TruckIcon, ClipboardDocumentIcon, ArrowTopRightOnSquareIcon } from "@heroicons/react/24/outline";
 import { fetchSupplierProductsGraphQL } from "@/services/graphql";
-import { searchWithAspectRimFallback } from "@/services/searchFilter";
 import type { SupplierProductItem } from "@/services/types";
 import { buildRowString, stripLoadIndex } from "@/services/productFormatter";
 import CostHistoryModal from "@/components/CostHistoryModal";
@@ -43,6 +37,7 @@ import Filter from "@/components/Filter";
 import { useProductFilter } from "@/hooks/useProductFilter";
 import { CATEGORY_BADGES_SEMANTIC } from "@/constants/badges";
 import Pagination from "@/components/Pagination";
+import { Skeleton } from "@/components/Skeletons";
 
 const MONTH_NAMES = [
   "Jan",
@@ -113,47 +108,6 @@ function readField(row: SupplierRow, field: string): unknown {
   return (row as unknown as Record<string, unknown>)[field];
 }
 
-/**
- * Columns the tokenized search reads — the same `searchWithAspectRimFallback`
- * the product pages use, so comma-separated OR clauses ("kumho, hankook") and
- * the width-omitted size fallback ("55R16") behave identically here.
- */
-const SEARCH_FIELDS = [
-  "brand",
-  "product_name",
-  "pattern",
-  "name",
-  "sku",
-  "source_name",
-  "product_source",
-  "source",
-  "country",
-  "size",
-] as const;
-
-/** Numeric tokens go to the size only — same rule as the pages. */
-const SEARCH_SIZE_FIELDS = ["size"] as const;
-
-/**
- * Plain-substring pass, UNIONed with the tokenized one above.
- *
- * Needed because the tokenizer routes any all-digit token to the size fields,
- * so a cost ("241"), a year ("2026") or a qty could never reach its own column
- * no matter which fields were listed. Union, never replacement: the tokenized
- * matches keep their order and the substring-only extras follow.
- */
-const GLOBAL_SEARCH_FIELDS = [
-  ...SEARCH_FIELDS,
-  "cost",
-  "price",
-  "set_price",
-  "fitting_price",
-  "year",
-  "qty",
-  "runflat",
-  "date",
-] as const;
-
 export interface CheckSupplierProduct {
   itemCode: string;
   brand: string;
@@ -180,13 +134,6 @@ const money = (n: number) =>
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
-
-/** Compare loosely on case/spacing only — never on partial text. */
-const norm = (v: unknown) =>
-  String(v ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
 
 /** Shown when the row carries no value. Never a made-up default. */
 const UNKNOWN = "-";
@@ -226,6 +173,9 @@ export default function CheckSupplierModal({
   const [costHistoryItem, setCostHistoryItem] = useState<SupplierRow | null>(
     null,
   );
+  const [fittingHistoryItem, setFittingHistoryItem] = useState<SupplierRow | null>(
+    null,
+  );
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   /** Search and pagination */
   const [search, setSearch] = useState("");
@@ -236,18 +186,14 @@ export default function CheckSupplierModal({
   const [categoryFilter, setCategoryFilter] = useState("ALL");
   const [brandInput, setBrandInput] = useState(product.brand || "");
   const [sizeInput, setSizeInput] = useState(product.size || "");
-  const [yearInput, setYearInput] = useState(product.year ? String(product.year) : "");
+  const [yearInput, setYearInput] = useState(
+    product.year ? String(product.year) : "",
+  );
   const [qtyInput, setQtyInput] = useState("");
   const [minPriceInput, setMinPriceInput] = useState("");
   const [maxPriceInput, setMaxPriceInput] = useState("");
   const [offerFilter, setOfferFilter] = useState("ALL");
   const [supplierFilter, setSupplierFilter] = useState("ALL");
-
-  useEffect(() => {
-    setBrandInput(product.brand || "");
-    setSizeInput(product.size || "");
-    setYearInput(product.year ? String(product.year) : "");
-  }, [product.brand, product.size, product.year]);
 
   const handleSearchChange = (val: string) => {
     setSearch(val);
@@ -258,7 +204,8 @@ export default function CheckSupplierModal({
     const set = new Set<string>();
     if (rows) {
       rows.forEach((r) => {
-        const c = r.category || (r as unknown as Record<string, string>).brand_category;
+        const c =
+          r.category || (r as unknown as Record<string, string>).brand_category;
         if (c) set.add(c);
       });
     }
@@ -298,6 +245,18 @@ export default function CheckSupplierModal({
     return Array.from(set);
   }, [rows]);
 
+  const sizeOptions = useMemo(() => {
+    const set = new Set<string>();
+    if (product.size) set.add(product.size);
+    if (rows) {
+      rows.forEach((r) => {
+        const sz = r.size || (r as unknown as Record<string, string>).sizeFull;
+        if (sz) set.add(sz);
+      });
+    }
+    return Array.from(set);
+  }, [rows, product.size]);
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const filteredProducts = useProductFilter<Record<string, any>>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -316,10 +275,10 @@ export default function CheckSupplierModal({
 
   const handleResetFilters = () => {
     setCategoryFilter("ALL");
-    setBrandInput(product.brand || "");
+    setBrandInput("");
     setSearch("");
-    setSizeInput(product.size || "");
-    setYearInput(product.year ? String(product.year) : "");
+    setSizeInput("");
+    setYearInput("");
     setQtyInput("");
     setMinPriceInput("");
     setMaxPriceInput("");
@@ -359,40 +318,45 @@ export default function CheckSupplierModal({
     let alive = true;
     const searchBrand = product.brand ? product.brand.trim() : undefined;
     const searchSize = product.size ? product.size.trim() : undefined;
+    const plainSize = searchSize
+      ? searchSize.replace(/[^0-9]/g, "")
+      : undefined;
 
-    // Fetch supplier/competitor items matching this product's brand and size from GraphQL API
-    void fetchSupplierProductsGraphQL({
-      brand: searchBrand,
+    // Fetch all competitor and supplier items for size, plain size & brand concurrently
+    const pSize = fetchSupplierProductsGraphQL({
       size: searchSize,
-      pageSize: 100,
-    })
-      .then((res) => {
+      pageSize: 200,
+    });
+    const pPlain = plainSize
+      ? fetchSupplierProductsGraphQL({
+          plain_size: plainSize,
+          pageSize: 200,
+        })
+      : Promise.resolve({ items: [] });
+    const pBrand = searchBrand
+      ? fetchSupplierProductsGraphQL({
+          brand: searchBrand,
+          pageSize: 200,
+        })
+      : Promise.resolve({ items: [] });
+
+    Promise.all([pSize, pPlain, pBrand])
+      .then(([resSize, resPlain, resBrand]) => {
         if (!alive) return;
         setCurrentPage(1);
-        const all = res.items || [];
-        const sku = norm(product.itemCode);
-        const bySku = sku ? all.filter((r) => norm(r.sku) === sku) : [];
-        const brand = norm(product.brand);
-        const size = norm(product.size);
-        const byAttrs =
-          brand && size
-            ? all.filter(
-                (r) => norm(r.brand) === brand && norm(r.size) === size,
-              )
-            : [];
-
-        const matched = [
-          ...new Map(
-            [...bySku, ...byAttrs].map((r) => [String(r.id), r]),
-          ).values(),
+        const combined = [
+          ...(resSize.items || []),
+          ...(resPlain.items || []),
+          ...(resBrand.items || []),
         ];
-        setRows(
-          matched.length > 0
-            ? matched
-            : all.filter(
-                (r) => norm(r.brand) === brand || norm(r.size) === size,
-              ),
-        );
+        const uniqueMap = new Map<string, SupplierRow>();
+        combined.forEach((item) => {
+          if (item && item.id) {
+            uniqueMap.set(String(item.id), item);
+          }
+        });
+        const allRows = Array.from(uniqueMap.values());
+        setRows(allRows);
       })
       .catch(() => {
         if (alive) {
@@ -520,12 +484,11 @@ export default function CheckSupplierModal({
       // takes a number. Under `any` this mismatch passed through unnoticed.
       qty: item.qty == null ? null : Number(item.qty) || 0,
       cost: Number(item.cost) || 0,
+      fitting_price: Number(item.fitting_price) || 0,
     });
     navigator.clipboard.writeText(rowString);
     showToast(`Copied product details to clipboard!`);
   };
-
-
 
   const displayName = (() => {
     const brand = (product.brand || "").trim();
@@ -633,12 +596,13 @@ export default function CheckSupplierModal({
                   data. It filters ONLY the rows in this popup and issues no
                   request — it re-filters what was already fetched for this
                   tyre. Hidden until there is something to filter. */}
-              {!loading && rows !== null && rows.length > 0 && (
+              {/* Top header search input commented out per user request */}
+              {/* {!loading && rows !== null && rows.length > 0 && (
                 <>
                   <span className="text-slate-300 font-light shrink-0">|</span>
                   <div className="relative shrink-0 w-64 sm:w-80">
                     <MagnifyingGlassIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <input
+                    <input autoComplete="off"
                       type="text"
                       value={search}
                       onChange={(e) => handleSearchChange(e.target.value)}
@@ -658,13 +622,13 @@ export default function CheckSupplierModal({
                       </button>
                     )}
                   </div>
-                  <span className="text-xs font-semibold text-slate-500 shrink-0 whitespace-nowrap">
+                  <span className="text-xs font-semibold text-slate-500 shrink-0 whitespace-nowrap min-w-[70px] inline-block text-right">
                     {search.trim()
                       ? `${sorted.length} of ${rows.length}`
                       : `${rows.length} rows`}
                   </span>
                 </>
-              )}
+              )} */}
             </div>
           </div>
 
@@ -680,7 +644,7 @@ export default function CheckSupplierModal({
         </div>
 
         {/* Body */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-5 sm:px-6 py-4 space-y-4 relative">
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden px-5 sm:px-6 py-3.5 space-y-3 relative">
           {/* Toast Notification */}
           {toastMessage && (
             <div className="absolute top-2 right-6 z-50 bg-slate-900 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-lg animate-in fade-in duration-150">
@@ -688,267 +652,256 @@ export default function CheckSupplierModal({
             </div>
           )}
 
-          {/* Filter Bar Component */}
-          <Filter
-            showSupplierFilter={supplierOptions.length > 0}
-            supplierFilter={supplierFilter}
-            setSupplierFilter={setSupplierFilter}
-            supplierOptions={supplierOptions}
-
-            categoryFilter={categoryFilter}
-            setCategoryFilter={setCategoryFilter}
-            categoryOptions={categoryOptions}
-
-            brandInput={brandInput}
-            setBrandInput={setBrandInput}
-            brandOptions={brandOptions}
-
-            searchQuery={search}
-            setSearchQuery={handleSearchChange}
-
-            sizeInput={sizeInput}
-            setSizeInput={setSizeInput}
-
-            yearInput={yearInput}
-            setYearInput={setYearInput}
-
-            qtyInput={qtyInput}
-            setQtyInput={setQtyInput}
-
-            minPriceInput={minPriceInput}
-            setMinPriceInput={setMinPriceInput}
-
-            maxPriceInput={maxPriceInput}
-            setMaxPriceInput={setMaxPriceInput}
-
-            showOfferFilter={offerOptions.length > 0}
-            offerFilter={offerFilter}
-            setOfferFilter={setOfferFilter}
-            offerOptions={offerOptions}
-
-            onSearch={() => setCurrentPage(1)}
-            onReset={handleResetFilters}
-          />
+          {/* Fixed Top Filter Bar Component */}
+          <div className="shrink-0">
+            <Filter
+              showSupplierFilter={true}
+              supplierFilter={supplierFilter}
+              setSupplierFilter={setSupplierFilter}
+              supplierOptions={supplierOptions}
+              categoryFilter={categoryFilter}
+              setCategoryFilter={setCategoryFilter}
+              categoryOptions={categoryOptions}
+              brandInput={brandInput}
+              setBrandInput={setBrandInput}
+              brandOptions={brandOptions}
+              searchQuery={search}
+              setSearchQuery={handleSearchChange}
+              sizeInput={sizeInput}
+              setSizeInput={setSizeInput}
+              sizeOptions={sizeOptions}
+              yearInput={yearInput}
+              setYearInput={setYearInput}
+              qtyInput={qtyInput}
+              setQtyInput={setQtyInput}
+              minPriceInput={minPriceInput}
+              setMinPriceInput={setMinPriceInput}
+              maxPriceInput={maxPriceInput}
+              setMaxPriceInput={setMaxPriceInput}
+              showOfferFilter={true}
+              offerFilter={offerFilter}
+              setOfferFilter={setOfferFilter}
+              offerOptions={offerOptions}
+              onSearch={() => setCurrentPage(1)}
+              onReset={handleResetFilters}
+            />
+          </div>
 
           {/* Supplier rows table */}
-          <div
-            className="border border-slate-200 rounded-xl overflow-hidden flex flex-col justify-between"
-            style={{ minHeight: Math.min(pageSize, 15) * 34 + 80 }}
-          >
-            {loading ? (
-              <div
-                className="p-3 space-y-2 flex flex-col justify-start"
-                style={{ minHeight: Math.min(pageSize, 15) * 34 + 32 }}
-              >
-                <div
-                  className="skeleton h-7 rounded-lg w-full mb-1"
-                  aria-hidden="true"
-                />
-                {Array.from({ length: Math.min(pageSize, 12) }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="skeleton h-7 rounded-lg w-full"
-                    aria-hidden="true"
-                  />
-                ))}
-              </div>
-            ) : empty ? (
-              <div
-                className="py-14 text-center px-6 flex flex-col items-center justify-center"
-                style={{ minHeight: Math.min(pageSize, 15) * 34 + 32 }}
-              >
-                {/* Two different empties: nothing was found for this tyre at all,
-                    versus rows exist but the search excluded them. Saying "no
-                    supplier stocks this tyre" while a filter is on would be wrong. */}
-                {search.trim() && rows !== null && rows.length > 0 ? (
-                  <>
-                    <p className="text-sm font-semibold text-slate-500">
-                      No row matches “{search.trim()}”.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setSearch("")}
-                      className="mt-2 text-xs font-semibold text-[#008b47] hover:underline cursor-pointer"
+          <div className="flex-1 min-h-0 border border-slate-200 rounded-xl overflow-hidden flex flex-col justify-between bg-white shadow-2xs">
+            <div className="flex-1 min-h-0 overflow-y-scroll overflow-x-auto relative">
+              <table className="w-full text-xs text-left border-collapse table-fixed min-w-[1000px]">
+                <colgroup>
+                  <col className="w-[7%]" />
+                  <col className="w-[6%]" />
+                  <col className="w-[7%]" />
+                  <col className="w-[7%]" />
+                  <col className="w-[21.5%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[5.5%]" />
+                  <col className="w-[6%]" />
+                  <col className="w-[4%]" />
+                  <col className="w-[4%]" />
+                  <col className="w-[6.5%]" />
+                  <col className="w-[7.5%]" />
+                  <col className="w-[6%]" />
+                  <col className="w-[5.5%]" />
+                </colgroup>
+                <thead className="bg-slate-50 sticky top-0 z-10 border-b border-slate-200">
+                  <tr className="text-[10px] font-bold text-slate-500 uppercase tracking-wider select-none">
+                    <th
+                      onClick={() => handleSort("source")}
+                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
                     >
-                      Clear search to see all {rows.length} rows
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-sm font-semibold text-slate-500">
-                      No supplier stocks this tyre.
-                    </p>
-                    <p className="mt-1 text-xs text-slate-400 max-w-md mx-auto">
-                      Nothing in the synced supplier catalogue matches this SKU,
-                      or this brand and size. If the supplier feed has not been
-                      synced on this device yet, run Sync on the Supplier page
-                      first.
-                    </p>
-                  </>
-                )}
-              </div>
-            ) : (
-              <div
-                className="overflow-x-auto overflow-y-hidden flex-1"
-                style={{ minHeight: Math.min(pageSize, 15) * 34 + 32 }}
-              >
-                <table className="w-full text-xs text-left border-collapse">
-                  <colgroup>
-                    <col className="w-[8.5%]" />
-                    <col className="w-[6.5%]" />
-                    <col className="w-[7.5%]" />
-                    <col className="w-[8%]" />
-                    <col className="w-[20%]" />
-                    <col className="w-[11.5%]" />
-                    <col className="w-[5.5%]" />
-                    <col className="w-[6.5%]" />
-                    <col className="w-[4%]" />
-                    <col className="w-[4.5%]" />
-                    <col className="w-[6.5%]" />
-                    <col className="w-[7.5%]" />
-                    <col className="w-[5.5%]" />
-                    <col className="w-[4.5%]" />
-                  </colgroup>
-                  <thead className="bg-slate-50 sticky top-0 z-10 border-b border-slate-200">
-                    <tr className="text-[10px] font-bold text-slate-500 uppercase tracking-wider select-none">
-                      <th
-                        onClick={() => handleSort("source")}
-                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Source{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("product_source")}
-                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Type{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("category")}
-                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Category{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("brand")}
-                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Brand{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("pattern")}
-                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Tyre Pattern{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("size")}
-                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Size{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("runflat")}
-                        className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        RunFlat{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("country")}
-                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Countries{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("year")}
-                        className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Year{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("qty")}
-                        className="py-2 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Qty{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("cost")}
-                        className="py-2 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Cost{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("fitting_price")}
-                        className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Fitting Price{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("date")}
-                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Date{" "}
-                        <span className="ml-0.5 opacity-50 font-normal">
-                          ↑↓
-                        </span>
-                      </th>
-                      {/* <th className="py-2 px-3 text-center whitespace-nowrap">
-                        Actions
-                      </th> */}
+                      Source{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("product_source")}
+                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Type{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("category")}
+                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Category{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("brand")}
+                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Brand{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("pattern")}
+                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Tyre Pattern{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("size")}
+                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Size{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("runflat")}
+                      className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      RunFlat{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("country")}
+                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Countries{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("year")}
+                      className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Year{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("qty")}
+                      className="py-2 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Qty{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("cost")}
+                      className="py-2 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Cost{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("fitting_price")}
+                      className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Fitting Price{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("date")}
+                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Date{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                    </th>
+                    <th className="py-2 px-3 text-center whitespace-nowrap">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-sans">
+                  {loading ? (
+                    Array.from({ length: Math.min(pageSize, 15) }).map(
+                      (_, i) => (
+                        <tr key={i} className="hover:bg-slate-50/50">
+                          <td className="py-2.5 px-3">
+                            <Skeleton className="h-4 w-12 rounded" />
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <Skeleton className="h-4 w-14 rounded" />
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <Skeleton className="h-4 w-14 rounded" />
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <Skeleton className="h-4 w-16 rounded" />
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <Skeleton className="h-4 w-28 rounded" />
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <Skeleton className="h-4 w-20 rounded" />
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <Skeleton className="h-4 w-10 rounded mx-auto" />
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <Skeleton className="h-4 w-14 rounded" />
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <Skeleton className="h-4 w-8 rounded mx-auto" />
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <Skeleton className="h-4 w-6 rounded mx-auto" />
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            <Skeleton className="h-4 w-12 rounded ml-auto" />
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <Skeleton className="h-4 w-12 rounded mx-auto" />
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <Skeleton className="h-4 w-12 rounded" />
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <Skeleton className="h-4 w-10 rounded mx-auto" />
+                          </td>
+                        </tr>
+                      ),
+                    )
+                  ) : empty ? (
+                    <tr>
+                      <td colSpan={14} className="py-14 text-center px-6">
+                        {search.trim() && rows !== null && rows.length > 0 ? (
+                          <>
+                            <p className="text-sm font-semibold text-slate-500">
+                              No row matches “{search.trim()}”.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setSearch("")}
+                              className="mt-2 text-xs font-semibold text-[#008b47] hover:underline cursor-pointer"
+                            >
+                              Clear search to see all {rows.length} rows
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-sm font-semibold text-slate-500">
+                              No supplier stocks this tyre.
+                            </p>
+                            <p className="mt-1 text-xs text-slate-400 max-w-md mx-auto">
+                              Nothing in the synced supplier catalogue matches
+                              this SKU, or this brand and size. If the supplier
+                              feed has not been synced on this device yet, run
+                              Sync on the Supplier page first.
+                            </p>
+                          </>
+                        )}
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-sans">
-                    {paginatedRows.map((r, i) => {
+                  ) : (
+                    paginatedRows.map((r, i) => {
                       const runflatVal = runflatText(r.runflat);
 
                       return (
                         <tr
                           key={`${r.id}-${i}`}
-                          onClick={() => copyRowData(r)}
-                          title="Click row to copy details"
-                          className="hover:bg-slate-50/80 transition-colors cursor-pointer border-b border-slate-100 last:border-0"
+                          className="hover:bg-slate-50/80 transition-colors border-b border-slate-100 last:border-0"
                         >
                           {/* Source */}
                           <td className="py-1.5 px-3 whitespace-nowrap">
-                            <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-bold rounded border border-indigo-200 uppercase whitespace-nowrap inline-block">
-                              {r.source_name || r.source || "—"}
-                            </span>
+                            {r.source_name || r.source ? (
+                              <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-bold rounded border border-indigo-200 uppercase whitespace-nowrap inline-block">
+                                {r.source_name || r.source}
+                              </span>
+                            ) : null}
                           </td>
 
                           {/* Type */}
@@ -978,19 +931,17 @@ export default function CheckSupplierModal({
                                 >
                                   {cat}
                                 </span>
-                              ) : (
-                                <span className="text-slate-400 font-normal text-xs">
-                                  —
-                                </span>
-                              );
+                              ) : null;
                             })()}
                           </td>
 
                           {/* Brand */}
                           <td className="py-1.5 px-3 text-xs font-semibold text-slate-800 whitespace-nowrap">
-                            <span className="px-2 py-0.5 text-[10px] font-bold rounded uppercase whitespace-nowrap inline-block bg-slate-100 text-slate-700">
-                              {r.brand || product.brand || "—"}
-                            </span>
+                            {r.brand || product.brand ? (
+                              <span className="px-2 py-0.5 text-[10px] font-bold rounded uppercase whitespace-nowrap inline-block bg-slate-100 text-slate-700">
+                                {r.brand || product.brand}
+                              </span>
+                            ) : null}
                           </td>
 
                           {/* Tyre Pattern */}
@@ -1000,14 +951,14 @@ export default function CheckSupplierModal({
                                 r.product_name ||
                                 r.name ||
                                 product.pattern ||
-                                "—"}
+                                ""}
                             </span>
                           </td>
 
                           {/* Size */}
                           <td className="py-1.5 px-3 text-xs font-mono text-slate-700 whitespace-nowrap">
                             {stripLoadIndex(r.size || product.size || "") ||
-                              "—"}
+                              ""}
                           </td>
 
                           {/* RunFlat */}
@@ -1016,48 +967,41 @@ export default function CheckSupplierModal({
                               <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded border border-emerald-200 whitespace-nowrap inline-block">
                                 Runflat
                               </span>
-                            ) : (
-                              <span className="text-slate-400 font-medium">
-                                -
-                              </span>
-                            )}
+                            ) : null}
                           </td>
 
                           {/* Countries */}
                           <td className="py-1.5 px-3 whitespace-nowrap text-xs font-semibold text-slate-700">
-                            {r.country || product.country || (
-                              <span className="text-slate-400 font-medium">
-                                -
-                              </span>
-                            )}
+                            {r.country || product.country || null}
                           </td>
 
                           {/* Year */}
                           <td className="py-1.5 px-3 text-center text-xs font-medium text-slate-600 whitespace-nowrap">
-                            {r.year && Number(r.year) > 0 ? (
-                              r.year
-                            ) : (
-                              <span className="text-slate-400 font-medium">
-                                -
-                              </span>
-                            )}
+                            {r.year && Number(r.year) > 0 ? r.year : null}
                           </td>
 
                           {/* Qty */}
                           <td className="py-1.5 px-2 text-center whitespace-nowrap">
                             {(() => {
-                              const rec = (r as unknown) as Record<string, unknown>;
-                              const rawQty = rec.qty ?? rec.quantity ?? rec.stock ?? rec.tyre_marking;
-                              if (rawQty === undefined || rawQty === null || rawQty === "") {
-                                return <span className="text-slate-400 font-medium">-</span>;
+                              const rec = r as unknown as Record<
+                                string,
+                                unknown
+                              >;
+                              const rawQty =
+                                rec.qty ??
+                                rec.quantity ??
+                                rec.stock ??
+                                rec.tyre_marking;
+                              if (
+                                rawQty === undefined ||
+                                rawQty === null ||
+                                rawQty === ""
+                              ) {
+                                return null;
                               }
                               const numQty = Number(rawQty);
-                              if (isNaN(numQty) || numQty === 0) {
-                                return (
-                                  <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-red-50 text-red-600 text-[11px] font-extrabold border border-red-200/60 font-mono">
-                                    0
-                                  </span>
-                                );
+                              if (isNaN(numQty) || numQty <= 0) {
+                                return null;
                               }
                               return (
                                 <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-extrabold border border-emerald-200/60 font-mono">
@@ -1069,7 +1013,7 @@ export default function CheckSupplierModal({
 
                           {/* Cost */}
                           <td className="py-1.5 px-3 text-right whitespace-nowrap">
-                            {r.cost || r.price ? (
+                            {Number(r.cost) > 0 ? (
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -1081,54 +1025,48 @@ export default function CheckSupplierModal({
                                 dir="ltr"
                               >
                                 <span className="whitespace-nowrap">
-                                  {money(Number(r.cost || r.price))}
+                                  {money(Number(r.cost))}
                                 </span>
                               </button>
-                            ) : (
-                              <span className="text-slate-400 font-medium">
-                                -
-                              </span>
-                            )}
+                            ) : null}
                           </td>
 
                           {/* Fitting Price */}
                           <td className="py-1.5 px-3 text-center whitespace-nowrap">
-                            {r.fitting_price ? (
-                              <div
-                                className="inline-flex items-center justify-center gap-1 text-xs font-medium text-slate-500 font-mono whitespace-nowrap"
+                            {Number(r.fitting_price) > 0 ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setFittingHistoryItem(r);
+                                }}
+                                title="View fitting price history"
+                                className="inline-flex items-center justify-center gap-1 text-xs font-medium text-slate-500 font-mono whitespace-nowrap rounded px-1 -mx-1 hover:text-emerald-700 hover:underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors cursor-pointer"
                                 dir="ltr"
                               >
                                 <span className="whitespace-nowrap">
                                   {money(Number(r.fitting_price))}
                                 </span>
-                              </div>
-                            ) : (
-                              <span className="text-slate-400 font-medium">
-                                -
-                              </span>
-                            )}
+                              </button>
+                            ) : null}
                           </td>
 
                           {/* Date */}
                           <td className="py-1.5 px-3 text-xs text-slate-500 whitespace-nowrap">
                             {r.date ||
                             (r as unknown as { created_at?: string })
-                              .created_at ? (
-                              formatDateDDMM(
-                                r.date ||
-                                  (r as unknown as { created_at?: string })
-                                    .created_at,
-                              )
-                            ) : (
-                              <span className="text-slate-400 font-medium">
-                                -
-                              </span>
-                            )}
+                              .created_at
+                              ? formatDateDDMM(
+                                  r.date ||
+                                    (r as unknown as { created_at?: string })
+                                      .created_at,
+                                )
+                              : null}
                           </td>
 
                           {/* Actions */}
-                          {/* <td className="py-1.5 px-3 text-center whitespace-nowrap">
-                            <div className="flex items-center justify-center">
+                          <td className="py-1.5 px-3 text-center whitespace-nowrap">
+                            <div className="flex items-center justify-center gap-1.5">
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -1136,28 +1074,57 @@ export default function CheckSupplierModal({
                                   copyRowData(r);
                                 }}
                                 title="Copy row data"
-                                className="p-1 rounded text-slate-400 hover:text-[#008b47] hover:bg-slate-100 transition-colors cursor-pointer"
+                                className="p-1 text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors cursor-pointer"
                               >
                                 <ClipboardDocumentIcon className="w-4 h-4" />
                               </button>
+
+                              {(() => {
+                                const rec = r as unknown as Record<
+                                  string,
+                                  string
+                                >;
+                                const url =
+                                  rec.productUrl ||
+                                  rec.product_url ||
+                                  rec.url ||
+                                  rec.link;
+                                if (!url) return null;
+                                return (
+                                  <a
+                                    href={url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="p-1 text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors cursor-pointer"
+                                    title="Open product page in a new tab"
+                                  >
+                                    <ArrowTopRightOnSquareIcon className="w-4 h-4" />
+                                  </a>
+                                );
+                              })()}
                             </div>
                           </td> */}
                         </tr>
                       );
-                    })}
-                  </tbody>
-                </table>
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination bar */}
+            {!loading && !empty && (
+              <div className="shrink-0">
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  onPageChange={setCurrentPage}
+                  pageSize={pageSize}
+                  setPageSize={setPageSize}
+                  pageSizeOptions={[15, 30, 50, 100]}
+                />
               </div>
-            )}
-            {!loading && !empty && totalPages > 1 && (
-              <Pagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                onPageChange={setCurrentPage}
-                pageSize={pageSize}
-                setPageSize={setPageSize}
-                pageSizeOptions={[15, 30, 50, 100]}
-              />
             )}
           </div>
         </div>
@@ -1166,7 +1133,7 @@ export default function CheckSupplierModal({
       {/* Cost History Modal */}
       {costHistoryItem && (
         <CostHistoryModal
-          key={String(costHistoryItem.id)}
+          key={`cost-${String(costHistoryItem.id)}`}
           product={{
             id: costHistoryItem.id,
             brand: costHistoryItem.brand || product.brand,
@@ -1177,12 +1144,36 @@ export default function CheckSupplierModal({
               costHistoryItem.name ||
               product.pattern,
             itemCode: costHistoryItem.sku || product.itemCode,
-            cost: Number(costHistoryItem.cost) || 0,
+            cost: Number(costHistoryItem.cost || costHistoryItem.price) || 0,
             productType: costHistoryItem.product_source || "supplier",
             country: costHistoryItem.country || product.country,
             year: costHistoryItem.year || product.year,
           }}
           onCloseAction={() => setCostHistoryItem(null)}
+        />
+      )}
+
+      {/* Fitting Price History Modal */}
+      {fittingHistoryItem && (
+        <CostHistoryModal
+          key={`fitting-${String(fittingHistoryItem.id)}`}
+          variant="fitting"
+          product={{
+            id: fittingHistoryItem.id,
+            brand: fittingHistoryItem.brand || product.brand,
+            size: fittingHistoryItem.size || product.size,
+            sizeFull: fittingHistoryItem.size || product.sizeFull,
+            pattern:
+              fittingHistoryItem.pattern ||
+              fittingHistoryItem.name ||
+              product.pattern,
+            itemCode: fittingHistoryItem.sku || product.itemCode,
+            cost: Number(fittingHistoryItem.fitting_price) || 0,
+            productType: fittingHistoryItem.product_source || "supplier",
+            country: fittingHistoryItem.country || product.country,
+            year: fittingHistoryItem.year || product.year,
+          }}
+          onCloseAction={() => setFittingHistoryItem(null)}
         />
       )}
     </div>

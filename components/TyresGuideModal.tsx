@@ -9,8 +9,6 @@ import {
   TruckIcon,
   CheckCircleIcon,
   SparklesIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
 } from "@heroicons/react/24/outline";
 import { fetchKleverVehicleSearchGraphQL } from "../services/graphql";
 import type { KleverVehicleItem } from "../services/types";
@@ -143,7 +141,6 @@ export default function TyresGuideModal({
   }, [filteredVehicles, validCurrentPage, pageSize]);
 
   const startRecord = totalItems === 0 ? 0 : (validCurrentPage - 1) * pageSize + 1;
-  const endRecord = Math.min(validCurrentPage * pageSize, totalItems);
 
   if (!mounted) return null;
   if (!isOpen && !isClosing) return null;
@@ -191,7 +188,7 @@ export default function TyresGuideModal({
           {/* Header Search Input */}
           <div className="relative flex-1 max-w-md mx-2 min-w-[200px]">
             <MagnifyingGlassIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
+            <input autoComplete="off"
               type="text"
               placeholder="Search make, model, year, or tyre size..."
               value={searchQuery}

@@ -12,7 +12,7 @@
  */
 import { syncManager, type SyncTaskDefinition } from "./syncManager";
 import { syncModule } from "./syncService";
-import { consumeManualSync, recordCostChanges } from "./costHistory";
+import { consumeManualSync, recordCostChanges, recordFittingPriceChanges } from "./costHistory";
 import {
   syncAllSupplierProducts,
   getSupplierSyncState,
@@ -70,6 +70,12 @@ const supplierProductsTask: SyncTaskDefinition = {
     if (isManual && seenRows.length) {
       await recordCostChanges(seenRows).catch((e) =>
         console.warn("[syncTasks] cost history not recorded:", e),
+      );
+      // Same rows, same manual-only gate, same "never fail the sync" contract.
+      // Separate call and separate store, so a fault here cannot affect the
+      // cost series that ran above.
+      await recordFittingPriceChanges(seenRows).catch((e) =>
+        console.warn("[syncTasks] fitting price history not recorded:", e),
       );
     }
 

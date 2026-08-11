@@ -22,6 +22,10 @@ export interface FormattableProduct {
   country?: string;
   qty?: number | null;
   cost?: number;
+  /** Fitting price as the tables render it. Two spellings because the pages
+   *  pass mapped rows and CheckSupplierModal passes raw feed fields. */
+  fittingPrice?: number;
+  fitting_price?: number | string;
   /** Unit price. Preferred over `cost` when present — tc-products sets both to
    *  the same value; supplier rows only have `cost`. */
   price?: number;
@@ -130,18 +134,42 @@ export function buildRowString(item: FormattableProduct): string {
   const money = (n: number) =>
     n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  const unitPrice = item.price || item.cost || 0;
-  const setTotal =
-    typeof item.setOf4Price === 'number' && item.setOf4Price > 0
-      ? item.setOf4Price
-      : setOfFourPrice(unitPrice, item.offer);
+  /* Availability is tested on the VALUE, not on the key: supplier rows carry
+     `price: 0` rather than omitting it, so an `in`/undefined check would call a
+     price "available" and copy AED 0.00 over a Cost the table is displaying. */
+  const hasPrice = Number(item.price) > 0;
+  const hasSetOf4 = Number(item.setOf4Price) > 0;
+
+  /* Both spellings: the pages pass MAPPED rows (`fittingPrice`), the Check
+     Supplier popup passes raw feed fields (`fitting_price`). */
+  const fitting = Number(item.fittingPrice ?? item.fitting_price) || 0;
+
+  /* Unchanged when a real Price exists. Fitting Price only joins the chain as a
+     last resort, for supplier rows that have neither Price nor Cost. */
+  const unitPrice = hasPrice ? Number(item.price) : Number(item.cost) || fitting || 0;
+  const setTotal = hasSetOf4
+    ? Number(item.setOf4Price)
+    : setOfFourPrice(unitPrice, item.offer);
 
   const offer = offerLabel(item.offer);
 
   /* Assembled as a line list so the omitted Offer line leaves no blank behind. */
   const lines = [firstLine, `Price per Tire: AED ${money(unitPrice)}`];
   if (offer) lines.push(`Offer: ${offer}`);
-  lines.push(`Set of 4 Price: AED ${money(setTotal)}`);
+  /* Supplier rows have no Price and no Set of 4, and a set total derived from a
+     COST is not a customer-facing figure — those rows copy Cost and Fitting
+     Price only. A row with either real value keeps the line exactly as before,
+     including the tc case where Set of 4 is computed from Price. */
+  if (hasPrice || hasSetOf4) {
+    lines.push(`Set of 4 Price: AED ${money(setTotal)}`);
+  }
+
+  /* Supplier rows only — a row with a real Price and Set of 4 is untouched.
+     Skipped when it already IS the unit price, so the same number is never
+     printed twice. */
+  if (!hasPrice && !hasSetOf4 && fitting > 0 && fitting !== unitPrice) {
+    lines.push(`Fitting Price: AED ${money(fitting)}`);
+  }
 
   return lines.join('\n');
 }

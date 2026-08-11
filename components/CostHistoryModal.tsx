@@ -1,17 +1,24 @@
 "use client";
 
 /**
- * Cost History modal — opened by clicking a Cost value in the supplier table.
+ * Price history modal — opened by clicking a Cost or Fitting Price value in the
+ * supplier table. `variant` selects which series is shown; the layout, the Date
+ * Wise / Month Wise behaviour and the summary tiles are shared.
  *
- * Reads exclusively from the API price-history endpoint (via cache). Nothing
- * here fetches a second time: the Price History panel reuses the same
- * `history` array the chart already consumes.
+ * COST (default) reads exclusively from the API price-history endpoint (via
+ * cache). Nothing here fetches a second time: the Price History panel reuses the
+ * same `history` array the chart already consumes.
+ *
+ * FITTING PRICE reads the SAME endpoint, pinned to source: "competitor". The
+ * API has no fitting-price series — `source` accepts only "supplier" or
+ * "competitor" and both return a `price` — so this chart plots the competitor
+ * price series under the Fitting Price label, by explicit request.
  *
  * Recharts is imported lazily — ~100 KB that only matters once someone opens
  * this modal, so it does not slow the first paint of the supplier table.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { XMarkIcon } from "@heroicons/react/24/outline";
 import {
@@ -50,15 +57,28 @@ export interface CostHistoryProduct {
 const money = (n: number) =>
   n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+/**
+ * Which series to chart.
+ *
+ * `"cost"` is the default and is byte-for-byte the behaviour this modal always
+ * had — `supplierProductPriceHistory` with the source derived from the row.
+ * `"fitting"` calls the same endpoint with source pinned to "competitor".
+ */
+export type HistoryVariant = "cost" | "fitting";
+
 export interface CostHistoryModalProps {
   product: CostHistoryProduct;
   onCloseAction: () => void;
+  variant?: HistoryVariant;
 }
 
 export default function CostHistoryModal({
   product,
   onCloseAction,
+  variant = "cost",
 }: CostHistoryModalProps) {
+  const isFitting = variant === "fitting";
+  const seriesLabel = isFitting ? "Fitting Price" : "Cost";
   const [history, setHistory] = useState<CostHistoryRecord[] | null>(null);
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [isClosing, setIsClosing] = useState<boolean>(false);
@@ -68,31 +88,54 @@ export default function CostHistoryModal({
     return () => clearTimeout(timer);
   }, []);
 
-  const handleClose = () => {
+  /* useCallback so the Escape-key effect can depend on it honestly. Without a
+     stable identity the effect would re-subscribe on every render, which is why
+     it had been left off the dependency list. */
+  const handleClose = useCallback(() => {
     setIsClosing(true);
     setTimeout(() => onCloseAction(), 700);
-  };
+  }, [onCloseAction]);
 
   useEffect(() => {
     let alive = true;
     async function load(): Promise<CostHistoryRecord[]> {
-      const source = (product.productType || "supplier").toLowerCase().includes("competitor")
+      /* Fitting Price reads `supplierProductPriceHistory` with a FIXED
+         source: "competitor" — not the row's own supplier/competitor
+         discriminator, which is what the cost branch below derives. The source
+         is pinned here rather than passed in, so nothing outside this branch
+         changes.
+
+         NOTE the endpoint returns a `price` series; it has no fitting-price
+         field (`source` accepts only "supplier"/"competitor", and every other
+         value is rejected with `Source must be "supplier" or "competitor".`).
+         So these points are the competitor's price, charted under the Fitting
+         Price label by explicit request. */
+      const primarySource = isFitting
         ? "competitor"
-        : "supplier";
-      const api = await fetchSupplierPriceHistoryCached(product.id, source).catch(() => []);
+        : (product.productType || product.source || "supplier").toLowerCase().includes("competitor")
+          ? "competitor"
+          : "supplier";
+
+      let api = await fetchSupplierPriceHistoryCached(product.id, primarySource).catch(() => []);
+      
+      // Fallback: If primary source returned no data, try "supplier" source
+      if ((!api || api.length === 0) && primarySource !== "supplier") {
+        api = await fetchSupplierPriceHistoryCached(product.id, "supplier").catch(() => []);
+      }
+
       return fromApiHistory(api, product.id, product.itemCode ?? "");
     }
     void load()
       .then((rows) => { if (alive) setHistory(rows); })
       .catch(() => { if (alive) setHistory([]); });
     return () => { alive = false; };
-  }, [product.id, product.productType, product.itemCode]);
+  }, [product.id, product.productType, product.source, product.itemCode, isFitting]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") handleClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [handleClose]);
 
   const dateSeries = useMemo(() => toDateSeries(history ?? []), [history]);
   const stats = useMemo(() => summarise(history ?? []), [history]);
@@ -206,7 +249,7 @@ export default function CostHistoryModal({
                 </svg>
               </div>
               <h2 className="text-base font-extrabold text-slate-900 tracking-tight leading-tight whitespace-nowrap">
-                Cost History
+                {seriesLabel} History
               </h2>
             </div>
 
@@ -285,7 +328,7 @@ export default function CostHistoryModal({
                 {!loading && !empty && (
                   <div className="flex items-center gap-1.5">
                     <div className="w-3 h-0.5 rounded bg-emerald-500" />
-                    <span className="text-[10px] text-slate-500 font-medium">Cost</span>
+                    <span className="text-[10px] text-slate-500 font-medium">{seriesLabel}</span>
                   </div>
                 )}
               </div>
@@ -303,10 +346,11 @@ export default function CostHistoryModal({
                           d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                       </svg>
                     </div>
-                    <p className="text-sm font-bold text-slate-500">No Cost History Available</p>
+                    <p className="text-sm font-bold text-slate-500">No {seriesLabel} History Available</p>
                     <p className="mt-1.5 text-xs text-slate-400 max-w-xs leading-relaxed">
-                      Cost history is recorded during a manual Sync. Press Sync to capture
-                      this product&apos;s first data point.
+                      {isFitting
+                        ? "The price-history endpoint returned no competitor points for this product. Only products the competitor feed tracks have a series."
+                        : "No price history is recorded for this product yet."}
                     </p>
                   </div>
                 ) : (

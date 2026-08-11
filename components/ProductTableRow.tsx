@@ -93,9 +93,7 @@ export const ProductTableRow = React.memo(function ProductTableRow<T extends Pro
   hiddenColumns,
   cellPaddingClass = "py-0.5 px-2",
   isSelected = false,
-  brandBadges: _brandBadges,
   categoryBadges,
-  onCopyRow,
   onQuickView,
   onAddToCart,
   onToggleList,
@@ -108,25 +106,25 @@ export const ProductTableRow = React.memo(function ProductTableRow<T extends Pro
 }: ProductTableRowProps<T>) {
   return (
     <tr
-      onClick={() => onCopyRow(item)}
-      title="Click row to view details"
-      className={`transition-colors duration-150 hover:bg-emerald-50/50 cursor-pointer group ${
+      className={`transition-colors duration-150 hover:bg-emerald-50/50 group ${
         isSelected ? "bg-emerald-50/70" : ""
       }`}
     >
       {/* Brand Column */}
       {!hiddenColumns.has("brand") && (
         <td className={`${cellPaddingClass} whitespace-nowrap`}>
-          <span className="px-2 py-0.5 text-[10px] font-bold rounded uppercase whitespace-nowrap inline-block bg-slate-100 text-slate-700">
-            {item.brand || "-"}
-          </span>
+          {item.brand && item.brand !== "-" ? (
+            <span className="px-2 py-0.5 text-[10px] font-bold rounded uppercase whitespace-nowrap inline-block bg-slate-100 text-slate-700">
+              {item.brand}
+            </span>
+          ) : null}
         </td>
       )}
 
       {/* Category Column */}
       {!hiddenColumns.has("category") && (
         <td className={`${cellPaddingClass} whitespace-nowrap`}>
-          {item.category ? (
+          {item.category && item.category !== "-" ? (
             <span
               className={`px-2 py-0.5 text-[10px] font-semibold tracking-normal rounded-full border uppercase whitespace-nowrap inline-block ${
                 categoryBadges[item.category] || "badge-cat-default"
@@ -134,18 +132,18 @@ export const ProductTableRow = React.memo(function ProductTableRow<T extends Pro
             >
               {item.category}
             </span>
-          ) : (
-            <span className="text-slate-400 font-normal text-xs">-</span>
-          )}
+          ) : null}
         </td>
       )}
 
       {/* Size Column */}
       {!hiddenColumns.has("size") && (
         <td className={cellPaddingClass}>
-          <span className="px-2 py-0.5 text-xs font-semibold rounded-md bg-slate-100/80 text-slate-700 border border-slate-200/80 font-mono whitespace-nowrap">
-            {displayTyreSize(item) || "-"}
-          </span>
+          {displayTyreSize(item) ? (
+            <span className="px-2 py-0.5 text-xs font-semibold rounded-md bg-slate-100/80 text-slate-700 border border-slate-200/80 font-mono whitespace-nowrap">
+              {displayTyreSize(item)}
+            </span>
+          ) : null}
         </td>
       )}
 
@@ -161,27 +159,29 @@ export const ProductTableRow = React.memo(function ProductTableRow<T extends Pro
           }}
           title={features.quickView ? "Click to view details" : undefined}
         >
-          <span className="line-clamp-2">{item.pattern || "-"}</span>
+          <span className="line-clamp-2">{item.pattern && item.pattern !== "-" ? item.pattern : ""}</span>
         </td>
       )}
 
       {/* TC Specific: OEM Column */}
       {type === "tc" && !hiddenColumns.has("oem") && (
-        <td className={`${cellPaddingClass} text-center text-xs text-slate-400 font-medium`}>
-          {item.oem || "-"}
+        <td className={`${cellPaddingClass} text-center text-xs text-slate-700 font-medium`}>
+          {item.oem && item.oem !== "-" && item.oem !== "—" && item.oem !== "–" && item.oem.trim() !== "" ? item.oem : null}
         </td>
       )}
 
       {/* TC Specific: Runflat Column */}
       {type === "tc" && !hiddenColumns.has("runflat") && (
         <td className={`${cellPaddingClass} text-center whitespace-nowrap`}>
-          {item.runflat ? (
+          {item.runflat &&
+          String(item.runflat).toLowerCase() !== "false" &&
+          String(item.runflat) !== "0" &&
+          String(item.runflat).toLowerCase() !== "no" &&
+          String(item.runflat).toLowerCase() !== "-" ? (
             <span className="px-2.5 py-0.5 text-[11px] font-bold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60 whitespace-nowrap inline-block">
               Runflat
             </span>
-          ) : (
-            <span className="text-slate-400 font-medium">-</span>
-          )}
+          ) : null}
         </td>
       )}
 
@@ -189,7 +189,7 @@ export const ProductTableRow = React.memo(function ProductTableRow<T extends Pro
       {!hiddenColumns.has("origin") && (
         <td className={`${cellPaddingClass} whitespace-nowrap`}>
           <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 whitespace-nowrap">
-            {item.country && item.country.trim() ? item.country : <span className="text-slate-400 font-medium">-</span>}
+            {item.country && item.country.trim() && item.country !== "-" ? item.country : null}
           </div>
         </td>
       )}
@@ -197,83 +197,87 @@ export const ProductTableRow = React.memo(function ProductTableRow<T extends Pro
       {/* Production Year Column */}
       {!hiddenColumns.has("year") && (
         <td className={`${cellPaddingClass} text-center text-xs font-semibold text-slate-700`}>
-          {item.year && item.year > 0 ? item.year : <span className="text-slate-400 font-medium">-</span>}
+          {item.year && item.year > 0 ? item.year : null}
         </td>
       )}
 
       {/* Quantity Column */}
       {!hiddenColumns.has("qty") && (
         <td className={`${cellPaddingClass} text-center`}>
-          {item.qty === 0 ? (
-            <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-red-50 text-red-600 text-[11px] font-extrabold border border-red-200/60 font-mono">
-              0
-            </span>
-          ) : (
+          {item.qty && Number(item.qty) > 0 ? (
             <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-extrabold border border-emerald-200/60 font-mono">
               {item.qty}
             </span>
-          )}
+          ) : null}
         </td>
       )}
 
       {/* Price / Cost Column */}
       {type === "tc" && !hiddenColumns.has("price") && (
         <td className={`${cellPaddingClass} text-right whitespace-nowrap`}>
-          <div className="inline-flex items-center justify-end text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap" dir="ltr">
-            <span>{(item.price || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-          </div>
+          {item.price && item.price > 0 ? (
+            <div className="inline-flex items-center justify-end text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap" dir="ltr">
+              <span>{item.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+          ) : null}
         </td>
       )}
 
       {type === "supplier" && !hiddenColumns.has("cost") && (
         <td className={`${cellPaddingClass} text-right whitespace-nowrap`}>
-          <div className="inline-flex items-center justify-end text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap" dir="ltr">
-            <span>{(item.cost || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-          </div>
+          {item.cost && item.cost > 0 ? (
+            <div className="inline-flex items-center justify-end text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap" dir="ltr">
+              <span>{item.cost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+          ) : null}
         </td>
       )}
 
       {/* Supplier Specific: Supplier Name Column */}
       {type === "supplier" && !hiddenColumns.has("supplier") && (
         <td className={`${cellPaddingClass} whitespace-nowrap`}>
-          <span className="px-2 py-0.5 text-[11px] font-bold rounded-md bg-slate-100 text-slate-800 border border-slate-200/80 font-mono">
-            {item.supplier || "-"}
-          </span>
+          {item.supplier && item.supplier !== "-" ? (
+            <span className="px-2 py-0.5 text-[11px] font-bold rounded-md bg-slate-100 text-slate-800 border border-slate-200/80 font-mono">
+              {item.supplier}
+            </span>
+          ) : null}
         </td>
       )}
 
       {/* Supplier Specific: Date Column */}
       {type === "supplier" && !hiddenColumns.has("date") && (
         <td className={`${cellPaddingClass} text-center text-xs text-slate-500 font-medium whitespace-nowrap`}>
-          {item.date || "-"}
+          {item.date && item.date !== "-" ? item.date : null}
         </td>
       )}
 
       {/* TC Specific: Set of 4 Price Column */}
       {type === "tc" && !hiddenColumns.has("setOf4Price") && (
         <td className={`${cellPaddingClass} text-right whitespace-nowrap`}>
-          <div className="inline-flex items-center justify-end text-xs font-semibold text-slate-600 font-mono whitespace-nowrap" dir="ltr">
-            <span>{(item.setOf4Price || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-          </div>
+          {item.setOf4Price && item.setOf4Price > 0 ? (
+            <div className="inline-flex items-center justify-end text-xs font-semibold text-slate-600 font-mono whitespace-nowrap" dir="ltr">
+              <span>{item.setOf4Price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+          ) : null}
         </td>
       )}
 
       {/* TC Specific: Offer Column */}
       {type === "tc" && !hiddenColumns.has("offer") && (
         <td className={`${cellPaddingClass} text-center`}>
-          {item.offer === NO_API_FIELD ? (
-            <span className="text-xs text-slate-400 font-medium">{NO_API_FIELD}</span>
-          ) : (() => {
-            const style = getOfferBadgeStyle(item.offer, offerOptions);
-            return (
-              <span
-                title={item.offer}
-                className={`inline-block max-w-full truncate px-2.5 py-0.5 rounded-md text-[10px] font-extrabold border shadow-2xs ${style.bg} ${style.text} ${style.border}`}
-              >
-                {item.offer}
-              </span>
-            );
-          })()}
+          {item.offer && item.offer !== NO_API_FIELD && item.offer !== "-" && item.offer !== "No Offer" ? (
+            (() => {
+              const style = getOfferBadgeStyle(item.offer, offerOptions);
+              return (
+                <span
+                  title={item.offer}
+                  className={`inline-block max-w-full truncate px-2.5 py-0.5 rounded-md text-[10px] font-extrabold border shadow-2xs ${style.bg} ${style.text} ${style.border}`}
+                >
+                  {item.offer}
+                </span>
+              );
+            })()
+          ) : null}
         </td>
       )}
 
@@ -341,6 +345,8 @@ export const ProductTableRow = React.memo(function ProductTableRow<T extends Pro
               <WhatsAppIcon className="w-3 h-3" />
             </button>
           )}
+
+
 
           {features.checkSupplier && onCheckSupplier && (
             <button

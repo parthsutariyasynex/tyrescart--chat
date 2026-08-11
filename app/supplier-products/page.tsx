@@ -10,8 +10,6 @@ import { CATEGORY_BADGES_SEMANTIC } from "@/constants/badges";
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import {
-  parseAspectRim,
-  parseRimOnly,
   paginate,
 } from '@/services/searchFilter';
 import { Skeleton } from '@/components/Skeletons';
@@ -92,6 +90,11 @@ export interface Product {
   dateKey: number;
   /** 1 = current/latest record, 0 = historical. Used by the client-side Latest filter. */
   is_latest: number;
+  /** Absolute storefront URL for the row, opened by the Action column's link.
+   *  Present on COMPETITOR rows only — measured on the synced catalogue, all
+   *  4,516 competitor rows carry one and none of the 3,732 supplier rows do —
+   *  so it is `''` on most rows and the link is omitted rather than dead. */
+  productUrl: string;
 }
 
 interface Toast {
@@ -277,7 +280,7 @@ function mapSupplierToProduct(p: CachedSupplierProduct): Product {
       const rec = (p as unknown) as Record<string, unknown>;
       return Number(rec.qty ?? rec.quantity ?? rec.stock ?? rec.tyre_marking) || 0;
     })(),
-    cost: Number(p.cost) || Number(p.price) || 0,
+    cost: Number(p.cost) || 0,
     // Was hardcoded to 0. `fitting_price` is a real API field and is populated
     // on some rows, so the column showed 0.00 for every product regardless.
     // Rows cached before it was added to the query have no value → 0, until a
@@ -286,6 +289,14 @@ function mapSupplierToProduct(p: CachedSupplierProduct): Product {
     date: intern(p.date ?? ''),
     dateKey: dateSortKey(p.date),
     is_latest: Number(p.is_latest) === 1 ? 1 : 0,
+    /* Trimmed and kept only when it is a real http(s) link. A relative or
+       malformed value would render an anchor that navigates nowhere, which is
+       worse than no icon at all — the Action cell omits the link when this
+       is ''. */
+    productUrl: (() => {
+      const raw = String(p.product_url ?? '').trim();
+      return /^https?:\/\//i.test(raw) ? raw : '';
+    })(),
   };
 }
 
@@ -347,6 +358,7 @@ export default function SupplierProductsPage() {
 
   /** Product whose Cost History modal is open, or null. */
   const [costHistoryItem, setCostHistoryItem] = useState<Product | null>(null);
+  const [fittingHistoryItem, setFittingHistoryItem] = useState<Product | null>(null);
   /** Product whose Quick View modal is open, or null. */
   const [quickViewItem, setQuickViewItem] = useState<Product | null>(null);
   const [isQuotationModalOpen, setIsQuotationModalOpen] = useState(false);
@@ -729,75 +741,25 @@ export default function SupplierProductsPage() {
   // the full 318k-row array and allocated its own intermediate — at this size
   // that is three full scans plus three throwaway arrays every time the
   // catalogue changes. One reduce over the array gives the same three lists.
-  const { supplierOptions, categoryOptions, brandOptions } = useMemo(() => {
+  const { supplierOptions, categoryOptions, brandOptions, sizeOptions } = useMemo(() => {
     const sources = new Set<string>();
     const categories = new Set<string>();
     const brands = new Set<string>();
+    const sizes = new Set<string>();
     for (const p of allProducts) {
       if (p.source) sources.add(p.source);
       if (p.category) categories.add(normalizeCategory(p.category));
       if (p.brand) brands.add(p.brand);
+      const sz = p.size || p.sizeFull;
+      if (sz) sizes.add(sz);
     }
     return {
       supplierOptions: Array.from(sources).sort(),
       categoryOptions: Array.from(categories).sort(),
       brandOptions: Array.from(brands).sort(),
+      sizeOptions: Array.from(sizes).sort(),
     };
   }, [allProducts]);
-
-  const partialSizeInfo = useMemo(() => {
-    const q = (dSearchQuery || dSizeInput).trim();
-    if (!q) return null;
-
-    // Work out which of the three size components the query actually pinned
-    // down. Whatever is left unspecified is masked, so the banner mirrors the
-    // search back: width `***`, aspect `**`, rim `**`.
-    //   R13        → ***/**R13     (rim only)
-    //   13         → ***/**R13     (bare rim)
-    //   80         → ***/80R**     (aspect only)
-    //   195        → 195/**R**     (width only)
-    //   80R13      → ***/80R13     (aspect + rim, unchanged)
-    let width: string | null = null;
-    let aspect: string | null = null;
-    let rim: string | null = null;
-
-    const ar = parseAspectRim(q);
-    if (ar) {
-      aspect = ar.aspect;
-      rim = ar.rim;
-    } else {
-      const rimOnly = parseRimOnly(q);
-      if (rimOnly) {
-        rim = rimOnly;
-      } else if (/^\d{3}$/.test(q)) {
-        width = q;            // 3 digits → a tyre width
-      } else if (/^\d{2}$/.test(q)) {
-        // A bare 2-digit number is ambiguous, so split it by the ranges the two
-        // components actually occupy: rims run ~12-24 inches, aspect ratios
-        // ~25-85. So "13"/"17" read as a rim, "55"/"80" as an aspect ratio.
-        if (Number(q) <= 24) rim = q;
-        else aspect = q;
-      }
-    }
-    // Nothing identifiable, or a fully-specified size — no banner.
-    if (!width && !aspect && !rim) return null;
-
-    const widths = new Set<string>();
-    for (const item of filteredProducts) {
-      const m = item.size.match(/\b(\d{3})\s*[\/\s]/);
-      if (m) widths.add(m[1]);
-    }
-    return {
-      matchedPattern: `${width ?? '***'}/${aspect ?? '**'}R${rim ?? '**'}`,
-      // Only offer the width picker when the width is the missing piece.
-      // Searching a width already answers that question, so the chip row would
-      // just echo the query back.
-      availableWidths: width ? [] : Array.from(widths).sort((a, b) => Number(a) - Number(b)),
-      hasWidth: width !== null,
-      aspect: aspect ?? '',
-      rim: rim ?? '',
-    };
-  }, [dSearchQuery, dSizeInput, filteredProducts]);
 
   // Count & page slice come entirely from the cached (IndexedDB) dataset — for
   // BOTH Latest and All Products modes. No server-side fetch anywhere.
@@ -956,40 +918,6 @@ export default function SupplierProductsPage() {
         {/* SCROLLABLE INNER DASHBOARD BODY */}
         <div className="flex-1 min-h-0 flex flex-col p-4 sm:p-5 pb-4 gap-3.5 w-full mx-auto overflow-hidden">
 
-          {/* Width-omitted (aspect+rim) fallback notice banner */}
-          {partialSizeInfo && (
-            <div className="shrink-0 p-3 text-sm bg-amber-50 text-amber-900 border border-amber-200 rounded-xl flex flex-wrap items-center justify-between gap-3 shadow-2xs">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-                <span>
-                  Showing tyres matching <strong className="font-bold text-amber-950">{partialSizeInfo.matchedPattern}</strong>.
-                  {!partialSizeInfo.hasWidth && ' Select width for a more accurate result:'}
-                </span>
-              </div>
-
-              {partialSizeInfo.availableWidths.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-xs font-semibold text-amber-800 mr-1">Widths:</span>
-                  {partialSizeInfo.availableWidths.map((w) => (
-                    <button
-                      key={w}
-                      onClick={() => {
-                        if (searchQuery) {
-                          setSearchQuery(`${w}/${partialSizeInfo.aspect}R${partialSizeInfo.rim}`);
-                        } else if (sizeInput) {
-                          setSizeInput(`${w}/${partialSizeInfo.aspect}R${partialSizeInfo.rim}`);
-                        }
-                      }}
-                      className="px-2.5 py-1 text-xs bg-white text-amber-900 font-bold border border-amber-300 rounded-lg hover:bg-amber-100 hover:border-amber-400 transition-all shadow-2xs cursor-pointer active:scale-95"
-                    >
-                      {w}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
           {/* Filters Bar — Supplier · Category · Brand · Search · Size · Year · Qty */}
           <Filter
             showSupplierFilter
@@ -1010,6 +938,7 @@ export default function SupplierProductsPage() {
 
             sizeInput={sizeInput}
             setSizeInput={setSizeInput}
+            sizeOptions={sizeOptions}
 
             yearInput={yearInput}
             setYearInput={setYearInput}
@@ -1113,9 +1042,7 @@ export default function SupplierProductsPage() {
                       return (
                         <tr
                           key={item.id}
-                          onClick={() => copyRowData(item)}
-                          title="Click row to copy details"
-                          className="hover:bg-slate-50/70 transition-colors cursor-pointer group"
+                          className="hover:bg-slate-50/70 transition-colors group"
                         >
                           {!hiddenColumns.has('source') && (
                             <td className={`${cellPaddingClass} whitespace-nowrap`}>
@@ -1165,55 +1092,61 @@ export default function SupplierProductsPage() {
                             <td className={`${cellPaddingClass} text-center whitespace-nowrap`}>
                               {item.runflat ? (
                                 <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded border border-emerald-200 whitespace-nowrap inline-block">Runflat</span>
-                              ) : (
-                                <span className="text-slate-400 font-medium">-</span>
-                              )}
+                              ) : null}
                             </td>
                           )}
 
                           {!hiddenColumns.has('country') && (
                             <td className={`${cellPaddingClass} whitespace-nowrap`}>
                               <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 whitespace-nowrap">
-                                {item.country && item.country.trim() ? item.country : <span className="text-slate-400 font-medium">-</span>}
+                                {item.country && item.country.trim() && item.country !== '-' ? item.country : null}
                               </div>
                             </td>
                           )}
 
                           {!hiddenColumns.has('year') && (
                             <td className={`${cellPaddingClass} text-center text-xs font-medium text-slate-600 whitespace-nowrap`}>
-                              {item.year && item.year > 0 ? item.year : <span className="text-slate-400 font-medium">-</span>}
+                              {item.year && item.year > 0 ? item.year : null}
                             </td>
                           )}
 
                           {!hiddenColumns.has('qty') && (
                             <td className={`${cellPaddingClass} text-center`}>
-                              {item.qty === 0 ? (
-                                <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-red-50 text-red-600 text-[11px] font-extrabold border border-red-200/60 font-mono">0</span>
-                              ) : (
+                              {item.qty && Number(item.qty) > 0 ? (
                                 <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-extrabold border border-emerald-200/60 font-mono">{item.qty}</span>
-                              )}
+                              ) : null}
                             </td>
                           )}
 
                           {!hiddenColumns.has('cost') && (
                             <td className={`${cellPaddingClass} text-right whitespace-nowrap`}>
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); setCostHistoryItem(item); }}
-                                title="View cost history"
-                                className="inline-flex items-center justify-end gap-1 text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap rounded px-1 -mx-1 hover:text-emerald-700 hover:underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors cursor-pointer"
-                                dir="ltr"
-                              >
-                                <span className="whitespace-nowrap">{item.cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                              </button>
+                              {item.cost && item.cost > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); setCostHistoryItem(item); }}
+                                  title="View cost history"
+                                  className="inline-flex items-center justify-end gap-1 text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap rounded px-1 -mx-1 hover:text-emerald-700 hover:underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors cursor-pointer"
+                                  dir="ltr"
+                                >
+                                  <span className="whitespace-nowrap">{item.cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                </button>
+                              ) : null}
                             </td>
                           )}
 
                           {!hiddenColumns.has('fittingPrice') && (
                             <td className={`${cellPaddingClass} text-center whitespace-nowrap`}>
-                              <div className="inline-flex items-center justify-center gap-1 text-xs font-medium text-slate-500 font-mono whitespace-nowrap" dir="ltr">
-                                <span className="whitespace-nowrap">{item.fittingPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                              </div>
+                              {item.fittingPrice && item.fittingPrice > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); setFittingHistoryItem(item); }}
+                                  title="View fitting price history"
+                                  className="inline-flex items-center justify-center gap-1 text-xs font-medium text-slate-500 font-mono whitespace-nowrap rounded px-1 -mx-1 hover:text-emerald-700 hover:underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors cursor-pointer"
+                                  dir="ltr"
+                                >
+                                  <span className="whitespace-nowrap">{item.fittingPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                </button>
+                              ) : null}
                             </td>
                           )}
 
@@ -1228,7 +1161,7 @@ export default function SupplierProductsPage() {
                           )}
 
                           <td className={`${cellPaddingClass} text-center`}>
-                            <div className="flex items-center justify-center">
+                            <div className="flex items-center justify-center gap-1">
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -1241,6 +1174,25 @@ export default function SupplierProductsPage() {
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
                                 </svg>
                               </button>
+
+                              {/* An anchor, not a button + window.open: middle-click and
+                                  "open in new tab" keep working, and the popup blocker
+                                  leaves a real link alone. stopPropagation stops the
+                                  row's copy-on-click from also firing. */}
+                              {item.productUrl && (
+                                <a
+                                  href={item.productUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="p-1 text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors"
+                                  title="Open product page in a new tab"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                  </svg>
+                                </a>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1283,6 +1235,30 @@ export default function SupplierProductsPage() {
             year: costHistoryItem.year,
           }}
           onCloseAction={() => setCostHistoryItem(null)}
+        />
+      )}
+
+      {/* Fitting Price History — same modal, `variant` swaps the series it reads
+          and the labels. Separate state so opening one never closes the other
+          mid-animation. */}
+      {fittingHistoryItem && (
+        <CostHistoryModal
+          key={`fitting-${String(fittingHistoryItem.id)}`}
+          variant="fitting"
+          product={{
+            id: fittingHistoryItem.id,
+            brand: fittingHistoryItem.brand,
+            size: fittingHistoryItem.size,
+            sizeFull: fittingHistoryItem.sizeFull,
+            pattern: fittingHistoryItem.pattern,
+            itemCode: fittingHistoryItem.itemCode,
+            source: fittingHistoryItem.source,
+            cost: fittingHistoryItem.fittingPrice,
+            productType: fittingHistoryItem.productType,
+            country: fittingHistoryItem.country,
+            year: fittingHistoryItem.year,
+          }}
+          onCloseAction={() => setFittingHistoryItem(null)}
         />
       )}
 

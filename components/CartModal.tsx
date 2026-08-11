@@ -7,7 +7,7 @@
  * - Right side (4 cols): Order Summary & Checkout actions card
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback} from "react";
 import { XMarkIcon, TrashIcon, ShoppingBagIcon } from "@heroicons/react/24/outline";
 import { useCart } from "@/hooks/useCart";
 
@@ -36,17 +36,19 @@ export default function CartModal({ onCloseAction, onCheckoutAction }: CartModal
     return () => clearTimeout(t);
   }, []);
 
-  const handleClose = () => {
+  /* useCallback so the Escape effect below can list it honestly; without a
+     stable identity that effect would re-subscribe on every render. */
+  const handleClose = useCallback(() => {
     setIsClosing(true);
     closeTimer.current = setTimeout(onCloseAction, 700);
-  };
+  }, [onCloseAction]);
   useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current); }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") handleClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [handleClose]);
 
   const totals = useMemo(() => {
     const subtotal = lines.reduce((n, l) => n + l.price * l.qty, 0);
@@ -129,14 +131,14 @@ export default function CartModal({ onCloseAction, onCheckoutAction }: CartModal
                       lines.map((l) => (
                         <tr key={l.id} className="bg-sky-50/30 hover:bg-sky-50/60 transition-colors">
                           <td className="p-2 border-b border-slate-100">
-                            <input
+                            <input autoComplete="off"
                               readOnly
                               value={[l.brand, l.name, l.size].filter(Boolean).join(" ")}
                               className="w-full h-9 px-3 text-[13px] text-slate-700 bg-white border border-slate-200 rounded-lg focus:outline-none font-medium truncate"
                             />
                           </td>
                           <td className="p-2 border-b border-slate-100">
-                            <input
+                            <input autoComplete="off"
                               type="number"
                               min={1}
                               value={l.qty}
@@ -149,14 +151,14 @@ export default function CartModal({ onCloseAction, onCheckoutAction }: CartModal
                             />
                           </td>
                           <td className="p-2 border-b border-slate-100">
-                            <input
+                            <input autoComplete="off"
                               readOnly
                               value={money(l.price)}
                               className="w-full h-9 px-2 text-[13px] text-slate-600 bg-slate-50/80 border border-slate-200 rounded-lg text-center focus:outline-none"
                             />
                           </td>
                           <td className="p-2 border-b border-slate-100">
-                            <input
+                            <input autoComplete="off"
                               readOnly
                               value={money(l.price * (1 + VAT_RATE))}
                               className="w-full h-9 px-2 text-[13px] text-slate-600 bg-slate-50/80 border border-slate-200 rounded-lg text-center focus:outline-none"

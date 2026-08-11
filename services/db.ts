@@ -50,13 +50,22 @@ const DB_NAME = "tyrescart-pos";
 // end instead of scattering. `enrichSupplier` applies the same coercion at
 // write time, so every future sync keeps the index correct without another
 // migration.
-const DB_VERSION = 7;
+// v8: adds `fittingPriceHistory`, the same one-record-per-CHANGE shape as
+// costHistory but for the fitting price. It is a SEPARATE store rather than a
+// column on costHistory so the cost series cannot shift by a single byte:
+// existing records are never read, rewritten or re-keyed by this upgrade.
+// Needed because the API has no fitting-price history — `PriceHistoryItem`
+// exposes only `date` and `price`, and no fittingPriceHistory root field
+// exists (12 candidate names probed, all rejected) — so the only way to build
+// a series is to observe `fitting_price` on each manual sync.
+const DB_VERSION = 8;
 
 export const STORE_PRODUCT_QUERIES = "productQueries";
 export const STORE_SUPPLIER_PRODUCTS = "supplierProducts";
 export const STORE_TYRES_CHAT = "tyresChat";
 export const STORE_CART = "cart";
 export const STORE_COST_HISTORY = "costHistory";
+export const STORE_FITTING_HISTORY = "fittingPriceHistory";
 export const STORE_META = "meta";
 
 /**
@@ -139,6 +148,16 @@ function openDB(): Promise<IDBDatabase> {
           autoIncrement: true,
         });
         hist.createIndex("productId", "productId", { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORE_FITTING_HISTORY)) {
+        // Mirrors costHistory exactly — auto-increment key because a product has
+        // many observations, `productId` index because the chart reads one
+        // product at a time.
+        const fit = db.createObjectStore(STORE_FITTING_HISTORY, {
+          keyPath: "id",
+          autoIncrement: true,
+        });
+        fit.createIndex("productId", "productId", { unique: false });
       }
       if (!db.objectStoreNames.contains(STORE_META)) {
         db.createObjectStore(STORE_META, { keyPath: "key" });
