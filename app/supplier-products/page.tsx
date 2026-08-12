@@ -15,12 +15,14 @@ import {
 import { Skeleton } from '@/components/Skeletons';
 import CostHistoryModal from '@/components/CostHistoryModal';
 import QuickViewModal from '@/components/QuickViewModal';
+import CheckSupplierModal from '@/components/CheckSupplierModal';
 import QuotationModal from '@/components/QuotationModal';
 import Filter from '@/components/Filter';
 import ChatModal from "@/components/ChatModal";
 import TyresGuideModal from "@/components/TyresGuideModal";
 import Pagination from "@/components/Pagination";
 import ToastContainer from "@/components/ToastContainer";
+import { TruckIcon } from "@heroicons/react/24/outline";
 type TableDensity = 'compact' | 'comfortable' | 'breathable';
 import { useProductFilter } from '@/hooks/useProductFilter';
 import { useProductSorting } from '@/hooks/useProductSorting';
@@ -361,6 +363,8 @@ export default function SupplierProductsPage() {
   const [fittingHistoryItem, setFittingHistoryItem] = useState<Product | null>(null);
   /** Product whose Quick View modal is open, or null. */
   const [quickViewItem, setQuickViewItem] = useState<Product | null>(null);
+  /** Product whose Check Supplier modal is open, or null. */
+  const [checkSupplierItem, setCheckSupplierItem] = useState<Product | null>(null);
   const [isQuotationModalOpen, setIsQuotationModalOpen] = useState(false);
   const [isChatModalOpen, setIsChatModalOpen] = useState(false);
   const [isTyresGuideModalOpen, setIsTyresGuideModalOpen] = useState(false);
@@ -1175,6 +1179,17 @@ export default function SupplierProductsPage() {
                                 </svg>
                               </button>
 
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCheckSupplierItem(item);
+                                }}
+                                className="p-1 text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors"
+                                title="Check Supplier"
+                              >
+                                <TruckIcon className="w-4 h-4" />
+                              </button>
+
                               {/* An anchor, not a button + window.open: middle-click and
                                   "open in new tab" keep working, and the popup blocker
                                   leaves a real link alone. stopPropagation stops the
@@ -1272,6 +1287,26 @@ export default function SupplierProductsPage() {
             addToast(`Added ${qty} x "${prod.pattern || prod.brand}" to cart!`);
             setQuickViewItem(null);
           }}
+        />
+      )}
+
+      {/* Check Supplier Modal */}
+      {checkSupplierItem && (
+        <CheckSupplierModal
+          key={String(checkSupplierItem.id)}
+          product={{
+            itemCode: checkSupplierItem.itemCode,
+            brand: checkSupplierItem.brand,
+            size: checkSupplierItem.size,
+            sizeFull: checkSupplierItem.sizeFull,
+            pattern: checkSupplierItem.pattern,
+            price: checkSupplierItem.cost,
+            year: checkSupplierItem.year,
+            country: checkSupplierItem.country,
+            flag: checkSupplierItem.flag,
+            runflat: checkSupplierItem.runflat,
+          }}
+          onCloseAction={() => setCheckSupplierItem(null)}
         />
       )}
 

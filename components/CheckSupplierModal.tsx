@@ -28,7 +28,12 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { XMarkIcon, TruckIcon, ClipboardDocumentIcon, ArrowTopRightOnSquareIcon } from "@heroicons/react/24/outline";
+import {
+  XMarkIcon,
+  TruckIcon,
+  ClipboardDocumentIcon,
+  ArrowTopRightOnSquareIcon,
+} from "@heroicons/react/24/outline";
 import { fetchSupplierProductsGraphQL } from "@/services/graphql";
 import type { SupplierProductItem } from "@/services/types";
 import { buildRowString, stripLoadIndex } from "@/services/productFormatter";
@@ -173,9 +178,8 @@ export default function CheckSupplierModal({
   const [costHistoryItem, setCostHistoryItem] = useState<SupplierRow | null>(
     null,
   );
-  const [fittingHistoryItem, setFittingHistoryItem] = useState<SupplierRow | null>(
-    null,
-  );
+  const [fittingHistoryItem, setFittingHistoryItem] =
+    useState<SupplierRow | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   /** Search and pagination */
   const [search, setSearch] = useState("");
@@ -367,7 +371,7 @@ export default function CheckSupplierModal({
     return () => {
       alive = false;
     };
-  }, [product.itemCode, product.brand, product.size]);
+  }, [product.itemCode, product.brand, product.size, product.year]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -957,8 +961,7 @@ export default function CheckSupplierModal({
 
                           {/* Size */}
                           <td className="py-1.5 px-3 text-xs font-mono text-slate-700 whitespace-nowrap">
-                            {stripLoadIndex(r.size || product.size || "") ||
-                              ""}
+                            {stripLoadIndex(r.size || product.size || "") || ""}
                           </td>
 
                           {/* RunFlat */}
@@ -1054,8 +1057,7 @@ export default function CheckSupplierModal({
                           {/* Date */}
                           <td className="py-1.5 px-3 text-xs text-slate-500 whitespace-nowrap">
                             {r.date ||
-                            (r as unknown as { created_at?: string })
-                              .created_at
+                            (r as unknown as { created_at?: string }).created_at
                               ? formatDateDDMM(
                                   r.date ||
                                     (r as unknown as { created_at?: string })
