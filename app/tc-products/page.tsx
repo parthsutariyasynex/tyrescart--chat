@@ -17,7 +17,7 @@ import { useProductSorting } from '@/hooks/useProductSorting';
 import ChatModal from "@/components/ChatModal";
 import TyresGuideModal from "@/components/TyresGuideModal";
 import ProductTableRow from '@/components/ProductTableRow';
-import { buildRowString, buildBulkCopyString, setOfFourPrice } from "@/services/productFormatter";
+import { buildRowString, buildRawRowString, buildRawBulkCopyString, setOfFourPrice } from "@/services/productFormatter";
 import Header from "@/components/Header";
 import HeaderActions from "@/components/HeaderActions";
 import { CATEGORY_BADGES_SEMANTIC, BRAND_BADGES_SEMANTIC } from "@/constants/badges";
@@ -79,7 +79,7 @@ const GLOBAL_SEARCH_FIELDS = [
   'pattern',
   'size',
   'sizeFull',
-  'oem',
+  'status',
   'country',
   'year',
   'qty',
@@ -126,8 +126,8 @@ export interface Product {
   price: number;
   /** API `set_price` — the set-of-4 price. */
   setOf4Price: number;
-  /** NO API SOURCE — see NO_API_FIELD. */
-  oem: string;
+  /** Product status (1 = Enabled, 0 = Disabled) */
+  status: number;
   /** NO API SOURCE — see NO_API_FIELD. */
   offer: string;
 }
@@ -259,7 +259,7 @@ function mapTcProduct(p: TcApiProduct, maps: TcLabelMaps): Product {
     // so this page, Quick View and the copy string cannot drift apart. The
     // per-unit `price` above is left exactly as the API sent it.
     setOf4Price: setOfFourPrice(regular, offerLabel),
-    oem: NO_API_FIELD,
+    status: p.status !== undefined && p.status !== null ? Number(p.status) : 1,
     // The promo attribute's own label, e.g. "Free Wheel Alignment". This was a
     // regular-vs-final price percentage, which rendered as an em-dash on every
     // row: measured across all 8,526 products, none has final < regular, so the
@@ -731,9 +731,11 @@ export default function TcProductsPage() {
 
 
 
-  // Single-row copy — unchanged behaviour, now just delegating the formatting.
+  /* Raw one-line copy, the same shape every other Copy button uses:
+       Budget - Maxxis - MAXXIS 900R18 118/116N 8PR M8070 2026 - 900 R18 - 2026 - TAIWAN - 625.00
+     The WhatsApp handler above is deliberately left on `buildRowString`. */
   const copyRowData = (item: Product) => {
-    const rowString = buildRowString(item);
+    const rowString = buildRawRowString(item);
     navigator.clipboard.writeText(rowString);
     addToast(`Copied: "${rowString}"`);
   };
@@ -766,7 +768,7 @@ export default function TcProductsPage() {
       addToast('No products available to copy.');
       return;
     }
-    const payload = buildBulkCopyString(filteredProducts);
+    const payload = buildRawBulkCopyString(filteredProducts);
     try {
       await navigator.clipboard.writeText(payload);
       addToast(`Successfully copied ${filteredProducts.length.toLocaleString()} search results.`);
@@ -777,9 +779,9 @@ export default function TcProductsPage() {
 
   const exportCSV = () => {
     if (!filteredProducts.length) return;
-    const headers = ['BRAND', 'TYRE SIZE', 'NAME', 'RUNFLAT', 'ORIGIN', 'YEAR', 'OEM', 'QTY', 'PRICE', 'SET OF 4 PRICE', 'OFFER'];
+    const headers = ['BRAND', 'TYRE SIZE', 'NAME', 'RUNFLAT', 'ORIGIN', 'YEAR', 'STATUS', 'QTY', 'PRICE', 'SET OF 4 PRICE', 'OFFER'];
     const rows = filteredProducts.map(p => [
-      p.brand, p.sizeFull || p.size, `"${p.pattern.replace(/"/g, '""')}"`, p.runflat ? 'Yes' : 'No', p.country, p.year, p.oem, p.qty ?? '', p.price.toFixed(2), p.setOf4Price.toFixed(2), p.offer
+      p.brand, p.sizeFull || p.size, `"${p.pattern.replace(/"/g, '""')}"`, p.runflat ? 'Yes' : 'No', p.country, p.year, p.status === 1 ? 'Enabled' : 'Disabled', p.qty ?? '', p.price.toFixed(2), p.setOf4Price.toFixed(2), p.offer
     ]);
     const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
     const link = document.createElement('a');
@@ -895,7 +897,7 @@ export default function TcProductsPage() {
                   {!hiddenColumns.has('category') && <col className="w-[7%]" />}
                   {!hiddenColumns.has('size') && <col className="w-[9%]" />}
                   {!hiddenColumns.has('name') && <col className="w-[20%]" />}
-                  {!hiddenColumns.has('oem') && <col className="w-[4%]" />}
+                  {!hiddenColumns.has('status') && <col className="w-[5.5%]" />}
                   {!hiddenColumns.has('runflat') && <col className="w-[5%]" />}
                   {!hiddenColumns.has('origin') && <col className="w-[6%]" />}
                   {!hiddenColumns.has('year') && <col className="w-[5%]" />}
@@ -911,7 +913,7 @@ export default function TcProductsPage() {
                     {!hiddenColumns.has('category') && <th onClick={() => handleSort('category')} className="py-2.5 px-1.5 cursor-pointer hover:text-slate-900 whitespace-nowrap">Category <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('size') && <th onClick={() => handleSort('size')} className="py-2.5 px-1.5 cursor-pointer hover:text-slate-900 whitespace-nowrap">Tyre Size <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('name') && <th onClick={() => handleSort('pattern')} className="py-2.5 px-1.5 cursor-pointer hover:text-slate-900 whitespace-nowrap">Name <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
-                    {!hiddenColumns.has('oem') && <th className="py-2.5 px-1 text-center whitespace-nowrap">OEM</th>}
+                    {!hiddenColumns.has('status') && <th onClick={() => handleSort('status')} className="py-2.5 px-1 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap">Status <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('runflat') && <th className="py-2.5 px-1 text-center whitespace-nowrap">RunFlat</th>}
                     {!hiddenColumns.has('origin') && <th onClick={() => handleSort('country')} className="py-2.5 px-1.5 cursor-pointer hover:text-slate-900 whitespace-nowrap">Origin <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
                     {!hiddenColumns.has('year') && <th onClick={() => handleSort('year')} className="py-2.5 px-1 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap">Year <span className="ml-0.5 opacity-50 font-normal">↑↓</span></th>}
@@ -930,7 +932,7 @@ export default function TcProductsPage() {
                         {!hiddenColumns.has('category') && <td className={cellPaddingClass}><Skeleton className="h-5 w-16 rounded-md" /></td>}
                         {!hiddenColumns.has('size') && <td className={cellPaddingClass}><Skeleton className="h-5 w-24 rounded-md" /></td>}
                         {!hiddenColumns.has('name') && <td className={cellPaddingClass}><Skeleton className="h-4 w-48 rounded" /></td>}
-                        {!hiddenColumns.has('oem') && <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-4 w-8 rounded mx-auto" /></td>}
+                        {!hiddenColumns.has('status') && <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-4 w-12 rounded mx-auto" /></td>}
                         {!hiddenColumns.has('runflat') && <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-4 w-10 rounded mx-auto" /></td>}
                         {!hiddenColumns.has('origin') && <td className={cellPaddingClass}><Skeleton className="h-4 w-16 rounded" /></td>}
                         {!hiddenColumns.has('year') && <td className={`${cellPaddingClass} text-center`}><Skeleton className="h-4 w-12 rounded mx-auto" /></td>}

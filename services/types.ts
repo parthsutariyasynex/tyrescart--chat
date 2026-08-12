@@ -76,6 +76,9 @@ export interface SupplierProductItem {
   quantity?: number | string;
   stock?: number | string;
   tyre_marking?: string | number;
+  /** Promotion text straight from the supplier feed, e.g.
+   *  "Clearance Price | Limited Time Offer!". Sparse — ~4% of rows. */
+  offers?: string | number | null;
   date?: string;
 }
 
@@ -212,6 +215,7 @@ export interface TcApiProduct {
   uid: string;
   sku: string;
   name: string;
+  status?: number | string | null;
   stock_status: string | null;
   url_key: string | null;
   /** Option IDs — resolve through {@link TcAttributeLabels}. */

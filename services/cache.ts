@@ -754,7 +754,7 @@ export async function getCachedSupplierProductsByYearDesc(): Promise<CachedSuppl
 
 /** Bump whenever the persisted supplier record shape changes.
  *  v1 → original fields. v2 → adds product_source / set_price / product_url. */
-export const SUPPLIER_CACHE_SCHEMA = 2;
+export const SUPPLIER_CACHE_SCHEMA = 3;
 
 const META_SUPPLIER_SCHEMA = "supplierAll:schemaVersion";
 /** "running" is written BEFORE paging starts, so a sync killed mid-flight is

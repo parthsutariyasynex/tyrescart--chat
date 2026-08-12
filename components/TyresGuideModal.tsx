@@ -22,6 +22,34 @@ interface TyresGuideModalProps {
   onClose: () => void;
 }
 
+/**
+ * `year_ranges` arrives as a JSON array STRING — `["2008-2025"]` or
+ * `["2016-2018","2020-2026"]` — and was rendered verbatim, brackets and quotes
+ * included. This formats it as "2008 – 2025" / "2016 – 2018, 2020 – 2026".
+ *
+ * DISPLAY ONLY: the stored value is never altered. A value that does not parse
+ * as JSON falls back to stripping brackets/quotes, so an unexpected shape still
+ * reads as text instead of raw JSON. Returns "" when there is nothing to show,
+ * which keeps the existing "—" placeholder.
+ */
+function formatYearRanges(raw: string | null | undefined): string {
+  const value = String(raw ?? "").trim();
+  if (!value) return "";
+
+  let parts: string[];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    parts = Array.isArray(parsed) ? parsed.map(String) : [String(parsed)];
+  } catch {
+    parts = value.replace(/[[\]"]/g, "").split(",");
+  }
+
+  return parts
+    .map((part) => part.trim().replace(/^(\d{4})\s*-\s*(\d{4})$/, "$1 – $2"))
+    .filter(Boolean)
+    .join(", ");
+}
+
 export default function TyresGuideModal({
   isOpen,
   onClose,
@@ -266,7 +294,8 @@ export default function TyresGuideModal({
                       <thead>
                         <tr className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                           <th className="py-2.5 px-3 text-center w-12">#</th>
-                          <th className="py-2.5 px-3.5">Make &amp; Model</th>
+                          <th className="py-2.5 px-3.5">Make</th>
+                          <th className="py-2.5 px-3.5">Model</th>
                           <th className="py-2.5 px-3.5">Year Ranges</th>
                           <th className="py-2.5 px-3.5">Front Axle Size</th>
                           <th className="py-2.5 px-3.5">Rear Axle Size</th>
@@ -284,6 +313,7 @@ export default function TyresGuideModal({
                             v.rear_width && v.rear_height && v.rear_rim
                               ? `${v.rear_width}/${v.rear_height} R${v.rear_rim}`
                               : "—";
+                          const yearRanges = formatYearRanges(v.year_ranges);
 
                           return (
                             <tr
@@ -299,14 +329,19 @@ export default function TyresGuideModal({
                                     <TruckIcon className="w-3.5 h-3.5" />
                                   </div>
                                   <span className="font-extrabold text-slate-900 text-xs sm:text-xs">
-                                    {v.make_name} {v.model_name}
+                                    {v.make_name}
                                   </span>
                                 </div>
                               </td>
+                              <td className="py-2 px-3.5">
+                                <span className="font-extrabold text-slate-900 text-xs sm:text-xs">
+                                  {v.model_name}
+                                </span>
+                              </td>
                               <td className="py-2 px-3.5 font-semibold text-slate-600">
-                                {v.year_ranges ? (
+                                {yearRanges ? (
                                   <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-700 text-[11px] font-bold">
-                                    {v.year_ranges}
+                                    {yearRanges}
                                   </span>
                                 ) : (
                                   "—"

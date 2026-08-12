@@ -180,3 +180,44 @@ export function buildRowString(item: FormattableProduct): string {
 export function buildBulkCopyString(items: readonly FormattableProduct[]): string {
   return items.map(buildRowString).join('\n\n');
 }
+
+/* ─────────────────────────────────────────────────────────────
+   RAW COPY  (the "Copy row data" button)
+
+   One line, every field the row shows, joined by " - ":
+
+     Premium - Bridgestone - BR 195/55R16 91V T005 AUD A1 AO-2025 - 195/55 R16 - 2025 - POLAND - 355.00
+
+   Deliberately separate from `buildRowString`, which stays exactly as it is for
+   the WhatsApp button — that one is a customer-facing message with labels
+   ("Price per Tire: AED …"), this one is the row's data verbatim.
+───────────────────────────────────────────────────────────── */
+
+/** Values that mean "no data" and are dropped rather than printed as "-". */
+const RAW_BLANKS = new Set(['', '-', '—', '–', 'n/a', 'none']);
+
+/** One product as a single " - " separated line of its own values. */
+export function buildRawRowString(item: FormattableProduct): string {
+  const price = Number(item.price ?? item.cost ?? 0);
+  const parts = [
+    item.category,
+    item.brand,
+    item.pattern || item.sizeFull || item.size,
+    item.sizeFull || item.size,
+    item.year,
+    item.country,
+    price > 0
+      ? price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : '',
+  ];
+
+  return parts
+    .map((v) => String(v ?? '').trim())
+    .filter((v) => !RAW_BLANKS.has(v.toLowerCase()))
+    .join(' - ');
+}
+
+/** Many products, one raw line each. */
+export function buildRawBulkCopyString(items: readonly FormattableProduct[]): string {
+  return items.map(buildRawRowString).join('\n');
+}

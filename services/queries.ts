@@ -78,6 +78,7 @@ export function supplierProductsQuery(vars: SupplierProductsQueryVars = {}): str
         runflat
         qty
         tyre_marking
+        offers
         date: source_date
       }
     }
@@ -276,6 +277,7 @@ export function tcProductsQuery(vars: TcProductsQueryVars = {}): string {
         uid
         sku
         name
+        status
         stock_status
         url_key
         brand

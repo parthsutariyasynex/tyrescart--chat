@@ -66,6 +66,25 @@ export const BRAND_BADGES_TAILWIND: BadgeClassMap = {
 };
 
 /** Semantic variant — /tc-products. */
+/**
+ * Type column badge: Supplier = green, Competitor = blue.
+ *
+ * Matched case-insensitively because the two tables feed it differently:
+ * /supplier-products renders the LABEL ("Supplier") while the Check Supplier
+ * popup renders the raw discriminator ("supplier"). Anything else keeps the
+ * previous neutral slate, so an unexpected value is never mis-coloured.
+ */
+export function productTypeBadge(type: string | undefined | null): string {
+  switch (String(type ?? "").trim().toLowerCase()) {
+    case "supplier":
+      return "bg-emerald-50 text-emerald-700 border border-emerald-200/60";
+    case "competitor":
+      return "bg-blue-50 text-blue-700 border border-blue-200/60";
+    default:
+      return "bg-slate-100 text-slate-700 border border-transparent";
+  }
+}
+
 export const BRAND_BADGES_SEMANTIC: BadgeClassMap = {
   Bridgestone: 'badge-brand-emerald',
   Habilead: 'badge-brand-teal',
@@ -89,9 +108,22 @@ export const OFFER_COLOR_PALETTE = [
   { bg: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-cyan-200/80', dot: 'bg-cyan-500' },
 ];
 
+export const KNOWN_OFFER_STYLES: Record<string, { bg: string; text: string; border: string; dot: string }> = {
+  "buy 3 get 1 free": { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200/80", dot: "bg-amber-500" },
+  "buy 3 get 1": { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200/80", dot: "bg-amber-500" },
+  "free wheel alignment": { bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200/80", dot: "bg-emerald-500" },
+  "free alignment": { bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200/80", dot: "bg-emerald-500" },
+  "free fitting": { bg: "bg-sky-50", text: "text-sky-700", border: "border-sky-200/80", dot: "bg-sky-500" },
+  "free balancing": { bg: "bg-indigo-50", text: "text-indigo-700", border: "border-indigo-200/80", dot: "bg-indigo-500" },
+};
+
 export function getOfferBadgeStyle(offer: string | undefined | null, offerOptions?: string[]) {
   if (!offer || offer === NO_API_FIELD) {
     return { bg: 'bg-slate-50', text: 'text-slate-500', border: 'border-slate-200', dot: 'bg-slate-400' };
+  }
+  const norm = offer.trim().toLowerCase();
+  if (KNOWN_OFFER_STYLES[norm]) {
+    return KNOWN_OFFER_STYLES[norm];
   }
   let index = -1;
   if (offerOptions && offerOptions.length > 0) {

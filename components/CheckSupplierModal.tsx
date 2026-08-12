@@ -36,13 +36,21 @@ import {
 } from "@heroicons/react/24/outline";
 import { fetchSupplierProductsGraphQL } from "@/services/graphql";
 import type { SupplierProductItem } from "@/services/types";
-import { buildRowString, stripLoadIndex } from "@/services/productFormatter";
+import {
+  buildRowString,
+  buildRawRowString,
+  stripLoadIndex,
+} from "@/services/productFormatter";
 import CostHistoryModal from "@/components/CostHistoryModal";
 import Filter from "@/components/Filter";
 import { useProductFilter } from "@/hooks/useProductFilter";
-import { CATEGORY_BADGES_SEMANTIC } from "@/constants/badges";
+import {
+  CATEGORY_BADGES_SEMANTIC,
+  getOfferBadgeStyle,
+} from "@/constants/badges";
 import Pagination from "@/components/Pagination";
 import { Skeleton } from "@/components/Skeletons";
+import { WhatsAppIcon } from "@/components/WhatsAppIcon";
 
 const MONTH_NAMES = [
   "Jan",
@@ -104,6 +112,8 @@ type SupplierRow = SupplierProductItem & {
   category?: string;
   fitting_price?: number | string;
   date?: string;
+  offer?: string;
+  offers?: string | number | null;
 };
 
 /** Read a row column chosen at runtime. The sort field is a string set by a
@@ -242,8 +252,10 @@ export default function CheckSupplierModal({
     const set = new Set<string>();
     if (rows) {
       rows.forEach((r) => {
-        const off = (r as unknown as Record<string, string>).offer;
-        if (off) set.add(off);
+        const off =
+          (r as unknown as Record<string, string>).offer ||
+          (r as unknown as Record<string, string>).offers;
+        if (off && off !== "-" && off !== "No Offer") set.add(off);
       });
     }
     return Array.from(set);
@@ -476,7 +488,31 @@ export default function CheckSupplierModal({
     return sorted.slice(start, start + pageSize);
   }, [sorted, currentPage, pageSize]);
 
+  /* Raw one-line copy, same as the supplier table's Copy button:
+       Budget - Maxxis - MAXXIS 900R18 118/116N 8PR M8070 2026 - 900 R18 - 2026 - TAIWAN - 625.00
+     `shareOnWhatsApp` below still uses `buildRowString` — that message is
+     unchanged. `price` is passed as well as `cost`: tyrescart rows carry the
+     value in `price` and leave `cost` at 0, which is why this used to copy
+     "AED 0.00". */
   const copyRowData = (item: SupplierRow) => {
+    const rowString = buildRawRowString({
+      category: item.category || item.brand_category,
+      brand: item.brand,
+      pattern: item.pattern || item.name || item.product_name,
+      size: item.size,
+      sizeFull: item.size,
+      year: item.year,
+      country: item.country,
+      qty: item.qty == null ? null : Number(item.qty) || 0,
+      cost: Number(item.cost) || 0,
+      price: Number(item.price) || 0,
+      fitting_price: Number(item.fitting_price) || 0,
+    });
+    navigator.clipboard.writeText(rowString);
+    showToast(`Copied product details to clipboard!`);
+  };
+
+  const shareOnWhatsApp = (item: SupplierRow) => {
     const rowString = buildRowString({
       brand: item.brand,
       pattern: item.pattern || item.name,
@@ -484,8 +520,6 @@ export default function CheckSupplierModal({
       sizeFull: item.size,
       year: item.year,
       country: item.country,
-      // Coerced: the feed sends qty as a string on some rows, and the formatter
-      // takes a number. Under `any` this mismatch passed through unnoticed.
       qty: item.qty == null ? null : Number(item.qty) || 0,
       cost: Number(item.cost) || 0,
       fitting_price: Number(item.fitting_price) || 0,
@@ -535,6 +569,13 @@ export default function CheckSupplierModal({
         }`}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Toast Notification - Floating overlay detached from space-y container */}
+        {toastMessage && (
+          <div className="absolute top-16 right-6 z-50 bg-slate-900 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-xl pointer-events-none animate-in fade-in duration-150">
+            {toastMessage}
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex items-center justify-between gap-4 px-5 sm:px-6 py-3.5 border-b border-slate-200 shrink-0">
           <div className="flex items-center gap-3 min-w-0 flex-wrap">
@@ -649,13 +690,6 @@ export default function CheckSupplierModal({
 
         {/* Body */}
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden px-5 sm:px-6 py-3.5 space-y-3 relative">
-          {/* Toast Notification */}
-          {toastMessage && (
-            <div className="absolute top-2 right-6 z-50 bg-slate-900 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-lg animate-in fade-in duration-150">
-              {toastMessage}
-            </div>
-          )}
-
           {/* Fixed Top Filter Bar Component */}
           <div className="shrink-0">
             <Filter
@@ -694,117 +728,121 @@ export default function CheckSupplierModal({
           {/* Supplier rows table */}
           <div className="flex-1 min-h-0 border border-slate-200 rounded-xl overflow-hidden flex flex-col justify-between bg-white shadow-2xs">
             <div className="flex-1 min-h-0 overflow-y-scroll overflow-x-auto relative">
-              <table className="w-full text-xs text-left border-collapse table-fixed min-w-[1000px]">
+              <table className="w-full text-left border-collapse table-fixed">
                 <colgroup>
-                  <col className="w-[7%]" />
+                  <col className="w-[6.5%]" />
                   <col className="w-[6%]" />
-                  <col className="w-[7%]" />
-                  <col className="w-[7%]" />
-                  <col className="w-[21.5%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[5.5%]" />
-                  <col className="w-[6%]" />
-                  <col className="w-[4%]" />
-                  <col className="w-[4%]" />
                   <col className="w-[6.5%]" />
                   <col className="w-[7.5%]" />
-                  <col className="w-[6%]" />
+                  <col />
+                  <col className="w-[8.5%]" />
+                  <col className="w-[4.5%]" />
+                  <col className="w-[5.5%]" />
+                  <col className="w-[4%]" />
+                  <col className="w-[3.5%]" />
+                  <col className="w-[6.5%]" />
+                  <col className="w-[6.5%]" />
+                  <col className="w-[5.5%]" />
+                  <col className="w-[8.5%]" />
                   <col className="w-[5.5%]" />
                 </colgroup>
-                <thead className="bg-slate-50 sticky top-0 z-10 border-b border-slate-200">
-                  <tr className="text-[10px] font-bold text-slate-500 uppercase tracking-wider select-none">
+                <thead className="bg-slate-50/90 backdrop-blur sticky top-0 z-10 border-b border-slate-200">
+                  <tr className="text-[11px] font-bold text-slate-500 uppercase tracking-wider select-none">
                     <th
                       onClick={() => handleSort("source")}
-                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
                     >
                       Source{" "}
                       <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
                     </th>
                     <th
                       onClick={() => handleSort("product_source")}
-                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
                     >
                       Type{" "}
                       <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
                     </th>
                     <th
                       onClick={() => handleSort("category")}
-                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
                     >
                       Category{" "}
                       <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
                     </th>
                     <th
                       onClick={() => handleSort("brand")}
-                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
                     >
                       Brand{" "}
                       <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
                     </th>
                     <th
                       onClick={() => handleSort("pattern")}
-                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
                     >
                       Tyre Pattern{" "}
                       <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
                     </th>
                     <th
                       onClick={() => handleSort("size")}
-                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
                     >
                       Size{" "}
                       <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
                     </th>
-                    <th
-                      onClick={() => handleSort("runflat")}
-                      className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
-                    >
-                      RunFlat{" "}
-                      <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                    <th className="py-3 px-2 text-center whitespace-nowrap">
+                      Runflat
                     </th>
                     <th
                       onClick={() => handleSort("country")}
-                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
                     >
                       Countries{" "}
                       <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
                     </th>
                     <th
                       onClick={() => handleSort("year")}
-                      className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      className="py-3 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
                     >
                       Year{" "}
                       <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
                     </th>
                     <th
                       onClick={() => handleSort("qty")}
-                      className="py-2 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      className="py-3 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
                     >
                       Qty{" "}
                       <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
                     </th>
                     <th
                       onClick={() => handleSort("cost")}
-                      className="py-2 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 whitespace-nowrap"
                     >
                       Cost{" "}
                       <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
                     </th>
                     <th
                       onClick={() => handleSort("fitting_price")}
-                      className="py-2 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      className="py-3 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
                     >
                       Fitting Price{" "}
                       <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
                     </th>
                     <th
                       onClick={() => handleSort("date")}
-                      className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
                     >
                       Date{" "}
                       <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
                     </th>
-                    <th className="py-2 px-3 text-center whitespace-nowrap">
+                    <th
+                      onClick={() => handleSort("offer")}
+                      className="py-3 px-3 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Offer{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                    </th>
+                    <th className="py-3 px-2 text-center whitespace-nowrap">
                       Actions
                     </th>
                   </tr>
@@ -856,12 +894,15 @@ export default function CheckSupplierModal({
                           <td className="py-2.5 px-3 text-center">
                             <Skeleton className="h-4 w-10 rounded mx-auto" />
                           </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <Skeleton className="h-4 w-8 rounded mx-auto" />
+                          </td>
                         </tr>
                       ),
                     )
                   ) : empty ? (
                     <tr>
-                      <td colSpan={14} className="py-14 text-center px-6">
+                      <td colSpan={15} className="py-14 text-center px-6">
                         {search.trim() && rows !== null && rows.length > 0 ? (
                           <>
                             <p className="text-sm font-semibold text-slate-500">
@@ -897,10 +938,10 @@ export default function CheckSupplierModal({
                       return (
                         <tr
                           key={`${r.id}-${i}`}
-                          className="hover:bg-slate-50/80 transition-colors border-b border-slate-100 last:border-0"
+                          className="hover:bg-slate-50/70 transition-colors group"
                         >
                           {/* Source */}
-                          <td className="py-1.5 px-3 whitespace-nowrap">
+                          <td className="py-3 px-3 whitespace-nowrap">
                             {r.source_name || r.source ? (
                               <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-bold rounded border border-indigo-200 uppercase whitespace-nowrap inline-block">
                                 {r.source_name || r.source}
@@ -909,14 +950,14 @@ export default function CheckSupplierModal({
                           </td>
 
                           {/* Type */}
-                          <td className="py-1.5 px-3 whitespace-nowrap">
+                          <td className="py-3 px-3 whitespace-nowrap">
                             <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded uppercase whitespace-nowrap inline-block">
                               {r.product_source || "supplier"}
                             </span>
                           </td>
 
                           {/* Category */}
-                          <td className="py-1.5 px-3 whitespace-nowrap">
+                          <td className="py-3 px-3 whitespace-nowrap">
                             {(() => {
                               const cat = (
                                 r.category ||
@@ -940,7 +981,7 @@ export default function CheckSupplierModal({
                           </td>
 
                           {/* Brand */}
-                          <td className="py-1.5 px-3 text-xs font-semibold text-slate-800 whitespace-nowrap">
+                          <td className="py-3 px-3 text-xs font-semibold text-slate-800 whitespace-nowrap">
                             {r.brand || product.brand ? (
                               <span className="px-2 py-0.5 text-[10px] font-bold rounded uppercase whitespace-nowrap inline-block bg-slate-100 text-slate-700">
                                 {r.brand || product.brand}
@@ -949,8 +990,17 @@ export default function CheckSupplierModal({
                           </td>
 
                           {/* Tyre Pattern */}
-                          <td className="py-1.5 px-3 text-xs font-bold text-slate-900 max-w-md">
-                            <span className="line-clamp-2">
+                          <td className="py-3 px-3 text-xs font-bold text-slate-900">
+                            <span
+                              className="line-clamp-2"
+                              title={
+                                r.pattern ||
+                                r.product_name ||
+                                r.name ||
+                                product.pattern ||
+                                ""
+                              }
+                            >
                               {r.pattern ||
                                 r.product_name ||
                                 r.name ||
@@ -960,12 +1010,12 @@ export default function CheckSupplierModal({
                           </td>
 
                           {/* Size */}
-                          <td className="py-1.5 px-3 text-xs font-mono text-slate-700 whitespace-nowrap">
+                          <td className="py-3 px-3 text-xs font-mono text-slate-700 whitespace-nowrap">
                             {stripLoadIndex(r.size || product.size || "") || ""}
                           </td>
 
                           {/* RunFlat */}
-                          <td className="py-1.5 px-3 text-center whitespace-nowrap">
+                          <td className="py-3 px-3 text-center whitespace-nowrap">
                             {runflatVal === "Runflat" ? (
                               <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded border border-emerald-200 whitespace-nowrap inline-block">
                                 Runflat
@@ -974,17 +1024,17 @@ export default function CheckSupplierModal({
                           </td>
 
                           {/* Countries */}
-                          <td className="py-1.5 px-3 whitespace-nowrap text-xs font-semibold text-slate-700">
+                          <td className="py-3 px-3 whitespace-nowrap text-xs font-semibold text-slate-700 uppercase">
                             {r.country || product.country || null}
                           </td>
 
                           {/* Year */}
-                          <td className="py-1.5 px-3 text-center text-xs font-medium text-slate-600 whitespace-nowrap">
+                          <td className="py-3 px-2 text-center text-xs font-medium text-slate-600 whitespace-nowrap">
                             {r.year && Number(r.year) > 0 ? r.year : null}
                           </td>
 
                           {/* Qty */}
-                          <td className="py-1.5 px-2 text-center whitespace-nowrap">
+                          <td className="py-3 px-2 text-center whitespace-nowrap">
                             {(() => {
                               const rec = r as unknown as Record<
                                 string,
@@ -1015,7 +1065,7 @@ export default function CheckSupplierModal({
                           </td>
 
                           {/* Cost */}
-                          <td className="py-1.5 px-3 text-right whitespace-nowrap">
+                          <td className="py-3 px-3 text-right whitespace-nowrap">
                             {Number(r.cost) > 0 ? (
                               <button
                                 type="button"
@@ -1035,7 +1085,7 @@ export default function CheckSupplierModal({
                           </td>
 
                           {/* Fitting Price */}
-                          <td className="py-1.5 px-3 text-center whitespace-nowrap">
+                          <td className="py-3 px-3 text-center whitespace-nowrap">
                             {Number(r.fitting_price) > 0 ? (
                               <button
                                 type="button"
@@ -1055,7 +1105,7 @@ export default function CheckSupplierModal({
                           </td>
 
                           {/* Date */}
-                          <td className="py-1.5 px-3 text-xs text-slate-500 whitespace-nowrap">
+                          <td className="py-3 px-3 text-xs text-slate-500 whitespace-nowrap">
                             {r.date ||
                             (r as unknown as { created_at?: string }).created_at
                               ? formatDateDDMM(
@@ -1066,8 +1116,45 @@ export default function CheckSupplierModal({
                               : null}
                           </td>
 
+                          {/* Offers */}
+                          <td className="py-3 px-3 text-center whitespace-nowrap">
+                            {(() => {
+                              const offerVal =
+                                (
+                                  r as unknown as {
+                                    offer?: string;
+                                    offers?: string;
+                                  }
+                                ).offer ||
+                                (
+                                  r as unknown as {
+                                    offer?: string;
+                                    offers?: string;
+                                  }
+                                ).offers;
+                              return offerVal &&
+                                offerVal !== "-" &&
+                                offerVal !== "No Offer" ? (
+                                (() => {
+                                  const style = getOfferBadgeStyle(
+                                    offerVal,
+                                    offerOptions,
+                                  );
+                                  return (
+                                    <span
+                                      title={offerVal}
+                                      className={`inline-block whitespace-nowrap px-2.5 py-0.5 rounded text-[10px] font-extrabold border shadow-2xs ${style.bg} ${style.text} ${style.border}`}
+                                    >
+                                      {offerVal}
+                                    </span>
+                                  );
+                                })()
+                              ) : null;
+                            })()}
+                          </td>
+
                           {/* Actions */}
-                          <td className="py-1.5 px-3 text-center whitespace-nowrap">
+                          <td className="py-3 px-2 text-center whitespace-nowrap">
                             <div className="flex items-center justify-center gap-1.5">
                               <button
                                 type="button"
@@ -1079,6 +1166,19 @@ export default function CheckSupplierModal({
                                 className="p-1 text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors cursor-pointer"
                               >
                                 <ClipboardDocumentIcon className="w-4 h-4" />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  shareOnWhatsApp(r);
+                                }}
+                                title="Copy details for WhatsApp"
+                                aria-label="Copy details for WhatsApp"
+                                className="p-1 text-[#25D366] hover:text-[#1ebd59] rounded hover:bg-emerald-50 transition-colors cursor-pointer"
+                              >
+                                <WhatsAppIcon className="w-4 h-4" />
                               </button>
 
                               {(() => {
