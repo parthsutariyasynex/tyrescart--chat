@@ -296,3 +296,22 @@ git log -3 --oneline
 # 8. Switch back to development
 git checkout development
 ```
+
+---
+
+## 🚀 18. Direct Cross-Branch Pushing (Without Checkout)
+
+When you are working on `main` and want to push the latest `main` commits directly to the remote `development` branch without switching branches:
+
+```bash
+# Push main branch commits directly to remote development branch
+git push origin main:development
+```
+
+Conversely, to push `development` commits directly to `main` without switching:
+
+```bash
+# Push development branch commits directly to remote main branch
+git push origin development:main
+```
+
