@@ -415,19 +415,58 @@ export async function fetchCrmRecentBookingsGraphQL(): Promise<
   return (data?.crmRecentBookings as CrmRecentBooking[] | undefined) ?? [];
 }
 
+/** Digits only, so "050 123 4567" and "0501234567" compare equal. */
+const phoneDigits = (v: unknown) => String(v ?? "").replace(/\D/g, "");
+
+/**
+ * Every customer the CRM returns for a phone query.
+ *
+ * `crmCustomerByPhone` returns an ARRAY, not one customer — "050" comes back
+ * with 615 records, and a query matching nothing returns the WHOLE customer
+ * table rather than an empty list. So the result is filtered here on the digits
+ * actually typed; without that, any garbage input would look like a match.
+ *
+ * A single object is still accepted, so an older backend keeps working.
+ */
+export async function fetchCrmCustomersByPhoneGraphQL(
+  phone: string,
+): Promise<CrmCustomer[]> {
+  const trimmed = (phone ?? "").trim();
+  if (!trimmed) return []; // the API answers "Phone number is required."
+  try {
+    const data = await executeGraphQLQuery(crmCustomerByPhoneQuery(trimmed));
+    const raw = data?.crmCustomerByPhone;
+    const list: CrmCustomer[] = Array.isArray(raw)
+      ? (raw as CrmCustomer[])
+      : raw
+        ? [raw as CrmCustomer]
+        : [];
+
+    const wanted = phoneDigits(trimmed);
+    if (!wanted) return list;
+    const matches = list.filter((c) => phoneDigits(c?.phone).includes(wanted));
+    return matches;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/no customer found/i.test(msg)) return [];
+    throw err;
+  }
+}
+
+/**
+ * The single best match for a phone number, or null.
+ *
+ * An exact digit match wins; otherwise the first partial match. Used where one
+ * customer is needed — the duplicate check and resolving `entity_id` for an
+ * edit — so those paths are unaffected by the endpoint returning many rows.
+ */
 export async function fetchCrmCustomerByPhoneGraphQL(
   phone: string,
 ): Promise<CrmCustomer | null> {
-  const trimmed = (phone ?? "").trim();
-  if (!trimmed) return null; // the API answers "Phone number is required."
-  try {
-    const data = await executeGraphQLQuery(crmCustomerByPhoneQuery(trimmed));
-    return (data?.crmCustomerByPhone as CrmCustomer | undefined) ?? null;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (/no customer found/i.test(msg)) return null;
-    throw err;
-  }
+  const list = await fetchCrmCustomersByPhoneGraphQL(phone);
+  if (!list.length) return null;
+  const wanted = phoneDigits(phone);
+  return list.find((c) => phoneDigits(c?.phone) === wanted) ?? list[0];
 }
 
 /* ─────────────────────────────────────────────────────────────

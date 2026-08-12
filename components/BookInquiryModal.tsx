@@ -26,7 +26,6 @@ import {
   ExclamationCircleIcon,
   ClockIcon,
   ChevronDownIcon,
-  HashtagIcon,
 } from "@heroicons/react/24/outline";
 import { Inquiry, clearInquiries } from "@/services/inquiryStorage";
 import {
@@ -34,6 +33,7 @@ import {
   fetchCrmCustomerByPhoneGraphQL,
   fetchCrmRecentBookingsGraphQL,
   updateCrmCustomerGraphQL,
+  fetchCrmCustomersByPhoneGraphQL,
 } from "@/services/graphql";
 import type { CrmCustomer, CrmRecentBooking } from "@/services/types";
 import { matchesSizeInput } from "@/hooks/useProductFilter";
@@ -196,7 +196,10 @@ export default function BookInquiryModal({
    *  enquiries that can only be removed from the Magento admin. */
   const [submitting, setSubmitting] = useState(false);
   /** CRM record for the searched phone. null = looked up and not on file. */
-  const [crmCustomer, setCrmCustomer] = useState<CrmCustomer | null>(null);
+  /** Customers returned by the phone search. `crmCustomerByPhone` returns an
+   *  ARRAY — one number can match several records — so the list is kept whole
+   *  rather than collapsed to the first hit. */
+  const [crmCustomers, setCrmCustomers] = useState<CrmCustomer[]>([]);
   /**
    * CRM status of the phone currently typed in the FORM (separate from the
    * search box). undefined = not checked yet, null = checked and not on file.
@@ -409,7 +412,7 @@ export default function BookInquiryModal({
          unmounts and this state would otherwise survive a close/reopen and
          show the PREVIOUS customer's rows before any new query is made. */
       setSearchQuery("");
-      setCrmCustomer(null);
+      setCrmCustomers([]);
       setCurrentPage(1);
       // Prefill from the row the modal was opened on — the product's own size.
       if (initialProduct?.size) setTireSize1(initialProduct.size);
@@ -490,7 +493,9 @@ export default function BookInquiryModal({
     setCustPhone(item.phone || "");
     setCustEmail(item.email || "");
     setCustCity(item.city || "");
-    const initialEntityId = item.crmCustomerId ? String(item.crmCustomerId) : "";
+    const initialEntityId = item.crmCustomerId
+      ? String(item.crmCustomerId)
+      : "";
     setCustEntityId(initialEntityId);
 
     if (item.phone) {
@@ -542,7 +547,9 @@ export default function BookInquiryModal({
     }
     setSavingCustomer(true);
     try {
-      let entityId = Number(custEntityId || editingCustomerInquiry.crmCustomerId || 0);
+      let entityId = Number(
+        custEntityId || editingCustomerInquiry.crmCustomerId || 0,
+      );
       if (!entityId) {
         // Look the customer up by the phone the row was loaded with, NOT the
         // edited one — the edit may be changing the number itself.
@@ -572,11 +579,11 @@ export default function BookInquiryModal({
       // Re-read from the backend so the list shows the stored values.
       const rows = await fetchCrmRecentBookingsGraphQL().catch(() => null);
       if (rows) setRecentBookings(rows);
-      if (crmCustomer) {
-        const refreshed = await fetchCrmCustomerByPhoneGraphQL(
+      if (crmCustomers.length) {
+        const refreshed = await fetchCrmCustomersByPhoneGraphQL(
           custPhone.trim(),
-        ).catch(() => null);
-        if (refreshed) setCrmCustomer(refreshed);
+        ).catch(() => []);
+        if (refreshed.length) setCrmCustomers(refreshed);
       }
 
       setToastMessage(res.message || "Customer details updated.");
@@ -644,11 +651,11 @@ export default function BookInquiryModal({
            the two refreshes below re-read it from there, so the row appears in
            the list from the backend rather than from a local copy. */
 
-        const refreshed = await fetchCrmCustomerByPhoneGraphQL(
+        const refreshed = await fetchCrmCustomersByPhoneGraphQL(
           submittedPhone,
-        ).catch(() => null);
-        if (refreshed) {
-          setCrmCustomer(refreshed);
+        ).catch(() => []);
+        if (refreshed.length) {
+          setCrmCustomers(refreshed);
           setSearchQuery(submittedPhone);
           setCurrentPage(1);
         }
@@ -716,10 +723,11 @@ export default function BookInquiryModal({
 
     const digits = targetQuery.replace(/[^\d]/g, "");
     if (digits.length >= 1 || targetQuery.length >= 1) {
-      void fetchCrmCustomerByPhoneGraphQL(targetQuery)
-        .then((c) => {
+      void fetchCrmCustomersByPhoneGraphQL(targetQuery)
+        .then((list) => {
           // Only feeds the list (via crmRows). The form is left alone.
-          setCrmCustomer(c);
+          setCrmCustomers(list);
+          const c = list[0];
           if (c) {
             setToastMessage(
               `Found CRM customer record & inquiries for "${c.name ?? targetQuery}".`,
@@ -788,12 +796,23 @@ export default function BookInquiryModal({
    * Read-only, like the phone-lookup rows: there is still no update or delete
    * mutation to push a change back.
    */
+  /** A list row that still carries the raw CRM objects it was built from. */
+  type CrmSearchRow = Inquiry & {
+    fromCrm: true;
+    /** The whole `crmCustomerByPhone` object, untouched. */
+    crmCustomer?: CrmCustomer;
+    /** The specific booking this row represents, untouched. */
+    crmBooking?: NonNullable<CrmCustomer["bookings"]>[number];
+  };
+
   const recentRows: (Inquiry & { fromCrm: true })[] = useMemo(() => {
     if (!recentBookings?.length) return [];
     return recentBookings.map((b, i) => ({
       id: `CRM-${String(b.entity_id ?? i)}`,
       fromCrm: true as const,
-      crmCustomerId: b.customer?.entity_id ? Number(b.customer.entity_id) : undefined,
+      crmCustomerId: b.customer?.entity_id
+        ? Number(b.customer.entity_id)
+        : undefined,
       name: b.customer?.name ?? "",
       phone: b.customer?.phone ?? "",
       email: b.customer?.email ?? "",
@@ -815,64 +834,76 @@ export default function BookInquiryModal({
     }));
   }, [recentBookings]);
 
-  const crmRows: (Inquiry & { fromCrm: true })[] = useMemo(() => {
-    if (!crmCustomer) return [];
-    if (crmCustomer.bookings && crmCustomer.bookings.length > 0) {
-      return crmCustomer.bookings.map((b, i) => ({
-        id: `CRM-${String(b.entity_id ?? i)}`,
-        fromCrm: true as const,
-        name: crmCustomer.name ?? "",
-        phone: crmCustomer.phone ?? "",
-        email: crmCustomer.email ?? "",
-        /* The CRM stores the city under `area` — `updateCrmCustomer` accepts a
-           `city` input but reads back as `area`, so without this the field is
-           blank in the edit form even right after a successful save. */
-        city: crmCustomer.area ?? "",
-        tireSize1: b.tire_size_1 ?? "",
-        tireSize2: "",
-        vehiclePlateNumber:
-          b.vehicle?.plant_number ??
-          crmCustomer.vehicles?.[0]?.plant_number ??
-          "",
-        make: b.vehicle?.make ?? crmCustomer.vehicles?.[0]?.make ?? "",
-        model: b.vehicle?.model ?? crmCustomer.vehicles?.[0]?.model ?? "",
-        year: b.vehicle?.year ?? crmCustomer.vehicles?.[0]?.year ?? "",
-        note: b.detail ?? b.notes ?? "",
-        // The CRM's status is a numeric code with no published mapping, so it is
-        // not forced into the local Pending/Contacted/Closed vocabulary.
-        status: "Pending" as Inquiry["status"],
-        createdAt: b.enquiry_date ?? "",
-        crmBookingId: b.entity_id ?? undefined,
-        crmCustomerId: crmCustomer.entity_id ?? undefined,
-        crmStatus: b.status == null ? null : String(b.status),
-        crmPriority: b.priority == null ? null : String(b.priority),
-        crmEnquiryDate: b.enquiry_date ?? null,
-      }));
-    }
+  /**
+   * Rows for the phone search — built straight from the `crmCustomerByPhone`
+   * response.
+   *
+   * The table renders `Inquiry`, so the fields it reads are still surfaced, but
+   * the API objects are carried through UNCHANGED on `crmCustomer` / `crmBooking`
+   * rather than being flattened away. Edit and view actions can then reach
+   * `entity_id`, `area`, `vehicles`, `quoted_price`, `notes` and everything else
+   * the response holds without a second lookup.
+   */
+  const crmRows: CrmSearchRow[] = useMemo(() => {
+    if (!crmCustomers.length) return [];
 
-    // Customer exists in CRM but has 0 past bookings — show customer & vehicle record row
-    const v = crmCustomer.vehicles?.[0];
-    return [
-      {
-        id: `CRM-CUST-${String(crmCustomer.entity_id || "0")}`,
+    return crmCustomers.flatMap((customer) => {
+      /* Fields every row of this customer shares. The response object itself is
+         attached as `crmCustomer`, so entity_id / area / vehicles / status stay
+         reachable for the edit and view actions. */
+      const base = {
         fromCrm: true as const,
-        name: crmCustomer.name ?? "",
-        phone: crmCustomer.phone ?? "",
-        email: crmCustomer.email ?? "",
-        city: crmCustomer.area ?? "",
-        tireSize1: v?.tire_size_1 ?? "",
-        tireSize2: v?.tire_size_2 ?? "",
-        vehiclePlateNumber: v?.plant_number ?? "",
-        make: v?.make ?? "",
-        model: v?.model ?? "",
-        year: v?.year ?? "",
-        note: "",
+        name: customer.name ?? "",
+        phone: customer.phone ?? "",
+        email: customer.email ?? "",
+        /* The CRM stores the city under `area` — `updateCrmCustomer` accepts a
+           `city` input but reads it back as `area`. */
+        city: customer.area ?? "",
+        crmCustomerId: customer.entity_id ?? undefined,
+        crmCustomer: customer,
         status: "Pending" as Inquiry["status"],
-        createdAt: "",
-        crmCustomerId: crmCustomer.entity_id ?? undefined,
-      },
-    ];
-  }, [crmCustomer]);
+      };
+
+      const bookings = customer.bookings ?? [];
+      if (bookings.length) {
+        return bookings.map((b, i) => ({
+          ...base,
+          id: `CRM-${String(b.entity_id ?? `${customer.entity_id}-${i}`)}`,
+          tireSize1: b.tire_size_1 ?? "",
+          tireSize2: "",
+          vehiclePlateNumber:
+            b.vehicle?.plant_number ?? customer.vehicles?.[0]?.plant_number ?? "",
+          make: b.vehicle?.make ?? customer.vehicles?.[0]?.make ?? "",
+          model: b.vehicle?.model ?? customer.vehicles?.[0]?.model ?? "",
+          year: b.vehicle?.year ?? customer.vehicles?.[0]?.year ?? "",
+          note: b.detail ?? b.notes ?? "",
+          createdAt: b.enquiry_date ?? "",
+          crmBookingId: b.entity_id ?? undefined,
+          crmStatus: b.status == null ? null : String(b.status),
+          crmPriority: b.priority == null ? null : String(b.priority),
+          crmEnquiryDate: b.enquiry_date ?? null,
+          crmBooking: b,
+        }));
+      }
+
+      // Customer is on file but has no bookings — still worth showing.
+      const v = customer.vehicles?.[0];
+      return [
+        {
+          ...base,
+          id: `CRM-CUST-${String(customer.entity_id || "0")}`,
+          tireSize1: v?.tire_size_1 ?? "",
+          tireSize2: v?.tire_size_2 ?? "",
+          vehiclePlateNumber: v?.plant_number ?? "",
+          make: v?.make ?? "",
+          model: v?.model ?? "",
+          year: v?.year ?? "",
+          note: "",
+          createdAt: "",
+        },
+      ];
+    });
+  }, [crmCustomers]);
 
   const allInquirySource = useMemo(() => {
     const map = new Map<string, Inquiry>();
@@ -1030,29 +1061,9 @@ export default function BookInquiryModal({
             <div>
               <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-3">
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  {editingId ? (
-                    <>
-                      <PencilSquareIcon className="w-4 h-4 text-emerald-600" />
-                      Edit Inquiry{" "}
-                      <span className="text-xs font-mono text-emerald-600 font-bold">
-                        ({editingId})
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <PlusCircleIcon className="w-4 h-4 text-emerald-600" />
-                      New Customer Inquiry
-                    </>
-                  )}
+                  <PlusCircleIcon className="w-4 h-4 text-emerald-600" />
+                  New Inquiry
                 </h3>
-                {editingId && (
-                  <button
-                    onClick={resetForm}
-                    className="text-xs text-slate-500 hover:text-slate-800 underline font-medium"
-                  >
-                    Cancel Editing
-                  </button>
-                )}
               </div>
 
               <form
@@ -1505,11 +1516,7 @@ export default function BookInquiryModal({
                     ) : (
                       <CheckCircleIcon className="w-4 h-4" />
                     )}
-                    {submitting
-                      ? "Saving to CRM…"
-                      : editingId
-                        ? "Update Inquiry"
-                        : "Send Inquiry"}
+                    {submitting ? "Saving to CRM…" : "Save Changes"}
                   </button>
 
                   <button
@@ -1557,6 +1564,17 @@ export default function BookInquiryModal({
                   >
                     <MagnifyingGlassIcon className="w-3.5 h-3.5 text-slate-300" />
                     Search
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery("");
+                      setCrmCustomers([]);
+                      setCurrentPage(1);
+                    }}
+                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg border border-slate-200 transition-all shrink-0 cursor-pointer"
+                  >
+                    Reset
                   </button>
                 </div>
 
@@ -1669,7 +1687,7 @@ export default function BookInquiryModal({
                                 type="button"
                                 onClick={() => handleOpenEditCustomer(item)}
                                 className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors shrink-0 cursor-pointer"
-                                title="Edit Customer Details"
+                                title="Edit Details"
                               >
                                 <PencilSquareIcon className="w-3.5 h-3.5" />
                               </button>
@@ -1747,7 +1765,7 @@ export default function BookInquiryModal({
                               <button
                                 onClick={() => handleEdit(item)}
                                 className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
-                                title="Edit Inquiry"
+                                title="Auto-Fill Details"
                               >
                                 <PencilIcon className="w-4 h-4" />
                               </button>
@@ -2015,7 +2033,7 @@ export default function BookInquiryModal({
             >
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <h4 className="text-base font-bold text-slate-900">
-                  Edit Customer Details
+                  Edit Details
                 </h4>
                 <button
                   type="button"
