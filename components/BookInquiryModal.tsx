@@ -13,6 +13,7 @@ import {
   XMarkIcon,
   MagnifyingGlassIcon,
   PencilSquareIcon,
+  PencilIcon,
   EyeIcon,
   PlusCircleIcon,
   ArrowPathIcon,
@@ -66,6 +67,10 @@ export default function BookInquiryModal({
     CrmRecentBooking[] | null
   >(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  /** True only when the CUSTOMER column's edit icon opened the form.
+   *  The Actions "Edit Inquiry" icon leaves it false, so that flow keeps
+   *  the exact read-only behaviour it has today. */
+  const [customerEditMode, setCustomerEditMode] = useState(false);
   const [viewingInquiry, setViewingInquiry] = useState<Inquiry | null>(null);
 
   // Form State
@@ -392,13 +397,15 @@ export default function BookInquiryModal({
     setNote("");
     setStatus("Pending");
     setEditingId(null);
+    setCustomerEditMode(false);
     setSearchQuery("");
     setErrors({});
   };
 
   // Populate form for editing
-  const handleEdit = (inquiry: Inquiry) => {
+  const handleEdit = (inquiry: Inquiry, customerMode = false) => {
     setEditingId(inquiry.id);
+    setCustomerEditMode(customerMode);
     setName(inquiry.name || "");
     setPhone(inquiry.phone || "");
     setEmail(inquiry.email || "");
@@ -890,7 +897,7 @@ export default function BookInquiryModal({
                       autoComplete="off"
                       type="text"
                       value={name}
-                      disabled={!!editingId}
+                      disabled={!!editingId && !customerEditMode}
                       onChange={(e) => {
                         setName(e.target.value);
                         if (errors.name)
@@ -959,7 +966,7 @@ export default function BookInquiryModal({
                         autoComplete="off"
                         type="text"
                         value={phone}
-                        disabled={!!editingId}
+                        disabled={!!editingId && !customerEditMode}
                         onChange={(e) => {
                           setPhone(e.target.value);
 
@@ -1042,7 +1049,7 @@ export default function BookInquiryModal({
                         autoComplete="off"
                         type="email"
                         value={email}
-                        disabled={!!editingId}
+                        disabled={!!editingId && !customerEditMode}
                         onChange={(e) => setEmail(e.target.value)}
                         placeholder="customer@example.com"
                         className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed disabled:border-slate-200"
@@ -1058,7 +1065,7 @@ export default function BookInquiryModal({
                       autoComplete="off"
                       type="text"
                       value={city}
-                      disabled={!!editingId}
+                      disabled={!!editingId && !customerEditMode}
                       onChange={(e) => setCity(e.target.value)}
                       placeholder="e.g. Riyadh, Jeddah"
                       className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed disabled:border-slate-200"
@@ -1486,7 +1493,7 @@ export default function BookInquiryModal({
                               </div>
                               <button
                                 type="button"
-                                onClick={() => handleEdit(item)}
+                                onClick={() => handleEdit(item, true)}
                                 className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors shrink-0 cursor-pointer"
                                 title="Edit Customer Details"
                               >
@@ -1568,7 +1575,7 @@ export default function BookInquiryModal({
                                 className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
                                 title="Edit Inquiry"
                               >
-                                <PencilSquareIcon className="w-4 h-4" />
+                                <PencilIcon className="w-4 h-4" />
                               </button>
                             </div>
                           </td>
