@@ -20,6 +20,7 @@ import {
   ADD_QUOTE_HISTORY,
   kleverVehicleSearchQuery,
   type TcProductsQueryVars,
+  updateCrmCustomerMutation,
 } from "./queries";
 import type {
   KleverVehicleItem,
@@ -40,6 +41,8 @@ import type {
   SupplierProductsResponse,
   TyresChatResponse,
   CrmRecentBooking,
+  CrmCustomerUpdateInput,
+  CrmCustomerUpdateResult,
 } from "./types";
 
 /**
@@ -390,6 +393,21 @@ export async function createCrmBookingGraphQL(
  * a single request. Returns [] rather than throwing when the field answers with
  * nothing, so the table renders its empty state instead of an error.
  */
+/**
+ * Edit an existing CRM customer.
+ *
+ * Unlike `createCrmBookingGraphQL` this files NO booking — it only updates the
+ * customer record, so it is safe to call from an edit form. Never retried and
+ * never cached: it is a write.
+ */
+export async function updateCrmCustomerGraphQL(
+  input: CrmCustomerUpdateInput,
+): Promise<CrmCustomerUpdateResult> {
+  const data = await executeGraphQLQuery(updateCrmCustomerMutation(input));
+  const res = data?.updateCrmCustomer as CrmCustomerUpdateResult | undefined;
+  return res ?? { success: false, message: "No response from the CRM." };
+}
+
 export async function fetchCrmRecentBookingsGraphQL(): Promise<
   CrmRecentBooking[]
 > {

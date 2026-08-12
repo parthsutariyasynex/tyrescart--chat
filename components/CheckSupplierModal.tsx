@@ -44,10 +44,7 @@ import {
 import CostHistoryModal from "@/components/CostHistoryModal";
 import Filter from "@/components/Filter";
 import { useProductFilter } from "@/hooks/useProductFilter";
-import {
-  CATEGORY_BADGES_SEMANTIC,
-  getOfferBadgeStyle,
-} from "@/constants/badges";
+import { CATEGORY_BADGES_SEMANTIC, getOfferBadgeStyle, productTypeBadge } from "@/constants/badges";
 import Pagination from "@/components/Pagination";
 import { Skeleton } from "@/components/Skeletons";
 import { WhatsAppIcon } from "@/components/WhatsAppIcon";
@@ -730,20 +727,20 @@ export default function CheckSupplierModal({
             <div className="flex-1 min-h-0 overflow-y-scroll overflow-x-auto relative">
               <table className="w-full text-left border-collapse table-fixed">
                 <colgroup>
-                  <col className="w-[6.5%]" />
                   <col className="w-[6%]" />
-                  <col className="w-[6.5%]" />
-                  <col className="w-[7.5%]" />
+                  <col className="w-[6%]" />
+                  <col className="w-[6%]" />
+                  <col className="w-[7%]" />
                   <col />
-                  <col className="w-[8.5%]" />
-                  <col className="w-[4.5%]" />
-                  <col className="w-[5.5%]" />
+                  <col className="w-[8%]" />
+                  <col className="w-[4%]" />
+                  <col className="w-[5%]" />
                   <col className="w-[4%]" />
                   <col className="w-[3.5%]" />
-                  <col className="w-[6.5%]" />
-                  <col className="w-[6.5%]" />
-                  <col className="w-[5.5%]" />
-                  <col className="w-[8.5%]" />
+                  <col className="w-[6%]" />
+                  <col className="w-[6%]" />
+                  <col className="w-[5%]" />
+                  <col className="w-[11.5%]" />
                   <col className="w-[5.5%]" />
                 </colgroup>
                 <thead className="bg-slate-50/90 backdrop-blur sticky top-0 z-10 border-b border-slate-200">
@@ -951,7 +948,9 @@ export default function CheckSupplierModal({
 
                           {/* Type */}
                           <td className="py-3 px-3 whitespace-nowrap">
-                            <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded uppercase whitespace-nowrap inline-block">
+                            <span
+                              className={`px-2 py-0.5 ${productTypeBadge(r.product_source || "supplier")} text-[10px] font-bold rounded-full border uppercase whitespace-nowrap inline-block`}
+                            >
                               {r.product_source || "supplier"}
                             </span>
                           </td>
@@ -1117,7 +1116,7 @@ export default function CheckSupplierModal({
                           </td>
 
                           {/* Offers */}
-                          <td className="py-3 px-3 text-center whitespace-nowrap">
+                          <td className="py-3 px-3 text-center overflow-hidden">
                             {(() => {
                               const offerVal =
                                 (
@@ -1143,7 +1142,7 @@ export default function CheckSupplierModal({
                                   return (
                                     <span
                                       title={offerVal}
-                                      className={`inline-block whitespace-nowrap px-2.5 py-0.5 rounded text-[10px] font-extrabold border shadow-2xs ${style.bg} ${style.text} ${style.border}`}
+                                      className={`inline-block max-w-full truncate px-2.5 py-0.5 rounded text-[10px] font-extrabold border shadow-2xs ${style.bg} ${style.text} ${style.border}`}
                                     >
                                       {offerVal}
                                     </span>

@@ -67,7 +67,11 @@ export const BRAND_BADGES_TAILWIND: BadgeClassMap = {
 
 /** Semantic variant — /tc-products. */
 /**
- * Type column badge: Supplier = green, Competitor = blue.
+ * Type column badge: Supplier = teal, Competitor = indigo.
+ *
+ * Returns SEMANTIC class names, not Tailwind utilities — the colours live in
+ * globals.css beside the category pills, which is where this project keeps
+ * theme-wide rules. The two badges then share one solid-fill treatment.
  *
  * Matched case-insensitively because the two tables feed it differently:
  * /supplier-products renders the LABEL ("Supplier") while the Check Supplier
@@ -77,11 +81,17 @@ export const BRAND_BADGES_TAILWIND: BadgeClassMap = {
 export function productTypeBadge(type: string | undefined | null): string {
   switch (String(type ?? "").trim().toLowerCase()) {
     case "supplier":
-      return "bg-emerald-50 text-emerald-700 border border-emerald-200/60";
+      return "badge-type-supplier";
     case "competitor":
-      return "bg-blue-50 text-blue-700 border border-blue-200/60";
+      return "badge-type-competitor";
+    case "authorized":
+    case "official":
+      return "badge-type-authorized";
+    case "parallel":
+    case "import":
+      return "badge-type-parallel";
     default:
-      return "bg-slate-100 text-slate-700 border border-transparent";
+      return "badge-type-default";
   }
 }
 

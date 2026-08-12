@@ -1,4 +1,4 @@
-import type { CrmBookingInput } from "./types";
+import type { CrmBookingInput, CrmCustomerUpdateInput } from "./types";
 /**
  * GraphQL Queries for the TyresCart Magento endpoint.
  *
@@ -484,6 +484,45 @@ export function createCrmBookingMutation(input: CrmBookingInput): string {
  * filter with server-side — the modal filters the returned window client-side,
  * exactly as it already does for a looked-up customer's bookings.
  */
+/**
+ * Update an existing CRM customer.
+ *
+ * `entity_id` is REQUIRED and typed `Int!` upstream — it identifies the record,
+ * so it is the one field that is never omitted.
+ *
+ * Every other field is omitted when blank rather than sent as "", for the same
+ * reason `createCrmBookingMutation` does it: an empty string would overwrite
+ * data already on the customer's record. Unlike `createCrmBooking` this does
+ * NOT file a booking — it only edits the customer.
+ */
+export function updateCrmCustomerMutation(input: CrmCustomerUpdateInput): string {
+  const esc = (v: string) => String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const fields: string[] = [`entity_id: ${Number(input.entity_id)}`];
+  const optional: [keyof CrmCustomerUpdateInput, string][] = [
+    ["name", "name"],
+    ["phone", "phone"],
+    ["email", "email"],
+    ["city", "city"],
+  ];
+  for (const [key, gql] of optional) {
+    const value = String(input[key] ?? "").trim();
+    if (value) fields.push(`${gql}: "${esc(value)}"`);
+  }
+  return `mutation {
+    updateCrmCustomer(input: { ${fields.join(", ")} }) {
+      success
+      message
+      customer {
+        entity_id
+        name
+        phone
+        email
+        area
+      }
+    }
+  }`;
+}
+
 export function crmRecentBookingsQuery(): string {
   return `query {
     crmRecentBookings {
@@ -495,6 +534,7 @@ export function crmRecentBookingsQuery(): string {
       enquiry_date
       created_at
       customer {
+        entity_id
         name
         phone
         email

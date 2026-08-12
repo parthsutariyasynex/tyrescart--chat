@@ -26,12 +26,14 @@ import {
   ExclamationCircleIcon,
   ClockIcon,
   ChevronDownIcon,
+  HashtagIcon,
 } from "@heroicons/react/24/outline";
 import { Inquiry, clearInquiries } from "@/services/inquiryStorage";
 import {
   createCrmBookingGraphQL,
   fetchCrmCustomerByPhoneGraphQL,
   fetchCrmRecentBookingsGraphQL,
+  updateCrmCustomerGraphQL,
 } from "@/services/graphql";
 import type { CrmCustomer, CrmRecentBooking } from "@/services/types";
 import { matchesSizeInput } from "@/hooks/useProductFilter";
@@ -71,7 +73,21 @@ export default function BookInquiryModal({
    *  The Actions "Edit Inquiry" icon leaves it false, so that flow keeps
    *  the exact read-only behaviour it has today. */
   const [customerEditMode, setCustomerEditMode] = useState(false);
+  /** True only when the CUSTOMER column's edit icon opened the form.
+   *  The Actions "Edit Inquiry" icon leaves it false, so that flow keeps
+   *  the exact read-only behaviour it has today. */
   const [viewingInquiry, setViewingInquiry] = useState<Inquiry | null>(null);
+
+  // Separate Edit Customer Details popup state
+  const [editingCustomerInquiry, setEditingCustomerInquiry] =
+    useState<Inquiry | null>(null);
+  const [custName, setCustName] = useState("");
+  const [custPhone, setCustPhone] = useState("");
+  const [custEmail, setCustEmail] = useState("");
+  const [custCity, setCustCity] = useState("");
+  const [custEntityId, setCustEntityId] = useState("");
+  /** True while `updateCrmCustomer` is in flight — blocks a double submit. */
+  const [savingCustomer, setSavingCustomer] = useState(false);
 
   // Form State
   const [name, setName] = useState("");
@@ -209,6 +225,40 @@ export default function BookInquiryModal({
   // Animation states for inner viewingInquiry detail modal
   const [viewingInquiryAnimated, setViewingInquiryAnimated] = useState(false);
   const [viewingInquiryClosing, setViewingInquiryClosing] = useState(false);
+
+  // Animation states for inner editingCustomerInquiry modal
+  const [editingCustomerAnimated, setEditingCustomerAnimated] = useState(false);
+  const [editingCustomerClosing, setEditingCustomerClosing] = useState(false);
+
+  useEffect(() => {
+    let raf1: number;
+    let raf2: number;
+    if (editingCustomerInquiry) {
+      raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(() => {
+          setEditingCustomerAnimated(true);
+        });
+      });
+    } else {
+      raf1 = requestAnimationFrame(() => {
+        setEditingCustomerAnimated(false);
+        setEditingCustomerClosing(false);
+      });
+    }
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [editingCustomerInquiry]);
+
+  const handleCloseEditCustomer = () => {
+    setEditingCustomerClosing(true);
+    setTimeout(() => {
+      setEditingCustomerInquiry(null);
+      setEditingCustomerClosing(false);
+      setEditingCustomerAnimated(false);
+    }, 250);
+  };
 
   useEffect(() => {
     let raf1: number;
@@ -419,6 +469,125 @@ export default function BookInquiryModal({
     setNote(inquiry.note || "");
     setStatus(inquiry.status || "Pending");
     setErrors({});
+
+    if (inquiry.phone) {
+      fetchCrmCustomerByPhoneGraphQL(inquiry.phone)
+        .then((found) => {
+          if (found) {
+            if (found.area) setCity(found.area);
+            if (found.email && !inquiry.email) setEmail(found.email);
+            if (found.name && !inquiry.name) setName(found.name);
+          }
+        })
+        .catch(() => null);
+    }
+  };
+
+  // Open separate Edit Customer Details modal
+  const handleOpenEditCustomer = (item: Inquiry) => {
+    setEditingCustomerInquiry(item);
+    setCustName(item.name || "");
+    setCustPhone(item.phone || "");
+    setCustEmail(item.email || "");
+    setCustCity(item.city || "");
+    const initialEntityId = item.crmCustomerId ? String(item.crmCustomerId) : "";
+    setCustEntityId(initialEntityId);
+
+    if (item.phone) {
+      fetchCrmCustomerByPhoneGraphQL(item.phone)
+        .then((found) => {
+          if (found) {
+            if (found.entity_id) setCustEntityId(String(found.entity_id));
+            if (found.area) setCustCity(found.area);
+            if (found.email && !item.email) setCustEmail(found.email);
+            if (found.name && !item.name) setCustName(found.name);
+          }
+        })
+        .catch(() => null);
+    }
+  };
+
+  // Open Inquiry Detail view modal with auto-resolution of CRM Customer entity_id
+  const handleOpenViewingInquiry = (item: Inquiry) => {
+    setViewingInquiry(item);
+    if (!item.crmCustomerId && item.phone) {
+      fetchCrmCustomerByPhoneGraphQL(item.phone)
+        .then((found) => {
+          if (found?.entity_id) {
+            setViewingInquiry((prev) =>
+              prev ? { ...prev, crmCustomerId: Number(found.entity_id) } : null,
+            );
+          }
+        })
+        .catch(() => null);
+    }
+  };
+
+  /**
+   * Save the Edit Customer Details form.
+   *
+   * Calls `updateCrmCustomer` — the CRM's own customer-edit mutation — and then
+   * re-reads the list from the backend, so what appears in the table is what
+   * the CRM stored, not a local patch. Nothing is written to localStorage.
+   *
+   * `entity_id` is required by the mutation. Rows returned by
+   * `crmCustomerByPhone` already carry it as `crmCustomerId`; rows from
+   * `crmRecentBookings` do not, so it is looked up by phone first.
+   */
+  const handleSaveCustomerDetails = async () => {
+    if (!editingCustomerInquiry || savingCustomer) return;
+    if (!custName.trim() || !custPhone.trim()) {
+      setToastMessage("Customer name and phone are required.");
+      return;
+    }
+    setSavingCustomer(true);
+    try {
+      let entityId = Number(custEntityId || editingCustomerInquiry.crmCustomerId || 0);
+      if (!entityId) {
+        // Look the customer up by the phone the row was loaded with, NOT the
+        // edited one — the edit may be changing the number itself.
+        const found = await fetchCrmCustomerByPhoneGraphQL(
+          editingCustomerInquiry.phone || custPhone,
+        ).catch(() => null);
+        entityId = Number(found?.entity_id ?? 0);
+      }
+      if (!entityId) {
+        setToastMessage("Could not identify this customer in the CRM.");
+        return;
+      }
+
+      const res = await updateCrmCustomerGraphQL({
+        entity_id: entityId,
+        name: custName.trim(),
+        phone: custPhone.trim(),
+        email: custEmail.trim(),
+        city: custCity.trim(),
+      });
+
+      if (!res.success) {
+        setToastMessage(res.message || "The CRM rejected this change.");
+        return;
+      }
+
+      // Re-read from the backend so the list shows the stored values.
+      const rows = await fetchCrmRecentBookingsGraphQL().catch(() => null);
+      if (rows) setRecentBookings(rows);
+      if (crmCustomer) {
+        const refreshed = await fetchCrmCustomerByPhoneGraphQL(
+          custPhone.trim(),
+        ).catch(() => null);
+        if (refreshed) setCrmCustomer(refreshed);
+      }
+
+      setToastMessage(res.message || "Customer details updated.");
+      handleCloseEditCustomer();
+    } catch (err) {
+      setToastMessage(
+        err instanceof Error ? err.message : "Could not reach the CRM.",
+      );
+    } finally {
+      setSavingCustomer(false);
+    }
   };
 
   // Handle Submit (Create or Update)
@@ -624,6 +793,7 @@ export default function BookInquiryModal({
     return recentBookings.map((b, i) => ({
       id: `CRM-${String(b.entity_id ?? i)}`,
       fromCrm: true as const,
+      crmCustomerId: b.customer?.entity_id ? Number(b.customer.entity_id) : undefined,
       name: b.customer?.name ?? "",
       phone: b.customer?.phone ?? "",
       email: b.customer?.email ?? "",
@@ -654,6 +824,10 @@ export default function BookInquiryModal({
         name: crmCustomer.name ?? "",
         phone: crmCustomer.phone ?? "",
         email: crmCustomer.email ?? "",
+        /* The CRM stores the city under `area` — `updateCrmCustomer` accepts a
+           `city` input but reads back as `area`, so without this the field is
+           blank in the edit form even right after a successful save. */
+        city: crmCustomer.area ?? "",
         tireSize1: b.tire_size_1 ?? "",
         tireSize2: "",
         vehiclePlateNumber:
@@ -685,6 +859,7 @@ export default function BookInquiryModal({
         name: crmCustomer.name ?? "",
         phone: crmCustomer.phone ?? "",
         email: crmCustomer.email ?? "",
+        city: crmCustomer.area ?? "",
         tireSize1: v?.tire_size_1 ?? "",
         tireSize2: v?.tire_size_2 ?? "",
         vehiclePlateNumber: v?.plant_number ?? "",
@@ -888,38 +1063,38 @@ export default function BookInquiryModal({
                 {/* Name & Phone (Required) */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Customer Name <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <UserIcon className="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" />
-                    <input
-                      autoComplete="off"
-                      type="text"
-                      value={name}
-                      disabled={!!editingId && !customerEditMode}
-                      onChange={(e) => {
-                        setName(e.target.value);
-                        if (errors.name)
-                          setErrors((prev) => ({ ...prev, name: undefined }));
-                      }}
-                      placeholder="e.g. Ahmed Al-Mansoor"
-                      className={`w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border bg-white focus:outline-none focus:ring-2 transition-all ${
-                        errors.name
-                          ? "border-red-300 focus:ring-red-500/20"
-                          : "border-slate-200 focus:ring-emerald-500/20 focus:border-emerald-500"
-                      } disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed disabled:border-slate-200`}
-                    />
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Customer Name <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <UserIcon className="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" />
+                      <input
+                        autoComplete="off"
+                        type="text"
+                        value={name}
+                        disabled={!!editingId && !customerEditMode}
+                        onChange={(e) => {
+                          setName(e.target.value);
+                          if (errors.name)
+                            setErrors((prev) => ({ ...prev, name: undefined }));
+                        }}
+                        placeholder="e.g. Ahmed Al-Mansoor"
+                        className={`w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border bg-white focus:outline-none focus:ring-2 transition-all ${
+                          errors.name
+                            ? "border-red-300 focus:ring-red-500/20"
+                            : "border-slate-200 focus:ring-emerald-500/20 focus:border-emerald-500"
+                        } disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed disabled:border-slate-200`}
+                      />
+                    </div>
+                    {errors.name && (
+                      <p className="text-[11px] text-red-500 mt-1 font-medium flex items-center gap-1">
+                        <ExclamationCircleIcon className="w-3 h-3" />{" "}
+                        {errors.name}
+                      </p>
+                    )}
                   </div>
-                  {errors.name && (
-                    <p className="text-[11px] text-red-500 mt-1 font-medium flex items-center gap-1">
-                      <ExclamationCircleIcon className="w-3 h-3" />{" "}
-                      {errors.name}
-                    </p>
-                  )}
-                </div>
 
-                {/* <div>
+                  {/* <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
                       Phone Number <span className="text-red-500">*</span>
                     </label>
@@ -953,88 +1128,87 @@ export default function BookInquiryModal({
                   </div>
                 </div> */}
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Phone Number <span className="text-red-500">*</span>
-                  </label>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Phone Number <span className="text-red-500">*</span>
+                    </label>
 
-                  <div className="flex gap-2">
-                    <div className="relative flex-1">
-                      <PhoneIcon className="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" />
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <PhoneIcon className="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" />
 
-                      <input
-                        autoComplete="off"
-                        type="text"
-                        value={phone}
-                        disabled={!!editingId && !customerEditMode}
-                        onChange={(e) => {
-                          setPhone(e.target.value);
+                        <input
+                          autoComplete="off"
+                          type="text"
+                          value={phone}
+                          disabled={!!editingId && !customerEditMode}
+                          onChange={(e) => {
+                            setPhone(e.target.value);
 
-                          // Reset phone check when number changes
-                          if (phoneCheck) {
-                            setPhoneCheck(undefined);
-                          }
+                            // Reset phone check when number changes
+                            if (phoneCheck) {
+                              setPhoneCheck(undefined);
+                            }
 
-                          if (errors.phone) {
-                            setErrors((prev) => ({
-                              ...prev,
-                              phone: undefined,
-                            }));
-                          }
-                        }}
-                        placeholder="+971 50 123 4567"
-                        className={`w-full pl-8 ${
-                          phoneCheck?.loading ? "pr-8" : "pr-3"
-                        } py-1.5 text-xs rounded-lg border bg-white focus:outline-none focus:ring-2 transition-all ${
-                          errors.phone
-                            ? "border-red-300 focus:ring-red-500/20"
-                            : "border-slate-200 focus:ring-emerald-500/20 focus:border-emerald-500"
-                        } disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed disabled:border-slate-200`}
-                      />
+                            if (errors.phone) {
+                              setErrors((prev) => ({
+                                ...prev,
+                                phone: undefined,
+                              }));
+                            }
+                          }}
+                          placeholder="+971 50 123 4567"
+                          className={`w-full pl-8 ${
+                            phoneCheck?.loading ? "pr-8" : "pr-3"
+                          } py-1.5 text-xs rounded-lg border bg-white focus:outline-none focus:ring-2 transition-all ${
+                            errors.phone
+                              ? "border-red-300 focus:ring-red-500/20"
+                              : "border-slate-200 focus:ring-emerald-500/20 focus:border-emerald-500"
+                          } disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed disabled:border-slate-200`}
+                        />
 
-                      {phoneCheck?.loading && (
-                        <ArrowPathIcon className="w-4 h-4 absolute right-2.5 top-2.5 text-emerald-600 animate-spin pointer-events-none" />
+                        {phoneCheck?.loading && (
+                          <ArrowPathIcon className="w-4 h-4 absolute right-2.5 top-2.5 text-emerald-600 animate-spin pointer-events-none" />
+                        )}
+                      </div>
+
+                      {/* Check Number Button */}
+                      {!editingId && (
+                        <button
+                          type="button"
+                          onClick={handleCheckPhone}
+                          disabled={!phone.trim() || phoneCheck?.loading}
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+                        >
+                          {phoneCheck?.loading ? "Checking..." : "Check Number"}
+                        </button>
                       )}
                     </div>
 
-                    {/* Check Number Button */}
-                    {!editingId && (
-                      <button
-                        type="button"
-                        onClick={handleCheckPhone}
-                        disabled={!phone.trim() || phoneCheck?.loading}
-                        className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
-                      >
-                        {phoneCheck?.loading ? "Checking..." : "Check Number"}
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Existing number */}
-                  {phoneCheck?.customer && (
-                    <p className="text-[11px] text-red-500 mt-1 font-medium flex items-center gap-1">
-                      <ExclamationCircleIcon className="w-3 h-3" />
-                      This phone number already exists.
-                    </p>
-                  )}
-
-                  {/* Available number */}
-                  {phoneCheck &&
-                    !phoneCheck.loading &&
-                    !phoneCheck.customer && (
-                      <p className="text-[11px] text-emerald-600 mt-1 font-medium">
-                        ✓ This phone number is available.
+                    {/* Existing number */}
+                    {phoneCheck?.customer && (
+                      <p className="text-[11px] text-red-500 mt-1 font-medium flex items-center gap-1">
+                        <ExclamationCircleIcon className="w-3 h-3" />
+                        This phone number already exists.
                       </p>
                     )}
 
-                  {errors.phone && (
-                    <p className="text-[11px] text-red-500 mt-1 font-medium flex items-center gap-1">
-                      <ExclamationCircleIcon className="w-3 h-3" />
-                      {errors.phone}
-                    </p>
-                  )}
-                </div>
+                    {/* Available number */}
+                    {phoneCheck &&
+                      !phoneCheck.loading &&
+                      !phoneCheck.customer && (
+                        <p className="text-[11px] text-emerald-600 mt-1 font-medium">
+                          ✓ This phone number is available.
+                        </p>
+                      )}
 
+                    {errors.phone && (
+                      <p className="text-[11px] text-red-500 mt-1 font-medium flex items-center gap-1">
+                        <ExclamationCircleIcon className="w-3 h-3" />
+                        {errors.phone}
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 {/* Email & City */}
@@ -1335,7 +1509,7 @@ export default function BookInquiryModal({
                       ? "Saving to CRM…"
                       : editingId
                         ? "Update Inquiry"
-                        : "Save Inquiry"}
+                        : "Send Inquiry"}
                   </button>
 
                   <button
@@ -1493,7 +1667,7 @@ export default function BookInquiryModal({
                               </div>
                               <button
                                 type="button"
-                                onClick={() => handleEdit(item, true)}
+                                onClick={() => handleOpenEditCustomer(item)}
                                 className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors shrink-0 cursor-pointer"
                                 title="Edit Customer Details"
                               >
@@ -1563,7 +1737,7 @@ export default function BookInquiryModal({
                           <td className="px-3 py-0.5 text-center whitespace-nowrap">
                             <div className="flex items-center justify-center gap-1">
                               <button
-                                onClick={() => setViewingInquiry(item)}
+                                onClick={() => handleOpenViewingInquiry(item)}
                                 className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded transition-colors"
                                 title="View Details"
                               >
@@ -1634,6 +1808,11 @@ export default function BookInquiryModal({
                   <span className="px-2.5 py-0.5 text-xs font-mono font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/80 rounded-md">
                     {viewingInquiry.id}
                   </span>
+                  {viewingInquiry.crmCustomerId && (
+                    <span className="px-2 py-0.5 text-xs font-mono font-bold text-slate-700 bg-slate-100 border border-slate-200 rounded-md">
+                      Entity #{viewingInquiry.crmCustomerId}
+                    </span>
+                  )}
                   {viewingInquiry.status && (
                     <span
                       className={`px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-md border ${
@@ -1689,6 +1868,16 @@ export default function BookInquiryModal({
                         </span>
                         <span className="text-slate-700 font-medium">
                           {viewingInquiry.email}
+                        </span>
+                      </div>
+                    )}
+                    {viewingInquiry.crmCustomerId && (
+                      <div>
+                        <span className="text-slate-500 text-[11px] block">
+                          Entity ID
+                        </span>
+                        <span className="font-mono font-bold text-slate-800 bg-slate-200/70 px-1.5 py-0.5 rounded text-xs inline-block">
+                          #{viewingInquiry.crmCustomerId}
                         </span>
                       </div>
                     )}
@@ -1797,6 +1986,124 @@ export default function BookInquiryModal({
                   className="px-5 py-2 bg-slate-900 text-white font-bold text-xs rounded-xl hover:bg-slate-800 transition-all active:scale-95 shadow-sm"
                 >
                   Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Edit Customer Details Modal */}
+        {(editingCustomerInquiry || editingCustomerClosing) && (
+          <div
+            className={`fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs transition-opacity duration-300 ease-out ${
+              editingCustomerAnimated && !editingCustomerClosing
+                ? "opacity-100"
+                : "opacity-0 pointer-events-none"
+            }`}
+          >
+            <div
+              className="absolute inset-0"
+              onClick={handleCloseEditCustomer}
+            />
+
+            <div
+              className={`relative bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden z-10 p-6 space-y-4 transition-all duration-300 ease-out transform ${
+                editingCustomerAnimated && !editingCustomerClosing
+                  ? "scale-100 opacity-100 translate-y-0"
+                  : "scale-95 opacity-0 translate-y-4"
+              }`}
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h4 className="text-base font-bold text-slate-900">
+                  Edit Customer Details
+                </h4>
+                <button
+                  type="button"
+                  onClick={handleCloseEditCustomer}
+                  className="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                >
+                  <XMarkIcon className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-3.5 text-xs">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Customer Name <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <UserIcon className="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" />
+                    <input
+                      type="text"
+                      value={custName}
+                      onChange={(e) => setCustName(e.target.value)}
+                      placeholder="e.g. Ahmed Al-Mansoor"
+                      className="w-full pl-8 pr-3 py-2 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Phone Number <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <PhoneIcon className="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" />
+                    <input
+                      type="text"
+                      value={custPhone}
+                      onChange={(e) => setCustPhone(e.target.value)}
+                      placeholder="+971 50 123 4567"
+                      className="w-full pl-8 pr-3 py-2 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Email
+                  </label>
+                  <div className="relative">
+                    <EnvelopeIcon className="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" />
+                    <input
+                      type="email"
+                      value={custEmail}
+                      onChange={(e) => setCustEmail(e.target.value)}
+                      placeholder="customer@example.com"
+                      className="w-full pl-8 pr-3 py-2 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    City
+                  </label>
+                  <input
+                    type="text"
+                    value={custCity}
+                    onChange={(e) => setCustCity(e.target.value)}
+                    placeholder="e.g. Riyadh, Jeddah"
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={handleCloseEditCustomer}
+                  className="px-4 py-2 text-xs font-semibold rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveCustomerDetails}
+                  disabled={savingCustomer}
+                  className="px-4 py-2 text-xs font-bold rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 transition-all shadow-xs cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {savingCustomer ? "Saving..." : "Save"}
                 </button>
               </div>
             </div>

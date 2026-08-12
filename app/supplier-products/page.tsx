@@ -1103,27 +1103,27 @@ export default function SupplierProductsPage() {
               <table className="w-full text-left border-collapse table-fixed">
                 <colgroup>
                   {!hiddenColumns.has("source") && (
-                    <col className="w-[6.5%]" />
+                    <col className="w-[6%]" />
                   )}
                   {!hiddenColumns.has("type") && <col className="w-[6%]" />}
                   {!hiddenColumns.has("category") && (
-                    <col className="w-[6.5%]" />
+                    <col className="w-[6%]" />
                   )}
-                  {!hiddenColumns.has("brand") && <col className="w-[7.5%]" />}
+                  {!hiddenColumns.has("brand") && <col className="w-[7%]" />}
                   {!hiddenColumns.has("pattern") && <col />}
-                  {!hiddenColumns.has("size") && <col className="w-[8.5%]" />}
-                  {!hiddenColumns.has("runflat") && <col className="w-[4.5%]" />}
+                  {!hiddenColumns.has("size") && <col className="w-[8%]" />}
+                  {!hiddenColumns.has("runflat") && <col className="w-[4%]" />}
                   {!hiddenColumns.has("country") && (
-                    <col className="w-[5.5%]" />
+                    <col className="w-[5%]" />
                   )}
                   {!hiddenColumns.has("year") && <col className="w-[4%]" />}
                   {!hiddenColumns.has("qty") && <col className="w-[3.5%]" />}
-                  {!hiddenColumns.has("cost") && <col className="w-[6.5%]" />}
+                  {!hiddenColumns.has("cost") && <col className="w-[6%]" />}
                   {!hiddenColumns.has("fittingPrice") && (
-                    <col className="w-[6.5%]" />
+                    <col className="w-[6%]" />
                   )}
-                  {!hiddenColumns.has("date") && <col className="w-[5.5%]" />}
-                  {!hiddenColumns.has("offer") && <col className="w-[8.5%]" />}
+                  {!hiddenColumns.has("date") && <col className="w-[5%]" />}
+                  {!hiddenColumns.has("offer") && <col className="w-[11.5%]" />}
                   <col className="w-[5.5%]" />
                 </colgroup>
                 <thead className="bg-slate-50/90 backdrop-blur sticky top-0 z-10 border-b border-slate-200">
@@ -1414,7 +1414,7 @@ export default function SupplierProductsPage() {
                               className={`${cellPaddingClass} whitespace-nowrap`}
                             >
                               <span
-                                className={`px-2 py-0.5 ${productTypeBadge(item.productType)} text-[10px] font-bold rounded uppercase whitespace-nowrap inline-block`}
+                                className={`px-2 py-0.5 ${productTypeBadge(item.productType)} text-[10px] font-bold rounded-full border uppercase whitespace-nowrap inline-block`}
                               >
                                 {item.productType}
                               </span>
@@ -1577,7 +1577,7 @@ export default function SupplierProductsPage() {
 
                           {!hiddenColumns.has("offer") && (
                             <td
-                              className={`${cellPaddingClass} text-center whitespace-nowrap`}
+                              className={`${cellPaddingClass} text-center overflow-hidden`}
                             >
                               {item.offer &&
                               item.offer !== "-" &&
@@ -1590,7 +1590,7 @@ export default function SupplierProductsPage() {
                                   return (
                                     <span
                                       title={item.offer}
-                                      className={`inline-block whitespace-nowrap px-2.5 py-0.5 rounded text-[10px] font-extrabold border shadow-2xs ${style.bg} ${style.text} ${style.border}`}
+                                      className={`inline-block max-w-full truncate px-2.5 py-0.5 rounded text-[10px] font-extrabold border shadow-2xs ${style.bg} ${style.text} ${style.border}`}
                                     >
                                       {item.offer}
                                     </span>

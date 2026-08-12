@@ -378,6 +378,7 @@ export interface CrmRecentBooking {
   enquiry_date: string | null;
   created_at: string | null;
   customer: {
+    entity_id?: number | string | null;
     name: string | null;
     phone: string | null;
     email: string | null;
@@ -416,6 +417,28 @@ export interface CrmBooking {
 }
 
 /** A CRM customer with their vehicles and booking history. */
+/** Payload for `updateCrmCustomer`. `entity_id` identifies the record. */
+export interface CrmCustomerUpdateInput {
+  entity_id: number;
+  name?: string;
+  phone?: string;
+  email?: string;
+  city?: string;
+}
+
+/** What `updateCrmCustomer` returns. `success` is the flag to branch on. */
+export interface CrmCustomerUpdateResult {
+  success: boolean;
+  message?: string | null;
+  customer?: {
+    entity_id?: number;
+    name?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    area?: string | null;
+  } | null;
+}
+
 export interface CrmCustomer {
   entity_id: number | string | null;
   name: string | null;

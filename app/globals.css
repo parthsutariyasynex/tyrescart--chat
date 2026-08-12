@@ -465,6 +465,28 @@ body {
   --badge-budget-text: #FFFFFF;
   --badge-budget-border: #E8843C;
 
+  /* Type column — Solid fill background matching category pills.
+     Supplier = Solid Teal (#0D9488), Competitor = Solid Slate Gray (#64748B). */
+  --badge-type-supplier-bg: #0D9488;
+  --badge-type-supplier-text: #FFFFFF;
+  --badge-type-supplier-border: #0D9488;
+
+  --badge-type-competitor-bg: #64748B;
+  --badge-type-competitor-text: #FFFFFF;
+  --badge-type-competitor-border: #64748B;
+
+  --badge-type-authorized-bg: #2563EB;
+  --badge-type-authorized-text: #FFFFFF;
+  --badge-type-authorized-border: #2563EB;
+
+  --badge-type-parallel-bg: #D97706;
+  --badge-type-parallel-text: #FFFFFF;
+  --badge-type-parallel-border: #D97706;
+
+  --badge-type-default-bg: #475569;
+  --badge-type-default-text: #FFFFFF;
+  --badge-type-default-border: #475569;
+
   --badge-midrange-bg: #D1FAE5;
   --badge-midrange-text: #047857;
   --badge-midrange-border: #A7F3D0;
@@ -528,6 +550,36 @@ body {
   background-color: var(--badge-budget-bg) !important;
   color: var(--badge-budget-text) !important;
   border-color: var(--badge-budget-border) !important;
+}
+
+.badge-type-supplier {
+  background-color: var(--badge-type-supplier-bg) !important;
+  color: var(--badge-type-supplier-text) !important;
+  border-color: var(--badge-type-supplier-border) !important;
+}
+
+.badge-type-competitor {
+  background-color: var(--badge-type-competitor-bg) !important;
+  color: var(--badge-type-competitor-text) !important;
+  border-color: var(--badge-type-competitor-border) !important;
+}
+
+.badge-type-authorized {
+  background-color: var(--badge-type-authorized-bg) !important;
+  color: var(--badge-type-authorized-text) !important;
+  border-color: var(--badge-type-authorized-border) !important;
+}
+
+.badge-type-parallel {
+  background-color: var(--badge-type-parallel-bg) !important;
+  color: var(--badge-type-parallel-text) !important;
+  border-color: var(--badge-type-parallel-border) !important;
+}
+
+.badge-type-default {
+  background-color: var(--badge-type-default-bg) !important;
+  color: var(--badge-type-default-text) !important;
+  border-color: var(--badge-type-default-border) !important;
 }
 
 /* Any category the badge map does not know — a new tier from the API renders
