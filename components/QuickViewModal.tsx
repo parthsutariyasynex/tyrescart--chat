@@ -456,13 +456,19 @@ export default function QuickViewModal({
     (product.image && !product.image.includes("/placeholder/")
       ? product.image
       : "");
-  const rawDisplayName =
-    detail?.name ||
-    [product.brand, product.pattern].filter(Boolean).join(" ") ||
-    product.itemCode;
+  const fallbackTitle = (() => {
+    const brand = (product.brand || "").trim();
+    const pattern = (product.pattern || "").trim();
+    if (!pattern) return brand || product.itemCode || "";
+    if (brand && pattern.toLowerCase().startsWith(brand.toLowerCase())) {
+      return pattern;
+    }
+    return brand ? `${brand} ${pattern}` : pattern;
+  })();
+
+  const rawDisplayName = detail?.name || fallbackTitle;
 
   const displayName = rawDisplayName
-    .replace(/\b\d{2,3}(?:\/\d{2,3})?[A-Za-z]\b/g, "")
     .replace(/\s+/g, " ")
     .trim();
 
