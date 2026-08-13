@@ -872,7 +872,9 @@ export default function BookInquiryModal({
           tireSize1: b.tire_size_1 ?? "",
           tireSize2: "",
           vehiclePlateNumber:
-            b.vehicle?.plant_number ?? customer.vehicles?.[0]?.plant_number ?? "",
+            b.vehicle?.plant_number ??
+            customer.vehicles?.[0]?.plant_number ??
+            "",
           make: b.vehicle?.make ?? customer.vehicles?.[0]?.make ?? "",
           model: b.vehicle?.model ?? customer.vehicles?.[0]?.model ?? "",
           year: b.vehicle?.year ?? customer.vehicles?.[0]?.year ?? "",
@@ -1184,7 +1186,7 @@ export default function BookInquiryModal({
                       </div>
 
                       {/* Check Number Button */}
-                      {!editingId && (
+                      {/* {!editingId && (
                         <button
                           type="button"
                           onClick={handleCheckPhone}
@@ -1193,7 +1195,7 @@ export default function BookInquiryModal({
                         >
                           {phoneCheck?.loading ? "Checking..." : "Check Number"}
                         </button>
-                      )}
+                      )} */}
                     </div>
 
                     {/* Existing number */}
