@@ -337,7 +337,7 @@ export const ProductTableRow = React.memo(function ProductTableRow<
                 return (
                   <span
                     title={item.offer}
-                    className={`inline-block whitespace-nowrap px-2 py-0.5 rounded-md text-[10px] font-extrabold border shadow-2xs ${style.bg} ${style.text} ${style.border}`}
+                    className={`inline-block break-words leading-tight max-w-full px-2 py-0.5 rounded-md text-[10px] font-extrabold border shadow-2xs ${style.bg} ${style.text} ${style.border}`}
                   >
                     {item.offer}
                   </span>
