@@ -44,7 +44,11 @@ import {
 import CostHistoryModal from "@/components/CostHistoryModal";
 import Filter from "@/components/Filter";
 import { useProductFilter } from "@/hooks/useProductFilter";
-import { CATEGORY_BADGES_SEMANTIC, getOfferBadgeStyle, productTypeBadge } from "@/constants/badges";
+import {
+  CATEGORY_BADGES_SEMANTIC,
+  getOfferBadgeStyle,
+  productTypeBadge,
+} from "@/constants/badges";
 import Pagination from "@/components/Pagination";
 import { Skeleton } from "@/components/Skeletons";
 import { WhatsAppIcon } from "@/components/WhatsAppIcon";
@@ -724,24 +728,25 @@ export default function CheckSupplierModal({
 
           {/* Supplier rows table */}
           <div className="flex-1 min-h-0 border border-slate-200 rounded-xl overflow-hidden flex flex-col justify-between bg-white shadow-2xs">
-            <div className="flex-1 min-h-0 overflow-y-scroll overflow-x-auto relative">
+            <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar relative">
               <table className="w-full text-left border-collapse table-fixed">
                 <colgroup>
-                  <col className="w-[6%]" />
-                  <col className="w-[6%]" />
-                  <col className="w-[6%]" />
-                  <col className="w-[7%]" />
-                  <col />
-                  <col className="w-[8%]" />
-                  <col className="w-[4%]" />
-                  <col className="w-[5%]" />
-                  <col className="w-[4%]" />
-                  <col className="w-[3.5%]" />
-                  <col className="w-[6%]" />
-                  <col className="w-[6%]" />
-                  <col className="w-[5%]" />
-                  <col className="w-[11.5%]" />
                   <col className="w-[5.5%]" />
+                  <col className="w-[8.5%]" />
+                  <col className="w-[6.5%]" />
+                  <col className="w-[5.5%]" />
+                  <col className="w-[6.5%]" />
+                  <col />
+                  <col className="w-[7.5%]" />
+                  <col className="w-[4.5%]" />
+                  <col className="w-[8%]" />
+                  <col className="w-[3.5%]" />
+                  <col className="w-[3%]" />
+                  <col className="w-[5%]" />
+                  <col className="w-[6%]" />
+                  <col className="w-[5.5%]" />
+                  <col className="w-[7.5%]" />
+                  <col className="w-[6%]" />
                 </colgroup>
                 <thead className="bg-slate-50/90 backdrop-blur sticky top-0 z-10 border-b border-slate-200">
                   <tr className="text-[11px] font-bold text-slate-500 uppercase tracking-wider select-none">
@@ -750,6 +755,13 @@ export default function CheckSupplierModal({
                       className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
                     >
                       Source{" "}
+                      <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
+                    </th>
+                    <th
+                      onClick={() => handleSort("sku")}
+                      className="py-3 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                    >
+                      Item Code{" "}
                       <span className="ml-0.5 opacity-50 font-normal">↑↓</span>
                     </th>
                     <th
@@ -853,6 +865,9 @@ export default function CheckSupplierModal({
                             <Skeleton className="h-4 w-12 rounded" />
                           </td>
                           <td className="py-2.5 px-3">
+                            <Skeleton className="h-4 w-12 rounded" />
+                          </td>
+                          <td className="py-2.5 px-3">
                             <Skeleton className="h-4 w-14 rounded" />
                           </td>
                           <td className="py-2.5 px-3">
@@ -899,7 +914,7 @@ export default function CheckSupplierModal({
                     )
                   ) : empty ? (
                     <tr>
-                      <td colSpan={15} className="py-14 text-center px-6">
+                      <td colSpan={16} className="py-14 text-center px-6">
                         {search.trim() && rows !== null && rows.length > 0 ? (
                           <>
                             <p className="text-sm font-semibold text-slate-500">
@@ -944,6 +959,11 @@ export default function CheckSupplierModal({
                                 {r.source_name || r.source}
                               </span>
                             ) : null}
+                          </td>
+
+                          {/* Item Code */}
+                          <td className="py-3 px-3 text-xs font-mono text-slate-700 break-all leading-tight">
+                            {r.sku || ""}
                           </td>
 
                           {/* Type */}
@@ -991,7 +1011,7 @@ export default function CheckSupplierModal({
                           {/* Tyre Pattern */}
                           <td className="py-3 px-3 text-xs font-bold text-slate-900">
                             <span
-                              className="line-clamp-2"
+                              className="break-words leading-snug block"
                               title={
                                 r.pattern ||
                                 r.product_name ||
@@ -1023,7 +1043,14 @@ export default function CheckSupplierModal({
                           </td>
 
                           {/* Countries */}
-                          <td className="py-3 px-3 whitespace-nowrap text-xs font-semibold text-slate-700 uppercase">
+                          {/* `truncate`, not `whitespace-nowrap`: nowrap alone
+                              stops wrapping but lets a long name ("VIRGIN
+                              ISLANDS (USA)") paint straight over the YEAR
+                              column. `title` keeps the full value on hover. */}
+                          <td
+                            className="py-3 px-3 break-words leading-tight text-xs font-semibold text-slate-700 uppercase"
+                            title={r.country || product.country || ""}
+                          >
                             {r.country || product.country || null}
                           </td>
 
@@ -1133,28 +1160,28 @@ export default function CheckSupplierModal({
                                 ).offers;
                               return offerVal &&
                                 offerVal !== "-" &&
-                                offerVal !== "No Offer" ? (
-                                (() => {
-                                  const style = getOfferBadgeStyle(
-                                    offerVal,
-                                    offerOptions,
-                                  );
-                                  return (
-                                    <span
-                                      title={offerVal}
-                                      className={`inline-block max-w-full truncate px-2.5 py-0.5 rounded text-[10px] font-extrabold border shadow-2xs ${style.bg} ${style.text} ${style.border}`}
-                                    >
-                                      {offerVal}
-                                    </span>
-                                  );
-                                })()
-                              ) : null;
+                                offerVal !== "No Offer"
+                                ? (() => {
+                                    const style = getOfferBadgeStyle(
+                                      offerVal,
+                                      offerOptions,
+                                    );
+                                    return (
+                                      <span
+                                        title={offerVal}
+                                        className={`inline-block whitespace-nowrap px-2 py-0.5 rounded text-[10px] font-extrabold border shadow-2xs ${style.bg} ${style.text} ${style.border}`}
+                                      >
+                                        {offerVal}
+                                      </span>
+                                    );
+                                  })()
+                                : null;
                             })()}
                           </td>
 
                           {/* Actions */}
                           <td className="py-3 px-2 text-center whitespace-nowrap">
-                            <div className="flex items-center justify-center gap-1.5">
+                            <div className="flex items-center justify-center gap-0.5 shrink-0 flex-nowrap">
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -1162,7 +1189,7 @@ export default function CheckSupplierModal({
                                   copyRowData(r);
                                 }}
                                 title="Copy row data"
-                                className="p-1 text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors cursor-pointer"
+                                className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors cursor-pointer shrink-0"
                               >
                                 <ClipboardDocumentIcon className="w-4 h-4" />
                               </button>
@@ -1175,7 +1202,7 @@ export default function CheckSupplierModal({
                                 }}
                                 title="Copy details for WhatsApp"
                                 aria-label="Copy details for WhatsApp"
-                                className="p-1 text-[#25D366] hover:text-[#1ebd59] rounded hover:bg-emerald-50 transition-colors cursor-pointer"
+                                className="w-6 h-6 flex items-center justify-center text-[#25D366] hover:text-[#1ebd59] rounded hover:bg-emerald-50 transition-colors cursor-pointer shrink-0"
                               >
                                 <WhatsAppIcon className="w-4 h-4" />
                               </button>
@@ -1190,19 +1217,21 @@ export default function CheckSupplierModal({
                                   rec.product_url ||
                                   rec.url ||
                                   rec.link;
-                                if (!url) return null;
-                                return (
-                                  <a
-                                    href={url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="p-1 text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors cursor-pointer"
-                                    title="Open product page in a new tab"
-                                  >
-                                    <ArrowTopRightOnSquareIcon className="w-4 h-4" />
-                                  </a>
-                                );
+                                if (url) {
+                                  return (
+                                    <a
+                                      href={url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors cursor-pointer shrink-0"
+                                      title="Open product page in a new tab"
+                                    >
+                                      <ArrowTopRightOnSquareIcon className="w-4 h-4" />
+                                    </a>
+                                  );
+                                }
+                                return <div className="w-6 h-6 shrink-0" />;
                               })()}
                             </div>
                           </td>

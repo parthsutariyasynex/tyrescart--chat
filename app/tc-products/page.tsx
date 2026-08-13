@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation';
 import { features } from '@/config/features';
 import BookInquiryModal from "@/components/BookInquiryModal";
 import CheckSupplierModal from "@/components/CheckSupplierModal";
+import CostHistoryModal from "@/components/CostHistoryModal";
 import CartModal from "@/components/CartModal";
 import QuickViewModal from '@/components/QuickViewModal';
 import QuotationModal from '@/components/QuotationModal';
@@ -315,6 +316,8 @@ export default function TcProductsPage() {
   const cart = useCart();
   /** Row whose supplier-availability panel is open, or null. */
   const [checkSupplierItem, setCheckSupplierItem] = useState<Product | null>(null);
+  /** Row whose price history panel is open, or null. */
+  const [costHistoryItem, setCostHistoryItem] = useState<Product | null>(null);
   /** Cart panel visibility. Opens on Add to Cart. */
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [quickViewItem, setQuickViewItem] = useState<Product | null>(null);
@@ -984,6 +987,7 @@ export default function TcProductsPage() {
                         onToggleList={toggleList}
                         onShareWhatsApp={shareOnWhatsApp}
                         onCheckSupplier={setCheckSupplierItem}
+                        onCostHistory={setCostHistoryItem}
                         inCart={cart.has(item.id)}
                         inList={listIds.has(item.id)}
                         offerOptions={offerOptions}
@@ -1034,6 +1038,26 @@ export default function TcProductsPage() {
             runflat: checkSupplierItem.runflat,
           }}
           onCloseAction={() => setCheckSupplierItem(null)}
+        />
+      )}
+
+      {costHistoryItem && (
+        <CostHistoryModal
+          key={String(costHistoryItem.id)}
+          product={{
+            id: costHistoryItem.id,
+            brand: costHistoryItem.brand,
+            size: costHistoryItem.size,
+            sizeFull: costHistoryItem.sizeFull,
+            pattern: costHistoryItem.pattern,
+            itemCode: costHistoryItem.itemCode,
+            source: costHistoryItem.source || "TyresCart",
+            cost: costHistoryItem.price,
+            productType: costHistoryItem.productType,
+            country: costHistoryItem.country,
+            year: costHistoryItem.year,
+          }}
+          onCloseAction={() => setCostHistoryItem(null)}
         />
       )}
 

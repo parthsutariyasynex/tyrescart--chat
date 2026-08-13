@@ -186,8 +186,11 @@ function isSizeToken(token: string): boolean {
 
 /**
  * Does a SINGLE token match this product?
- *  • Size token  → matched against `sizeFields` only (width-anchored / whole
- *    component; see sizeMatches), plus an exact `year` match for a 4-digit one.
+ *  • Size token  → `sizeFields` first (width-anchored / whole component; see
+ *    sizeMatches), plus an exact `year` match for a 4-digit one. If none match,
+ *    it falls through to the text fields, so a number that only appears in a
+ *    product name ("MAX060+") is still findable.
+ *  • Rim token ("R17") → rim only, no fall-through.
  *  • Text token  → OR across `fields` (case-insensitive substring).
  * `fields`/`sizeFields` default to the supplier shape but are overridable so
  * the module stays database- AND schema-agnostic.
@@ -203,17 +206,31 @@ export function matchesToken(
     // normalization below, which would turn it into a plain "17" and let it
     // prefix-match 175-width tyres.
     const rimOnly = parseRimOnly(token);
+    /* Deliberately still an early RETURN, not a fall-through: typing the R is
+       the user naming the component. Letting "R17" also substring-match a name
+       would resurrect the noise `parseRimOnly` exists to prevent. */
     if (rimOnly) return matchesRim(product, rimOnly, sizeFields);
 
     // A 4-digit token also matches an exact `year`.
     if (isYearToken(token) && Number(getField(product, "year")) === Number(token)) {
       return true;
     }
-    // Size match against structured size fields ONLY (no name/sku pollution).
+    // Structured size fields first — a width/aspect/rim component match is the
+    // strongest reading of a numeric token and stays exactly as it was.
     for (const field of sizeFields) {
       if (sizeMatches(token, fieldAsString(product, field))) return true;
     }
-    return false;
+
+    /* No size matched — FALL THROUGH to the text fields below rather than
+       returning false.
+
+       This used to `return false`, on the reasoning that a numeric token should
+       never touch name/sku. But plenty of real numbers live only in the name:
+       "060" is the Dunlop MAX060+ pattern (143 rows in the catalogue, none with
+       060 in their size), and the same goes for "5000" or "T005A". Those
+       searches returned nothing at all.
+
+       Size matching is unaffected — it is still tried first and still wins. */
   }
 
   // Text token: OR across the searchable fields (partial, case-insensitive).

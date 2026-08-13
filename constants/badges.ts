@@ -16,53 +16,53 @@
 
 export type BadgeClassMap = Record<string, string>;
 
-export const NO_API_FIELD = '—';
+export const NO_API_FIELD = "—";
 
 /* ─── Category badges ─────────────────────────────────────── */
 
 /** Raw Tailwind variant — /supplier-products. Includes ALL-CAPS duplicates
  *  because that page can receive either casing from the feed. */
 export const CATEGORY_BADGES_TAILWIND: BadgeClassMap = {
-  Premium: 'bg-purple-50 text-purple-700 border-purple-200/70',
-  Quality: 'bg-blue-50 text-blue-700 border-blue-200/70',
-  Budget: 'bg-amber-50 text-amber-700 border-amber-200/70',
-  'Mid-Range': 'bg-teal-50 text-teal-700 border-teal-200/70',
-  'Tier 1': 'bg-emerald-50 text-emerald-700 border-emerald-200/70',
-  'Tier 2': 'bg-sky-50 text-sky-700 border-sky-200/70',
-  'Tier 3': 'bg-amber-50 text-amber-700 border-amber-200/70',
-  PREMIUM: 'bg-purple-50 text-purple-700 border-purple-200/70',
-  QUALITY: 'bg-blue-50 text-blue-700 border-blue-200/70',
-  BUDGET: 'bg-amber-50 text-amber-700 border-amber-200/70',
-  'MID-RANGE': 'bg-teal-50 text-teal-700 border-teal-200/70',
+  Premium: "bg-purple-50 text-purple-700 border-purple-200/70",
+  Quality: "bg-blue-50 text-blue-700 border-blue-200/70",
+  Budget: "bg-amber-50 text-amber-700 border-amber-200/70",
+  "Mid-Range": "bg-teal-50 text-teal-700 border-teal-200/70",
+  "Tier 1": "bg-emerald-50 text-emerald-700 border-emerald-200/70",
+  "Tier 2": "bg-sky-50 text-sky-700 border-sky-200/70",
+  "Tier 3": "bg-amber-50 text-amber-700 border-amber-200/70",
+  PREMIUM: "bg-purple-50 text-purple-700 border-purple-200/70",
+  QUALITY: "bg-blue-50 text-blue-700 border-blue-200/70",
+  BUDGET: "bg-amber-50 text-amber-700 border-amber-200/70",
+  "MID-RANGE": "bg-teal-50 text-teal-700 border-teal-200/70",
 };
 
 /** Semantic variant — /tc-products and /supplier-products. Classes live in globals.css. */
 export const CATEGORY_BADGES_SEMANTIC: BadgeClassMap = {
-  Premium: 'badge-cat-premium',
-  Quality: 'badge-cat-quality',
-  Budget: 'badge-cat-budget',
-  'Mid-Range': 'badge-cat-midrange',
-  'Tier 1': 'badge-cat-tier1',
-  'Tier 2': 'badge-cat-tier2',
-  'Tier 3': 'badge-cat-tier3',
-  PREMIUM: 'badge-cat-premium',
-  QUALITY: 'badge-cat-quality',
-  BUDGET: 'badge-cat-budget',
-  'MID-RANGE': 'badge-cat-midrange',
-  'TIER 1': 'badge-cat-tier1',
-  'TIER 2': 'badge-cat-tier2',
-  'TIER 3': 'badge-cat-tier3',
+  Premium: "badge-cat-premium",
+  Quality: "badge-cat-quality",
+  Budget: "badge-cat-budget",
+  "Mid-Range": "badge-cat-midrange",
+  "Tier 1": "badge-cat-tier1",
+  "Tier 2": "badge-cat-tier2",
+  "Tier 3": "badge-cat-tier3",
+  PREMIUM: "badge-cat-premium",
+  QUALITY: "badge-cat-quality",
+  BUDGET: "badge-cat-budget",
+  "MID-RANGE": "badge-cat-midrange",
+  "TIER 1": "badge-cat-tier1",
+  "TIER 2": "badge-cat-tier2",
+  "TIER 3": "badge-cat-tier3",
 };
 
 /* ─── Brand badges ────────────────────────────────────────── */
 
 /** Raw Tailwind variant — /supplier-products. */
 export const BRAND_BADGES_TAILWIND: BadgeClassMap = {
-  Bridgestone: 'bg-emerald-50 text-emerald-800 border-emerald-200/70',
-  Habilead: 'bg-teal-50 text-teal-800 border-teal-200/70',
-  Kumho: 'bg-indigo-50 text-indigo-800 border-indigo-200/70',
-  Michelin: 'bg-sky-50 text-sky-800 border-sky-200/70',
-  Continental: 'bg-orange-50 text-orange-800 border-orange-200/70',
+  Bridgestone: "bg-emerald-50 text-emerald-800 border-emerald-200/70",
+  Habilead: "bg-teal-50 text-teal-800 border-teal-200/70",
+  Kumho: "bg-indigo-50 text-indigo-800 border-indigo-200/70",
+  Michelin: "bg-sky-50 text-sky-800 border-sky-200/70",
+  Continental: "bg-orange-50 text-orange-800 border-orange-200/70",
 };
 
 /** Semantic variant — /tc-products. */
@@ -79,7 +79,11 @@ export const BRAND_BADGES_TAILWIND: BadgeClassMap = {
  * previous neutral slate, so an unexpected value is never mis-coloured.
  */
 export function productTypeBadge(type: string | undefined | null): string {
-  switch (String(type ?? "").trim().toLowerCase()) {
+  switch (
+    String(type ?? "")
+      .trim()
+      .toLowerCase()
+  ) {
     case "supplier":
       return "badge-type-supplier";
     case "competitor":
@@ -96,40 +100,131 @@ export function productTypeBadge(type: string | undefined | null): string {
 }
 
 export const BRAND_BADGES_SEMANTIC: BadgeClassMap = {
-  Bridgestone: 'badge-brand-emerald',
-  Habilead: 'badge-brand-teal',
-  Kumho: 'badge-brand-indigo',
-  Michelin: 'badge-brand-sky',
-  Continental: 'badge-brand-orange',
+  Bridgestone: "badge-brand-emerald",
+  Habilead: "badge-brand-teal",
+  Kumho: "badge-brand-indigo",
+  Michelin: "badge-brand-sky",
+  Continental: "badge-brand-orange",
 };
 
 /* ─── Offer badges ────────────────────────────────────────── */
 
 export const OFFER_COLOR_PALETTE = [
-  { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200/80', dot: 'bg-amber-500' },
-  { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200/80', dot: 'bg-emerald-500' },
-  { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200/80', dot: 'bg-indigo-500' },
-  { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200/80', dot: 'bg-purple-500' },
-  { bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200/80', dot: 'bg-rose-500' },
-  { bg: 'bg-sky-50', text: 'text-sky-700', border: 'border-sky-200/80', dot: 'bg-sky-500' },
-  { bg: 'bg-teal-50', text: 'text-teal-700', border: 'border-teal-200/80', dot: 'bg-teal-500' },
-  { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200/80', dot: 'bg-orange-500' },
-  { bg: 'bg-violet-50', text: 'text-violet-700', border: 'border-violet-200/80', dot: 'bg-violet-500' },
-  { bg: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-cyan-200/80', dot: 'bg-cyan-500' },
+  {
+    bg: "bg-amber-50",
+    text: "text-amber-700",
+    border: "border-amber-200/80",
+    dot: "bg-amber-500",
+  },
+  {
+    bg: "bg-emerald-50",
+    text: "text-emerald-700",
+    border: "border-emerald-200/80",
+    dot: "bg-emerald-500",
+  },
+  {
+    bg: "bg-indigo-50",
+    text: "text-indigo-700",
+    border: "border-indigo-200/80",
+    dot: "bg-indigo-500",
+  },
+  {
+    bg: "bg-purple-50",
+    text: "text-purple-700",
+    border: "border-purple-200/80",
+    dot: "bg-purple-500",
+  },
+  {
+    bg: "bg-rose-50",
+    text: "text-rose-700",
+    border: "border-rose-200/80",
+    dot: "bg-rose-500",
+  },
+  {
+    bg: "bg-sky-50",
+    text: "text-sky-700",
+    border: "border-sky-200/80",
+    dot: "bg-sky-500",
+  },
+  {
+    bg: "bg-teal-50",
+    text: "text-teal-700",
+    border: "border-teal-200/80",
+    dot: "bg-teal-500",
+  },
+  {
+    bg: "bg-orange-50",
+    text: "text-orange-700",
+    border: "border-orange-200/80",
+    dot: "bg-orange-500",
+  },
+  {
+    bg: "bg-violet-50",
+    text: "text-violet-700",
+    border: "border-violet-200/80",
+    dot: "bg-violet-500",
+  },
+  {
+    bg: "bg-cyan-50",
+    text: "text-cyan-700",
+    border: "border-cyan-200/80",
+    dot: "bg-cyan-500",
+  },
 ];
 
-export const KNOWN_OFFER_STYLES: Record<string, { bg: string; text: string; border: string; dot: string }> = {
-  "buy 3 get 1 free": { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200/80", dot: "bg-amber-500" },
-  "buy 3 get 1": { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200/80", dot: "bg-amber-500" },
-  "free wheel alignment": { bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200/80", dot: "bg-emerald-500" },
-  "free alignment": { bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200/80", dot: "bg-emerald-500" },
-  "free fitting": { bg: "bg-sky-50", text: "text-sky-700", border: "border-sky-200/80", dot: "bg-sky-500" },
-  "free balancing": { bg: "bg-indigo-50", text: "text-indigo-700", border: "border-indigo-200/80", dot: "bg-indigo-500" },
+export const KNOWN_OFFER_STYLES: Record<
+  string,
+  { bg: string; text: string; border: string; dot: string }
+> = {
+  "buy 3 get 1 free": {
+    bg: "bg-amber-50",
+    text: "text-amber-700",
+    border: "border-amber-200/80",
+    dot: "bg-amber-500",
+  },
+  "buy 3 get 1": {
+    bg: "bg-amber-50",
+    text: "text-amber-700",
+    border: "border-amber-200/80",
+    dot: "bg-amber-500",
+  },
+  "free wheel alignment": {
+    bg: "bg-emerald-50",
+    text: "text-emerald-700",
+    border: "border-emerald-200/80",
+    dot: "bg-emerald-500",
+  },
+  "free alignment": {
+    bg: "bg-emerald-50",
+    text: "text-emerald-700",
+    border: "border-emerald-200/80",
+    dot: "bg-emerald-500",
+  },
+  "free fitting": {
+    bg: "bg-sky-50",
+    text: "text-sky-700",
+    border: "border-sky-200/80",
+    dot: "bg-sky-500",
+  },
+  "free balancing": {
+    bg: "bg-indigo-50",
+    text: "text-indigo-700",
+    border: "border-indigo-200/80",
+    dot: "bg-indigo-500",
+  },
 };
 
-export function getOfferBadgeStyle(offer: string | undefined | null, offerOptions?: string[]) {
+export function getOfferBadgeStyle(
+  offer: string | undefined | null,
+  offerOptions?: string[],
+) {
   if (!offer || offer === NO_API_FIELD) {
-    return { bg: 'bg-slate-50', text: 'text-slate-500', border: 'border-slate-200', dot: 'bg-slate-400' };
+    return {
+      bg: "bg-slate-50",
+      text: "text-slate-500",
+      border: "border-slate-200",
+      dot: "bg-slate-400",
+    };
   }
   const norm = offer.trim().toLowerCase();
   if (KNOWN_OFFER_STYLES[norm]) {
@@ -306,7 +401,10 @@ export const BRAND_LOGO_OVERRIDES: Record<string, string> = {};
 /** Same normalisation the map was generated with — see BRAND_LOGO_FILES. */
 function normaliseBrandKey(brand: string): string {
   const filler = /\b(logo|logos|tyre|tyres|tire|tires|shop|brand)\b/g;
-  return brand.toLowerCase().replace(filler, "").replace(/[^a-z0-9]/g, "");
+  return brand
+    .toLowerCase()
+    .replace(filler, "")
+    .replace(/[^a-z0-9]/g, "");
 }
 
 /**

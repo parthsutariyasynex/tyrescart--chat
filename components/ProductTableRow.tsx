@@ -29,7 +29,9 @@ import { WhatsAppIcon } from "@/components/WhatsAppIcon";
  */
 function displayTyreSize(item: { size?: string; sizeFull?: string }): string {
   if (item.size) return item.size;
-  return (item.sizeFull || "").replace(/\s+\d{2,3}(?:\/\d{2,3})?[A-Z]{1,2}\s*$/i, "").trim();
+  return (item.sizeFull || "")
+    .replace(/\s+\d{2,3}(?:\/\d{2,3})?[A-Z]{1,2}\s*$/i, "")
+    .trim();
 }
 
 export interface ProductRowItem {
@@ -81,7 +83,9 @@ interface ProductTableRowProps<T extends ProductRowItem = ProductRowItem> {
   offerOptions?: string[];
 }
 
-export const ProductTableRow = React.memo(function ProductTableRow<T extends ProductRowItem = ProductRowItem>({
+export const ProductTableRow = React.memo(function ProductTableRow<
+  T extends ProductRowItem = ProductRowItem,
+>({
   item,
   type,
   hiddenColumns,
@@ -100,7 +104,7 @@ export const ProductTableRow = React.memo(function ProductTableRow<T extends Pro
 }: ProductTableRowProps<T>) {
   return (
     <tr
-      className={`transition-colors duration-150 hover:bg-emerald-50/50 group ${
+      className={`transition-colors duration-150 hover:bg-emerald-50/50 group align-middle ${
         isSelected ? "bg-emerald-50/70" : ""
       }`}
     >
@@ -153,7 +157,12 @@ export const ProductTableRow = React.memo(function ProductTableRow<T extends Pro
           }}
           title={features.quickView ? "Click to view details" : undefined}
         >
-          <span className="line-clamp-2" title={item.pattern && item.pattern !== "-" ? item.pattern : undefined}>
+          <span
+            className="break-words leading-snug block"
+            title={
+              item.pattern && item.pattern !== "-" ? item.pattern : undefined
+            }
+          >
             {item.pattern && item.pattern !== "-" ? item.pattern : ""}
           </span>
         </td>
@@ -193,14 +202,18 @@ export const ProductTableRow = React.memo(function ProductTableRow<T extends Pro
       {!hiddenColumns.has("origin") && (
         <td className={`${cellPaddingClass} whitespace-nowrap`}>
           <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 whitespace-nowrap">
-            {item.country && item.country.trim() && item.country !== "-" ? item.country : null}
+            {item.country && item.country.trim() && item.country !== "-"
+              ? item.country
+              : null}
           </div>
         </td>
       )}
 
       {/* Production Year Column */}
       {!hiddenColumns.has("year") && (
-        <td className={`${cellPaddingClass} text-center text-xs font-semibold text-slate-700`}>
+        <td
+          className={`${cellPaddingClass} text-center text-xs font-semibold text-slate-700`}
+        >
           {item.year && item.year > 0 ? item.year : null}
         </td>
       )}
@@ -220,9 +233,37 @@ export const ProductTableRow = React.memo(function ProductTableRow<T extends Pro
       {type === "tc" && !hiddenColumns.has("price") && (
         <td className={`${cellPaddingClass} text-right whitespace-nowrap`}>
           {item.price && item.price > 0 ? (
-            <div className="inline-flex items-center justify-end text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap" dir="ltr">
-              <span>{item.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-            </div>
+            onCostHistory ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCostHistory(item);
+                }}
+                title="View price history"
+                className="inline-flex items-center justify-end gap-1 text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap rounded px-1 -mx-1 hover:text-emerald-700 hover:underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors cursor-pointer"
+                dir="ltr"
+              >
+                <span>
+                  {item.price.toLocaleString("en-US", {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                </span>
+              </button>
+            ) : (
+              <div
+                className="inline-flex items-center justify-end text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap"
+                dir="ltr"
+              >
+                <span>
+                  {item.price.toLocaleString("en-US", {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                </span>
+              </div>
+            )
           ) : null}
         </td>
       )}
@@ -230,8 +271,16 @@ export const ProductTableRow = React.memo(function ProductTableRow<T extends Pro
       {type === "supplier" && !hiddenColumns.has("cost") && (
         <td className={`${cellPaddingClass} text-right whitespace-nowrap`}>
           {item.cost && item.cost > 0 ? (
-            <div className="inline-flex items-center justify-end text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap" dir="ltr">
-              <span>{item.cost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            <div
+              className="inline-flex items-center justify-end text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap"
+              dir="ltr"
+            >
+              <span>
+                {item.cost.toLocaleString("en-US", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </span>
             </div>
           ) : null}
         </td>
@@ -250,7 +299,9 @@ export const ProductTableRow = React.memo(function ProductTableRow<T extends Pro
 
       {/* Supplier Specific: Date Column */}
       {type === "supplier" && !hiddenColumns.has("date") && (
-        <td className={`${cellPaddingClass} text-center text-xs text-slate-500 font-medium whitespace-nowrap`}>
+        <td
+          className={`${cellPaddingClass} text-center text-xs text-slate-500 font-medium whitespace-nowrap`}
+        >
           {item.date && item.date !== "-" ? item.date : null}
         </td>
       )}
@@ -259,8 +310,16 @@ export const ProductTableRow = React.memo(function ProductTableRow<T extends Pro
       {type === "tc" && !hiddenColumns.has("setOf4Price") && (
         <td className={`${cellPaddingClass} text-right whitespace-nowrap`}>
           {item.setOf4Price && item.setOf4Price > 0 ? (
-            <div className="inline-flex items-center justify-end text-xs font-semibold text-slate-600 font-mono whitespace-nowrap" dir="ltr">
-              <span>{item.setOf4Price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            <div
+              className="inline-flex items-center justify-end text-xs font-semibold text-slate-600 font-mono whitespace-nowrap"
+              dir="ltr"
+            >
+              <span>
+                {item.setOf4Price.toLocaleString("en-US", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </span>
             </div>
           ) : null}
         </td>
@@ -269,39 +328,28 @@ export const ProductTableRow = React.memo(function ProductTableRow<T extends Pro
       {/* TC Specific: Offer Column */}
       {type === "tc" && !hiddenColumns.has("offer") && (
         <td className={`${cellPaddingClass} text-center`}>
-          {item.offer && item.offer !== NO_API_FIELD && item.offer !== "-" && item.offer !== "No Offer" ? (
-            (() => {
-              const style = getOfferBadgeStyle(item.offer, offerOptions);
-              return (
-                <span
-                  title={item.offer}
-                  className={`inline-block max-w-full truncate px-2.5 py-0.5 rounded-md text-[10px] font-extrabold border shadow-2xs ${style.bg} ${style.text} ${style.border}`}
-                >
-                  {item.offer}
-                </span>
-              );
-            })()
-          ) : null}
+          {item.offer &&
+          item.offer !== NO_API_FIELD &&
+          item.offer !== "-" &&
+          item.offer !== "No Offer"
+            ? (() => {
+                const style = getOfferBadgeStyle(item.offer, offerOptions);
+                return (
+                  <span
+                    title={item.offer}
+                    className={`inline-block whitespace-nowrap px-2 py-0.5 rounded-md text-[10px] font-extrabold border shadow-2xs ${style.bg} ${style.text} ${style.border}`}
+                  >
+                    {item.offer}
+                  </span>
+                );
+              })()
+            : null}
         </td>
       )}
 
       {/* Action Buttons Column */}
-      <td className={`${cellPaddingClass} text-center`}>
-        <div className="flex items-center justify-center gap-1.5">
-          {features.costHistory && type === "supplier" && onCostHistory && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onCostHistory(item);
-              }}
-              title="Cost History"
-              aria-label="Cost History"
-              className="w-6 h-6 aspect-square shrink-0 flex items-center justify-center rounded-md border transition-colors active:opacity-80 bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-blue-600 hover:border-blue-300"
-            >
-              <ClockIcon className="w-3 h-3" />
-            </button>
-          )}
-
+      <td className={`${cellPaddingClass} text-center whitespace-nowrap`}>
+        <div className="flex items-center justify-center gap-0.5 shrink-0 flex-nowrap">
           {features.wishlist && onToggleList && (
             <button
               onClick={(e) => {
@@ -349,8 +397,6 @@ export const ProductTableRow = React.memo(function ProductTableRow<T extends Pro
               <WhatsAppIcon className="w-3 h-3" />
             </button>
           )}
-
-
 
           {features.checkSupplier && onCheckSupplier && (
             <button

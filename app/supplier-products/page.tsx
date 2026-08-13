@@ -17,7 +17,11 @@ import {
 } from "@/services/productFormatter";
 import Header from "@/components/Header";
 import HeaderActions from "@/components/HeaderActions";
-import { CATEGORY_BADGES_SEMANTIC, getOfferBadgeStyle, productTypeBadge } from '@/constants/badges';
+import {
+  CATEGORY_BADGES_SEMANTIC,
+  getOfferBadgeStyle,
+  productTypeBadge,
+} from "@/constants/badges";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { paginate } from "@/services/searchFilter";
@@ -1015,9 +1019,9 @@ export default function SupplierProductsPage() {
 
   // Cell padding class based on Density mode
   const cellPaddingClass = useMemo(() => {
-    if (density === "compact") return "py-1 px-1.5";
-    if (density === "comfortable") return "py-1.5 px-2";
-    return "py-2 px-2"; // breathable
+    if (density === "compact") return "py-1 px-1";
+    if (density === "comfortable") return "py-1.5 px-1.5";
+    return "py-2 px-1.5"; // breathable
   }, [density]);
 
   return (
@@ -1098,33 +1102,34 @@ export default function SupplierProductsPage() {
 
                 */}
             <div
-              className={`flex-1 min-h-0 [scrollbar-gutter:stable] ${pageSize > 15 ? "overflow-y-auto" : "overflow-hidden"}`}
+              className="flex-1 min-h-0 overflow-y-auto no-scrollbar"
             >
               <table className="w-full text-left border-collapse table-fixed">
                 <colgroup>
-                  {!hiddenColumns.has("source") && (
-                    <col className="w-[6%]" />
+                  {!hiddenColumns.has("source") && <col className="w-[5.5%]" />}
+                  {!hiddenColumns.has("itemCode") && (
+                    <col className="w-[8.5%]" />
                   )}
-                  {!hiddenColumns.has("type") && <col className="w-[6%]" />}
+                  {!hiddenColumns.has("type") && <col className="w-[5.5%]" />}
                   {!hiddenColumns.has("category") && (
-                    <col className="w-[6%]" />
+                    <col className="w-[5.5%]" />
                   )}
-                  {!hiddenColumns.has("brand") && <col className="w-[7%]" />}
+                  {!hiddenColumns.has("brand") && <col className="w-[6.5%]" />}
                   {!hiddenColumns.has("pattern") && <col />}
-                  {!hiddenColumns.has("size") && <col className="w-[8%]" />}
+                  {!hiddenColumns.has("size") && <col className="w-[7.5%]" />}
                   {!hiddenColumns.has("runflat") && <col className="w-[4%]" />}
                   {!hiddenColumns.has("country") && (
-                    <col className="w-[5%]" />
+                    <col className="w-[7.5%]" />
                   )}
-                  {!hiddenColumns.has("year") && <col className="w-[4%]" />}
-                  {!hiddenColumns.has("qty") && <col className="w-[3.5%]" />}
-                  {!hiddenColumns.has("cost") && <col className="w-[6%]" />}
+                  {!hiddenColumns.has("year") && <col className="w-[3.5%]" />}
+                  {!hiddenColumns.has("qty") && <col className="w-[3%]" />}
+                  {!hiddenColumns.has("cost") && <col className="w-[5%]" />}
                   {!hiddenColumns.has("fittingPrice") && (
                     <col className="w-[6%]" />
                   )}
-                  {!hiddenColumns.has("date") && <col className="w-[5%]" />}
-                  {!hiddenColumns.has("offer") && <col className="w-[11.5%]" />}
-                  <col className="w-[5.5%]" />
+                  {!hiddenColumns.has("date") && <col className="w-[5.5%]" />}
+                  {!hiddenColumns.has("offer") && <col className="w-[7.5%]" />}
+                  <col className="w-[6%]" />
                 </colgroup>
                 <thead className="bg-slate-50/90 backdrop-blur sticky top-0 z-10 border-b border-slate-200">
                   <tr className="text-[11px] font-bold text-slate-500 uppercase tracking-wider select-none">
@@ -1134,6 +1139,17 @@ export default function SupplierProductsPage() {
                         className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
                       >
                         Source{" "}
+                        <span className="ml-0.5 opacity-50 font-normal">
+                          ↑↓
+                        </span>
+                      </th>
+                    )}
+                    {!hiddenColumns.has("itemCode") && (
+                      <th
+                        onClick={() => handleSort("itemCode")}
+                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      >
+                        Item Code{" "}
                         <span className="ml-0.5 opacity-50 font-normal">
                           ↑↓
                         </span>
@@ -1202,7 +1218,7 @@ export default function SupplierProductsPage() {
                     {!hiddenColumns.has("country") && (
                       <th
                         onClick={() => handleSort("country")}
-                        className="py-2 px-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                        className="py-2 pl-6 pr-3 cursor-pointer hover:text-slate-900 whitespace-nowrap"
                       >
                         Countries{" "}
                         <span className="ml-0.5 opacity-50 font-normal">
@@ -1286,6 +1302,11 @@ export default function SupplierProductsPage() {
                     Array.from({ length: pageSize }).map((_, rIdx) => (
                       <tr key={rIdx} className="hover:bg-slate-50/50">
                         {!hiddenColumns.has("source") && (
+                          <td className={cellPaddingClass}>
+                            <Skeleton className="h-5 w-16 rounded-md" />
+                          </td>
+                        )}
+                        {!hiddenColumns.has("itemCode") && (
                           <td className={cellPaddingClass}>
                             <Skeleton className="h-5 w-16 rounded-md" />
                           </td>
@@ -1409,6 +1430,14 @@ export default function SupplierProductsPage() {
                             </td>
                           )}
 
+                          {!hiddenColumns.has("itemCode") && (
+                            <td
+                              className={`${cellPaddingClass} text-xs font-mono text-slate-700 break-all leading-tight`}
+                            >
+                              <span title={item.itemCode}>{item.itemCode}</span>
+                            </td>
+                          )}
+
                           {!hiddenColumns.has("type") && (
                             <td
                               className={`${cellPaddingClass} whitespace-nowrap`}
@@ -1448,7 +1477,7 @@ export default function SupplierProductsPage() {
                               className={`${cellPaddingClass} text-xs font-bold text-slate-900`}
                             >
                               <span
-                                className="line-clamp-2"
+                                className="break-words leading-snug block"
                                 title={item.pattern}
                               >
                                 {item.pattern}
@@ -1466,7 +1495,7 @@ export default function SupplierProductsPage() {
 
                           {!hiddenColumns.has("runflat") && (
                             <td
-                              className={`${cellPaddingClass} text-center whitespace-nowrap`}
+                              className={`${cellPaddingClass} whitespace-nowrap`}
                             >
                               {item.runflat ? (
                                 <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded border border-emerald-200 whitespace-nowrap inline-block">
@@ -1477,16 +1506,17 @@ export default function SupplierProductsPage() {
                           )}
 
                           {!hiddenColumns.has("country") && (
-                            <td
-                              className={`${cellPaddingClass} whitespace-nowrap`}
-                            >
-                              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 whitespace-nowrap">
+                            <td className={`${cellPaddingClass} pl-5`}>
+                              <span
+                                className="text-xs font-semibold text-slate-700 uppercase break-words leading-tight block"
+                                title={item.country}
+                              >
                                 {item.country &&
                                 item.country.trim() &&
                                 item.country !== "-"
                                   ? item.country
                                   : null}
-                              </div>
+                              </span>
                             </td>
                           )}
 
@@ -1536,7 +1566,7 @@ export default function SupplierProductsPage() {
 
                           {!hiddenColumns.has("fittingPrice") && (
                             <td
-                              className={`${cellPaddingClass} text-center whitespace-nowrap`}
+                              className={`${cellPaddingClass} whitespace-nowrap`}
                             >
                               {item.fittingPrice && item.fittingPrice > 0 ? (
                                 <button
@@ -1581,33 +1611,35 @@ export default function SupplierProductsPage() {
                             >
                               {item.offer &&
                               item.offer !== "-" &&
-                              item.offer !== "No Offer" ? (
-                                (() => {
-                                  const style = getOfferBadgeStyle(
-                                    item.offer,
-                                    offerOptions,
-                                  );
-                                  return (
-                                    <span
-                                      title={item.offer}
-                                      className={`inline-block max-w-full truncate px-2.5 py-0.5 rounded text-[10px] font-extrabold border shadow-2xs ${style.bg} ${style.text} ${style.border}`}
-                                    >
-                                      {item.offer}
-                                    </span>
-                                  );
-                                })()
-                              ) : null}
+                              item.offer !== "No Offer"
+                                ? (() => {
+                                    const style = getOfferBadgeStyle(
+                                      item.offer,
+                                      offerOptions,
+                                    );
+                                    return (
+                                      <span
+                                        title={item.offer}
+                                        className={`inline-block whitespace-nowrap px-2 py-0.5 rounded text-[10px] font-extrabold border shadow-2xs ${style.bg} ${style.text} ${style.border}`}
+                                      >
+                                        {item.offer}
+                                      </span>
+                                    );
+                                  })()
+                                : null}
                             </td>
                           )}
 
-                          <td className={`${cellPaddingClass} text-center`}>
-                            <div className="flex items-center justify-center gap-1">
+                          <td
+                            className={`${cellPaddingClass} text-center whitespace-nowrap`}
+                          >
+                            <div className="flex items-center justify-center gap-0.5 shrink-0 flex-nowrap">
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   copyRowData(item);
                                 }}
-                                className="p-1 text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors"
+                                className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors shrink-0"
                                 title="Copy row data"
                               >
                                 <svg
@@ -1632,7 +1664,7 @@ export default function SupplierProductsPage() {
                                 }}
                                 title="Copy details for WhatsApp"
                                 aria-label="Copy details for WhatsApp"
-                                className="p-1 text-[#25D366] hover:text-[#1ebd59] rounded hover:bg-emerald-50 transition-colors cursor-pointer"
+                                className="w-6 h-6 flex items-center justify-center text-[#25D366] hover:text-[#1ebd59] rounded hover:bg-emerald-50 transition-colors cursor-pointer shrink-0"
                               >
                                 <WhatsAppIcon className="w-4 h-4" />
                               </button>
@@ -1642,23 +1674,20 @@ export default function SupplierProductsPage() {
                                   e.stopPropagation();
                                   setCheckSupplierItem(item);
                                 }}
-                                className="p-1 text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors"
+                                className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors shrink-0"
                                 title="Check Supplier"
                               >
                                 <TruckIcon className="w-4 h-4" />
                               </button>
 
-                              {/* An anchor, not a button + window.open: middle-click and
-                                  "open in new tab" keep working, and the popup blocker
-                                  leaves a real link alone. stopPropagation stops the
-                                  row's copy-on-click from also firing. */}
-                              {item.productUrl && (
+                              {/* Fixed Slot 4: External Product URL or empty placeholder for perfect alignment */}
+                              {item.productUrl ? (
                                 <a
                                   href={item.productUrl}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   onClick={(e) => e.stopPropagation()}
-                                  className="p-1 text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors"
+                                  className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors shrink-0"
                                   title="Open product page in a new tab"
                                 >
                                   <svg
@@ -1675,6 +1704,8 @@ export default function SupplierProductsPage() {
                                     />
                                   </svg>
                                 </a>
+                              ) : (
+                                <div className="w-6 h-6 shrink-0" />
                               )}
                             </div>
                           </td>

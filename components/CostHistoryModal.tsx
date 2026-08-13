@@ -25,6 +25,8 @@ import {
   fromApiHistory,
   toDateSeries,
   summarise,
+  getCostHistory,
+  getFittingPriceHistory,
   type CostHistoryRecord,
 } from "@/services/costHistory";
 import { fetchSupplierPriceHistoryCached } from "@/services/cache";
@@ -123,13 +125,36 @@ export default function CostHistoryModal({
         api = await fetchSupplierPriceHistoryCached(product.id, "supplier").catch(() => []);
       }
 
-      return fromApiHistory(api, product.id, product.itemCode ?? "");
+      const apiRows = fromApiHistory(api, product.id, product.itemCode ?? "");
+      if (apiRows.length > 0) return apiRows;
+
+      // Fallback 2: Check local IndexedDB cost / fitting history
+      const localRecords = isFitting
+        ? await getFittingPriceHistory(product.id).catch(() => [])
+        : await getCostHistory(product.id).catch(() => []);
+
+      if (localRecords && localRecords.length > 0) return localRecords;
+
+      // Fallback 3: If no historical changes recorded yet, create a baseline point from current price
+      if (product.cost && product.cost > 0) {
+        return [
+          {
+            productId: product.id,
+            sku: product.itemCode ?? "",
+            cost: product.cost,
+            syncDate: new Date().toISOString().slice(0, 10),
+            syncTimestamp: Date.now(),
+          },
+        ];
+      }
+
+      return [];
     }
     void load()
       .then((rows) => { if (alive) setHistory(rows); })
       .catch(() => { if (alive) setHistory([]); });
     return () => { alive = false; };
-  }, [product.id, product.productType, product.source, product.itemCode, isFitting]);
+  }, [product.id, product.productType, product.source, product.itemCode, product.cost, isFitting]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") handleClose(); };

@@ -1,6 +1,11 @@
 "use client";
 
-import React, { useEffect, useState, useSyncExternalStore, useMemo } from "react";
+import React, {
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  useMemo,
+} from "react";
 import { createPortal } from "react-dom";
 import {
   XMarkIcon,
@@ -54,7 +59,11 @@ export default function TyresGuideModal({
   isOpen,
   onClose,
 }: TyresGuideModalProps) {
-  const mounted = useSyncExternalStore(subscribeNever, () => true, () => false);
+  const mounted = useSyncExternalStore(
+    subscribeNever,
+    () => true,
+    () => false,
+  );
 
   /* Search Query & Pagination States */
   const [searchQuery, setSearchQuery] = useState("");
@@ -146,8 +155,10 @@ export default function TyresGuideModal({
       const make = (v.make_name || "").toLowerCase();
       const model = (v.model_name || "").toLowerCase();
       const years = (v.year_ranges || "").toLowerCase();
-      const fSize = `${v.front_width}/${v.front_height} r${v.front_rim}`.toLowerCase();
-      const rSize = `${v.rear_width}/${v.rear_height} r${v.rear_rim}`.toLowerCase();
+      const fSize =
+        `${v.front_width}/${v.front_height} r${v.front_rim}`.toLowerCase();
+      const rSize =
+        `${v.rear_width}/${v.rear_height} r${v.rear_rim}`.toLowerCase();
       return (
         make.includes(q) ||
         model.includes(q) ||
@@ -168,7 +179,8 @@ export default function TyresGuideModal({
     return filteredVehicles.slice(startIdx, startIdx + pageSize);
   }, [filteredVehicles, validCurrentPage, pageSize]);
 
-  const startRecord = totalItems === 0 ? 0 : (validCurrentPage - 1) * pageSize + 1;
+  const startRecord =
+    totalItems === 0 ? 0 : (validCurrentPage - 1) * pageSize + 1;
 
   if (!mounted) return null;
   if (!isOpen && !isClosing) return null;
@@ -177,7 +189,9 @@ export default function TyresGuideModal({
     /* Backdrop */
     <div
       className={`fixed inset-0 z-[9999] flex items-end justify-center bg-slate-950/60 backdrop-blur-xs transition-opacity duration-300 ease-out ${
-        isAnimatedOpen && !isClosing ? "opacity-100" : "opacity-0 pointer-events-none"
+        isAnimatedOpen && !isClosing
+          ? "opacity-100"
+          : "opacity-0 pointer-events-none"
       }`}
       onClick={handleClose}
       role="dialog"
@@ -194,7 +208,7 @@ export default function TyresGuideModal({
         {/* Modal Header Bar with integrated Search */}
         <div className="bg-white px-5 sm:px-6 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3 shrink-0">
-            <div className="p-2 rounded-xl bg-amber-50 text-amber-600 border border-amber-200/80 shadow-2xs">
+            <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200/80 shadow-2xs">
               <BookOpenIcon className="w-5 h-5" />
             </div>
             <div>
@@ -205,8 +219,8 @@ export default function TyresGuideModal({
                 >
                   Tyres Guide
                 </h2>
-                <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-200">
-                  <SparklesIcon className="w-3 h-3 text-amber-600" />
+                <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                  <SparklesIcon className="w-3 h-3 text-emerald-600" />
                   Vehicle Search
                 </span>
               </div>
@@ -216,12 +230,13 @@ export default function TyresGuideModal({
           {/* Header Search Input */}
           <div className="relative flex-1 max-w-md mx-2 min-w-[200px]">
             <MagnifyingGlassIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input autoComplete="off"
+            <input
+              autoComplete="off"
               type="text"
               placeholder="Search make, model, year, or tyre size..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full h-9 pl-9 pr-8 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all"
+              className="w-full h-9 pl-9 pr-8 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
             />
             {searchQuery && (
               <button
@@ -299,7 +314,9 @@ export default function TyresGuideModal({
                           <th className="py-2.5 px-3.5">Year Ranges</th>
                           <th className="py-2.5 px-3.5">Front Axle Size</th>
                           <th className="py-2.5 px-3.5">Rear Axle Size</th>
-                          <th className="py-2.5 px-3.5 text-center">Fitment Type</th>
+                          <th className="py-2.5 px-3.5 text-center">
+                            Fitment Type
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-150 text-slate-800">
@@ -318,14 +335,14 @@ export default function TyresGuideModal({
                           return (
                             <tr
                               key={idx}
-                              className="hover:bg-amber-50/50 transition-colors group"
+                              className="hover:bg-emerald-50/50 transition-colors group"
                             >
-                              <td className="py-2 px-3 text-center font-bold text-slate-400 group-hover:text-amber-600">
+                              <td className="py-2 px-3 text-center font-bold text-slate-400 group-hover:text-emerald-600">
                                 {itemIndex}
                               </td>
                               <td className="py-2 px-3.5">
                                 <div className="flex items-center gap-2">
-                                  <div className="w-6 h-6 rounded-md bg-amber-50 text-amber-700 border border-amber-200/60 flex items-center justify-center font-black text-xs shrink-0 group-hover:bg-amber-500 group-hover:text-white transition-colors">
+                                  <div className="w-6 h-6 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/60 flex items-center justify-center font-black text-xs shrink-0 group-hover:bg-emerald-100 group-hover:text-emerald-800 transition-colors">
                                     <TruckIcon className="w-3.5 h-3.5" />
                                   </div>
                                   <span className="font-extrabold text-slate-900 text-xs sm:text-xs">
@@ -379,16 +396,21 @@ export default function TyresGuideModal({
               </div>
             ) : hasSearched ? (
               <div className="flex flex-col items-center justify-center h-64 text-slate-400 gap-3">
-                <TruckIcon className="w-12 h-12 opacity-30 text-amber-500" />
-                <p className="text-base font-bold text-slate-700">No vehicle fitments found</p>
+                <TruckIcon className="w-12 h-12 opacity-30 text-emerald-500" />
+                <p className="text-base font-bold text-slate-700">
+                  No vehicle fitments found
+                </p>
                 <p className="text-xs text-slate-500 max-w-sm text-center">
-                  No vehicles matched your search query. Try typing another make, model, or year.
+                  No vehicles matched your search query. Try typing another
+                  make, model, or year.
                 </p>
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center h-64 text-slate-400 gap-3">
-                <BookOpenIcon className="w-12 h-12 opacity-20 text-amber-500" />
-                <p className="text-sm font-semibold text-slate-600">Type vehicle name to look up fitments</p>
+                <BookOpenIcon className="w-12 h-12 opacity-20 text-emerald-500" />
+                <p className="text-sm font-semibold text-slate-600">
+                  Type vehicle name to look up fitments
+                </p>
               </div>
             )}
           </div>
@@ -409,6 +431,6 @@ export default function TyresGuideModal({
         </div>
       </div>
     </div>,
-    document.body
+    document.body,
   );
 }

@@ -350,7 +350,7 @@ export default function Filter({
         {showSupplierFilter && setSupplierFilter && (
           <div
             ref={supplierRef}
-            className="flex flex-col w-[95px] sm:w-[105px] xl:w-[115px] shrink-0 relative"
+            className="flex flex-col w-[85px] sm:w-[95px] lg:w-[100px] xl:w-[115px] shrink-0 relative"
           >
             <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
               Supplier
@@ -465,7 +465,7 @@ export default function Filter({
         {/* Category */}
         <div
           ref={categoryRef}
-          className="flex flex-col w-[95px] sm:w-[110px] xl:w-[120px] shrink-0 relative"
+          className="relative flex flex-col w-[85px] sm:w-[95px] lg:w-[100px] xl:w-[115px] shrink-0"
         >
           <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
             Category
@@ -579,7 +579,7 @@ export default function Filter({
         {/* Brand */}
         <div
           ref={brandRef}
-          className="relative flex flex-col w-[110px] sm:w-[130px] xl:w-[145px] shrink-0"
+          className="relative flex flex-col w-[100px] sm:w-[115px] lg:w-[125px] xl:w-[145px] shrink-0"
         >
           <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
             Brand
@@ -787,7 +787,7 @@ export default function Filter({
         </div>
 
         {/* Year */}
-        <div className="flex flex-col w-[65px] sm:w-[75px] xl:w-[85px] shrink-0">
+        <div className="flex flex-col w-[55px] sm:w-[65px] lg:w-[75px] xl:w-[85px] shrink-0">
           <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
             Year
           </label>
@@ -805,7 +805,7 @@ export default function Filter({
         </div>
 
         {/* Qty */}
-        <div className="flex flex-col w-[60px] sm:w-[70px] xl:w-[75px] shrink-0">
+        <div className="flex flex-col w-[50px] sm:w-[60px] lg:w-[65px] xl:w-[75px] shrink-0">
           <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
             Qty
           </label>
@@ -823,7 +823,7 @@ export default function Filter({
         </div>
 
         {/* Price Range */}
-        <div className="flex flex-col w-full sm:w-[170px] lg:w-[190px] xl:w-[220px] shrink-0">
+        <div className="flex flex-col w-full sm:w-[140px] lg:w-[155px] xl:w-[180px] shrink-0">
           <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
             Price Range
           </label>
@@ -864,7 +864,7 @@ export default function Filter({
         {showOfferFilter && setOfferFilter && (
           <div
             ref={offerRef}
-            className="flex flex-col w-full sm:w-[140px] lg:w-[160px] shrink-0 relative"
+            className="flex flex-col w-full sm:w-[105px] lg:w-[120px] xl:w-[140px] shrink-0 relative"
           >
             <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
               Offers
