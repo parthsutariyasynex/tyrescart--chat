@@ -325,7 +325,10 @@ export default function BookInquiryModal({
    * "501234567" are different customers upstream.
    */
   useEffect(() => {
-    if (editingId) return;
+    if (editingId && !customerEditMode) {
+      setPhoneCheck(undefined);
+      return;
+    }
     const p = phone.trim();
     let alive = true;
     // Below 7 digits there is nothing worth asking about, and the endpoint only
@@ -346,8 +349,8 @@ export default function BookInquiryModal({
     const timer = setTimeout(() => {
       void fetchCrmCustomerByPhoneGraphQL(p)
         .then((c) => {
-          /* Result is reported INLINE under the phone field \u2014 the red
-             "already exists" / green "available" lines below the input \u2014 not as
+          /* Result is reported INLINE under the phone field — the red
+             "already exists" / green "available" lines below the input — not as
              a toast. One place to look, and it stays on screen instead of
              disappearing after 3s. */
           if (alive) setPhoneCheck({ phone: p, customer: c, loading: false });
@@ -361,7 +364,7 @@ export default function BookInquiryModal({
       clearTimeout(spinner);
       clearTimeout(timer);
     };
-  }, [phone, editingId]);
+  }, [phone, editingId, customerEditMode]);
 
   /**
    * Manual "Check Number" — the SAME lookup the debounced effect above runs,
@@ -453,12 +456,14 @@ export default function BookInquiryModal({
     setCustomerEditMode(false);
     setSearchQuery("");
     setErrors({});
+    setPhoneCheck(undefined);
   };
 
   // Populate form for editing
   const handleEdit = (inquiry: Inquiry, customerMode = false) => {
     setEditingId(inquiry.id);
     setCustomerEditMode(customerMode);
+    setPhoneCheck(undefined);
     setName(inquiry.name || "");
     setPhone(inquiry.phone || "");
     setEmail(inquiry.email || "");
@@ -612,19 +617,17 @@ export default function BookInquiryModal({
       return;
     }
 
-    if (editingId) {
-      /* No localStorage write. The schema has no updateCrmBooking mutation, so
-         an edit has nowhere to be persisted — saying so beats silently storing
-         it locally where the backend-only list will never show it. */
-      setToastMessage(
-        `Inquiry ${editingId} cannot be saved — the CRM has no update endpoint.`,
-      );
-    } else {
-      /* A NEW enquiry is filed in the CRM first. Only once the mutation confirms
-         it do we mirror it locally, stamped with the ids the API returned — so
-         the list can never show an enquiry the CRM does not have. Blank fields
-         are omitted by the mutation builder rather than sent as empty strings,
-         which would blank out data already on the customer's record. */
+    {
+      /* ALWAYS a create — `createCrmBooking` — whether the form was opened blank
+         or pre-filled from an existing row via the pencil.
+         
+         The pencil only copies a row's values into the form as a starting
+         point; submitting files a NEW enquiry and leaves the original row
+         untouched. No update mutation is called from here.
+
+         Blank fields are omitted by the mutation builder rather than sent as
+         empty strings, which would blank out data already on the customer's
+         record. */
       setSubmitting(true);
       try {
         const res = await createCrmBookingGraphQL({
@@ -817,7 +820,7 @@ export default function BookInquiryModal({
       phone: b.customer?.phone ?? "",
       email: b.customer?.email ?? "",
       tireSize1: b.tire_size_1 ?? "",
-      tireSize2: "",
+      tireSize2: b.tire_size_2 ?? "",
       vehiclePlateNumber: b.vehicle?.plant_number ?? "",
       make: b.vehicle?.make ?? "",
       model: b.vehicle?.model ?? "",
@@ -870,7 +873,7 @@ export default function BookInquiryModal({
           ...base,
           id: `CRM-${String(b.entity_id ?? `${customer.entity_id}-${i}`)}`,
           tireSize1: b.tire_size_1 ?? "",
-          tireSize2: "",
+          tireSize2: b.tire_size_2 ?? "",
           vehiclePlateNumber:
             b.vehicle?.plant_number ??
             customer.vehicles?.[0]?.plant_number ??
@@ -1085,7 +1088,7 @@ export default function BookInquiryModal({
                         autoComplete="off"
                         type="text"
                         value={name}
-                        disabled={!!editingId && !customerEditMode}
+                        disabled={!!editingId}
                         onChange={(e) => {
                           setName(e.target.value);
                           if (errors.name)
@@ -1154,7 +1157,7 @@ export default function BookInquiryModal({
                           autoComplete="off"
                           type="text"
                           value={phone}
-                          disabled={!!editingId && !customerEditMode}
+                          disabled={!!editingId}
                           onChange={(e) => {
                             setPhone(e.target.value);
 
@@ -1199,7 +1202,7 @@ export default function BookInquiryModal({
                     </div>
 
                     {/* Existing number */}
-                    {phoneCheck?.customer && (
+                    {!(!!editingId && !customerEditMode) && phoneCheck?.customer && (
                       <p className="text-[11px] text-red-500 mt-1 font-medium flex items-center gap-1">
                         <ExclamationCircleIcon className="w-3 h-3" />
                         This phone number already exists.
@@ -1207,7 +1210,8 @@ export default function BookInquiryModal({
                     )}
 
                     {/* Available number */}
-                    {phoneCheck &&
+                    {!(!!editingId && !customerEditMode) &&
+                      phoneCheck &&
                       !phoneCheck.loading &&
                       !phoneCheck.customer && (
                         <p className="text-[11px] text-emerald-600 mt-1 font-medium">
@@ -1236,7 +1240,7 @@ export default function BookInquiryModal({
                         autoComplete="off"
                         type="email"
                         value={email}
-                        disabled={!!editingId && !customerEditMode}
+                        disabled={!!editingId}
                         onChange={(e) => setEmail(e.target.value)}
                         placeholder="customer@example.com"
                         className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed disabled:border-slate-200"
@@ -1252,7 +1256,7 @@ export default function BookInquiryModal({
                       autoComplete="off"
                       type="text"
                       value={city}
-                      disabled={!!editingId && !customerEditMode}
+                      disabled={!!editingId}
                       onChange={(e) => setCity(e.target.value)}
                       placeholder="e.g. Riyadh, Jeddah"
                       className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed disabled:border-slate-200"
@@ -1518,7 +1522,7 @@ export default function BookInquiryModal({
                     ) : (
                       <CheckCircleIcon className="w-4 h-4" />
                     )}
-                    {submitting ? "Saving to CRM…" : "Save Changes"}
+                    {submitting ? "Saving to CRM…" : "Create Inquiry"}
                   </button>
 
                   <button

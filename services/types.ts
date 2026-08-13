@@ -371,6 +371,7 @@ export interface CrmRecentBooking {
   entity_id: number | string | null;
   detail: string | null;
   tire_size_1: string | null;
+  tire_size_2: string | null;
   /** NUMERIC CODE, e.g. 2 — the schema publishes no label mapping. */
   priority: number | string | null;
   /** NUMERIC CODE, e.g. 1 — see the note on `priority`. */
@@ -395,6 +396,7 @@ export interface CrmBooking {
   entity_id: number | string | null;
   contact_method: string | null;
   tire_size_1: string | null;
+  tire_size_2: string | null;
   quantity: number | string | null;
   brand_preference: string | null;
   quoted_price: number | string | null;

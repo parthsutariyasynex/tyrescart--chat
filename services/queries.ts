@@ -529,6 +529,7 @@ export function crmRecentBookingsQuery(): string {
       entity_id
       detail
       tire_size_1
+      tire_size_2
       priority
       status
       enquiry_date
@@ -574,6 +575,7 @@ export function crmCustomerByPhoneQuery(phone: string): string {
         entity_id
         contact_method
         tire_size_1
+        tire_size_2
         quantity
         brand_preference
         quoted_price
