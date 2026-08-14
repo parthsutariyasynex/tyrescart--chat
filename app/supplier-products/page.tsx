@@ -103,6 +103,8 @@ export interface Product {
   flag: string;
   qty: number;
   cost: number;
+  price?: number;
+  product_source?: string;
   fittingPrice: number;
   date: string;
   /** `date` as a sortable integer (2026-07-20 → 20260720), 0 when absent.
@@ -326,6 +328,8 @@ function mapSupplierToProduct(p: CachedSupplierProduct): Product {
       );
     })(),
     cost: Number(p.cost) || 0,
+    price: Number(p.price) || 0,
+    product_source: p.product_source ?? "",
     // Was hardcoded to 0. `fitting_price` is a real API field and is populated
     // on some rows, so the column showed 0.00 for every product regardless.
     // Rows cached before it was added to the query have no value → 0, until a
@@ -1552,25 +1556,33 @@ export default function SupplierProductsPage() {
                             <td
                               className={`${cellPaddingClass} text-right whitespace-nowrap`}
                             >
-                              {item.cost && item.cost > 0 ? (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setCostHistoryItem(item);
-                                  }}
-                                  title="View cost history"
-                                  className="inline-flex items-center justify-end gap-1 text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap rounded px-1 -mx-1 hover:text-emerald-700 hover:underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors cursor-pointer"
-                                  dir="ltr"
-                                >
-                                  <span className="whitespace-nowrap">
-                                    {item.cost.toLocaleString("en-US", {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    })}
-                                  </span>
-                                </button>
-                              ) : null}
+                              {(() => {
+                                const isCompetitor = (item.product_source || item.productType || item.source || "").toLowerCase().includes("competitor");
+                                const displayAmount = isCompetitor ? (item.price && item.price > 0 ? item.price : item.cost) : item.cost;
+                                if (!displayAmount || displayAmount <= 0) return null;
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setCostHistoryItem({
+                                        ...item,
+                                        cost: displayAmount,
+                                      });
+                                    }}
+                                    title="View price history"
+                                    className="inline-flex items-center justify-end gap-1 text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap rounded px-1 -mx-1 hover:text-emerald-700 hover:underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors cursor-pointer"
+                                    dir="ltr"
+                                  >
+                                    <span className="whitespace-nowrap">
+                                      {displayAmount.toLocaleString("en-US", {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      })}
+                                    </span>
+                                  </button>
+                                );
+                              })()}
                             </td>
                           )}
 
@@ -1756,7 +1768,9 @@ export default function SupplierProductsPage() {
             itemCode: costHistoryItem.itemCode,
             source: costHistoryItem.source,
             cost: costHistoryItem.cost,
+            price: costHistoryItem.price,
             productType: costHistoryItem.productType,
+            product_source: (costHistoryItem as { product_source?: string }).product_source || costHistoryItem.productType,
             country: costHistoryItem.country,
             year: costHistoryItem.year,
           }}

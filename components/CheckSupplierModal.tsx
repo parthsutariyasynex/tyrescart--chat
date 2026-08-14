@@ -110,6 +110,10 @@ type SupplierRow = SupplierProductItem & {
   name?: string;
   qty?: number | string;
   source?: string;
+  /** Display alias for `product_source` ("Supplier" | "Competitor"). Rows
+   *  handed over from the mapped catalogue carry this instead of the raw
+   *  field, so the competitor check reads both. */
+  productType?: string;
   category?: string;
   fitting_price?: number | string;
   date?: string;
@@ -1100,24 +1104,32 @@ export default function CheckSupplierModal({
                             })()}
                           </td>
 
-                          {/* Cost */}
+                          {/* Cost / Price */}
                           <td className="py-3 px-3 text-right whitespace-nowrap">
-                            {Number(r.cost) > 0 ? (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setCostHistoryItem(r);
-                                }}
-                                title="View cost history"
-                                className="inline-flex items-center justify-end gap-1 text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap rounded px-1 -mx-1 hover:text-emerald-700 hover:underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors cursor-pointer"
-                                dir="ltr"
-                              >
-                                <span className="whitespace-nowrap">
-                                  {money(Number(r.cost))}
-                                </span>
-                              </button>
-                            ) : null}
+                            {(() => {
+                              const isCompetitor = (r.product_source || r.productType || r.source || "").toLowerCase().includes("competitor");
+                              const displayAmount = isCompetitor ? (Number(r.price) || Number(r.cost) || 0) : (Number(r.cost) || 0);
+                              if (displayAmount <= 0) return null;
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setCostHistoryItem({
+                                      ...r,
+                                      cost: displayAmount,
+                                    });
+                                  }}
+                                  title="View price history"
+                                  className="inline-flex items-center justify-end gap-1 text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap rounded px-1 -mx-1 hover:text-emerald-700 hover:underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors cursor-pointer"
+                                  dir="ltr"
+                                >
+                                  <span className="whitespace-nowrap">
+                                    {money(displayAmount)}
+                                  </span>
+                                </button>
+                              );
+                            })()}
                           </td>
 
                           {/* Fitting Price */}

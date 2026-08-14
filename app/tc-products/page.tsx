@@ -34,6 +34,7 @@ import {
   setRows,
   ROWS_KEY,
 } from '@/services/cache';
+import { fetchSupplierProductsGraphQL } from '@/services/graphql';
 import { syncManager } from '@/services/syncManager';
 import { SYNC_TASK } from '@/services/syncTasks';
 import { useSyncTask, useSyncBatches, useOnSyncComplete, useOnSyncError } from '@/hooks/useSyncManager';
@@ -320,6 +321,55 @@ export default function TcProductsPage() {
   const [checkSupplierItem, setCheckSupplierItem] = useState<Product | null>(null);
   /** Row whose price history panel is open, or null. */
   const [costHistoryItem, setCostHistoryItem] = useState<Product | null>(null);
+
+  /**
+   * Open the price-history chart for a TC row.
+   *
+   * The chart calls `supplierProductPriceHistory(id, source)`, which is keyed on
+   * SUPPLIER FEED ids. A TC row's `id` is the STOREFRONT entity id — decoded
+   * from `uid` above (TCKL-20510 → 11717) — and the two are different id spaces,
+   * so passing it straight through makes the endpoint answer
+   * `Product with ID 11717 not found` (graphql-no-such-entity). The modal
+   * catches that and falls back to an empty series, which is why the chart came
+   * up blank on every TC row.
+   *
+   * So the feed record is resolved by SKU first — `is_latest: 1`, one row — and
+   * its `id` and `product_source` are handed to the existing modal through the
+   * props it already reads. TCKL-20510 resolves to id 2446279 / "competitor",
+   * which is the series 290 → 271.
+   *
+   * Resolved BEFORE the modal opens rather than after: the modal is keyed on
+   * `id`, so setting it twice would remount the chart and fire a doomed request
+   * first. On a missing SKU or a failed lookup the row opens exactly as it did
+   * before — no worse than the current behaviour.
+   */
+  const openCostHistory = useCallback(async (item: Product) => {
+    const sku = String(item.itemCode ?? "").trim();
+    if (!sku) {
+      setCostHistoryItem(item);
+      return;
+    }
+    try {
+      const res = await fetchSupplierProductsGraphQL({
+        sku,
+        is_latest: 1,
+        pageSize: 1,
+      });
+      const feed = res.items?.[0];
+      const feedId = Number(feed?.id);
+      if (feed && Number.isFinite(feedId) && feedId > 0) {
+        setCostHistoryItem({
+          ...item,
+          id: feedId,
+          productType: String(feed.product_source ?? "") || item.productType,
+        });
+        return;
+      }
+    } catch {
+      /* Fall through — an unreachable lookup must not block the modal. */
+    }
+    setCostHistoryItem(item);
+  }, []);
   /** Cart panel visibility. Opens on Add to Cart. */
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [quickViewItem, setQuickViewItem] = useState<Product | null>(null);
@@ -998,7 +1048,7 @@ export default function TcProductsPage() {
                         onToggleList={toggleList}
                         onShareWhatsApp={shareOnWhatsApp}
                         onCheckSupplier={setCheckSupplierItem}
-                        onCostHistory={setCostHistoryItem}
+                        onCostHistory={openCostHistory}
                         inCart={cart.has(item.id)}
                         inList={listIds.has(item.id)}
                         offerOptions={offerOptions}

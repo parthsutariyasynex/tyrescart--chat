@@ -51,7 +51,9 @@ export interface CostHistoryProduct {
   itemCode?: string;
   source?: string;
   cost: number;
+  price?: number;
   productType?: string;
+  product_source?: string;
   country?: string;
   year?: string | number;
 }
@@ -114,7 +116,7 @@ export default function CostHistoryModal({
          Price label by explicit request. */
       const primarySource = isFitting
         ? "competitor"
-        : (product.productType || product.source || "supplier").toLowerCase().includes("competitor")
+        : (product.product_source || product.productType || product.source || "supplier").toLowerCase().includes("competitor")
           ? "competitor"
           : "supplier";
 
@@ -136,12 +138,13 @@ export default function CostHistoryModal({
       if (localRecords && localRecords.length > 0) return localRecords;
 
       // Fallback 3: If no historical changes recorded yet, create a baseline point from current price
-      if (product.cost && product.cost > 0) {
+      const effectiveCost = (product.cost && product.cost > 0) ? product.cost : (product as { price?: number }).price ?? 0;
+      if (effectiveCost > 0) {
         return [
           {
             productId: product.id,
             sku: product.itemCode ?? "",
-            cost: product.cost,
+            cost: effectiveCost,
             syncDate: new Date().toISOString().slice(0, 10),
             syncTimestamp: Date.now(),
           },
