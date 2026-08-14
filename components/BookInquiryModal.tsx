@@ -3,7 +3,6 @@
 import React, {
   useState,
   useEffect,
-  useCallback,
   useMemo,
   useRef,
   useSyncExternalStore,
@@ -216,6 +215,18 @@ export default function BookInquiryModal({
 
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState("");
+  /**
+   * The query a search was actually RUN for — set only by `handleSearchCustomer`
+   * (Search button / Enter), never by typing.
+   *
+   * `searchQuery` is the raw input and changes on every keystroke; binding the
+   * table to it made typing "050" filter the 15 already-loaded recent bookings
+   * down to 10 without ever asking the backend, which reads as "missing rows".
+   * The table reads THIS value instead, so the list only ever changes when a
+   * search has actually been performed. Empty = no search yet, show the recent
+   * bookings the modal opened with.
+   */
+  const [submittedQuery, setSubmittedQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
@@ -366,22 +377,7 @@ export default function BookInquiryModal({
     };
   }, [phone, editingId, customerEditMode]);
 
-  /**
-   * Manual "Check Number" — the SAME lookup the debounced effect above runs,
-   * on demand. It writes the same `phoneCheck` state and calls the same
-   * `crmCustomerByPhone` fetcher, so there is one source of truth for whether
-   * the typed number is already on file.
-   */
-  const handleCheckPhone = useCallback(() => {
-    const p = phone.trim();
-    if (!p) return;
-    // `customer: null` while loading is not "available" — the green line also
-    // requires `!loading`, so nothing is claimed until the answer is back.
-    setPhoneCheck({ phone: p, customer: null, loading: true });
-    void fetchCrmCustomerByPhoneGraphQL(p)
-      .then((c) => setPhoneCheck({ phone: p, customer: c, loading: false }))
-      .catch(() => setPhoneCheck(undefined));
-  }, [phone]);
+
 
   const handleClose = () => {
     setIsClosing(true);
@@ -415,6 +411,7 @@ export default function BookInquiryModal({
          unmounts and this state would otherwise survive a close/reopen and
          show the PREVIOUS customer's rows before any new query is made. */
       setSearchQuery("");
+      setSubmittedQuery("");
       setCrmCustomers([]);
       setCurrentPage(1);
       // Prefill from the row the modal was opened on — the product's own size.
@@ -705,8 +702,10 @@ export default function BookInquiryModal({
       return;
     }
 
-    // Filter the right-side Inquiry Table
+    /* Commit the query. Only this — a Search click or Enter — switches the
+       table over to backend results; typing alone never does. */
     setSearchQuery(targetQuery);
+    setSubmittedQuery(targetQuery);
     setCurrentPage(1);
 
     // Check local inquiries list
@@ -732,8 +731,20 @@ export default function BookInquiryModal({
           setCrmCustomers(list);
           const c = list[0];
           if (c) {
+            /* Counted from the BOOKINGS, not the customers: a partial number
+               matches many customers but only some of them have inquiries, and
+               the table now shows bookings only. Naming list[0] alone read as
+               "one customer found" when 615 had matched. */
+            const bookingCount = list.reduce(
+              (sum, cust) => sum + (cust.bookings?.length ?? 0),
+              0,
+            );
             setToastMessage(
-              `Found CRM customer record & inquiries for "${c.name ?? targetQuery}".`,
+              bookingCount === 0
+                ? `Matched ${list.length} customer${list.length === 1 ? "" : "s"}, but none has an inquiry on record.`
+                : list.length === 1
+                  ? `Found ${bookingCount} inquiry${bookingCount === 1 ? "" : " records"} for "${c.name ?? targetQuery}".`
+                  : `Found ${bookingCount} inquiries across ${list.length} customers.`,
             );
           } else if (matches.length > 0) {
             setToastMessage(`Found ${matches.length} matching inquiry.`);
@@ -805,7 +816,7 @@ export default function BookInquiryModal({
     /** The whole `crmCustomerByPhone` object, untouched. */
     crmCustomer?: CrmCustomer;
     /** The specific booking this row represents, untouched. */
-    crmBooking?: NonNullable<CrmCustomer["bookings"]>[number];
+    crmBooking?: NonNullable<CrmCustomer["bookings"]>[number] | undefined;
   };
 
   const recentRows: (Inquiry & { fromCrm: true })[] = useMemo(() => {
@@ -850,7 +861,7 @@ export default function BookInquiryModal({
   const crmRows: CrmSearchRow[] = useMemo(() => {
     if (!crmCustomers.length) return [];
 
-    return crmCustomers.flatMap((customer) => {
+    return crmCustomers.flatMap((customer): CrmSearchRow[] => {
       /* Fields every row of this customer shares. The response object itself is
          attached as `crmCustomer`, so entity_id / area / vehicles / status stay
          reachable for the edit and view actions. */
@@ -891,68 +902,90 @@ export default function BookInquiryModal({
         }));
       }
 
-      // Customer is on file but has no bookings — still worth showing.
-      const v = customer.vehicles?.[0];
+      /* Customer is on file but has NO bookings — contribute a placeholder row 
+         so the customer record is still visible and actionable in the table. */
       return [
         {
           ...base,
-          id: `CRM-CUST-${String(customer.entity_id || "0")}`,
-          tireSize1: v?.tire_size_1 ?? "",
-          tireSize2: v?.tire_size_2 ?? "",
-          vehiclePlateNumber: v?.plant_number ?? "",
-          make: v?.make ?? "",
-          model: v?.model ?? "",
-          year: v?.year ?? "",
-          note: "",
+          id: `CRM-CUST-${String(customer.entity_id || Math.random())}`,
+          tireSize1: "",
+          tireSize2: "",
+          vehiclePlateNumber: customer.vehicles?.[0]?.plant_number ?? "",
+          make: customer.vehicles?.[0]?.make ?? "",
+          model: customer.vehicles?.[0]?.model ?? "",
+          year: customer.vehicles?.[0]?.year ?? "",
+          note: customer.area ? `City: ${customer.area}` : "",
           createdAt: "",
+          crmBookingId: undefined,
+          crmStatus: null,
+          crmPriority: null,
+          crmEnquiryDate: null,
+          crmBooking: undefined,
         },
       ];
     });
   }, [crmCustomers]);
 
   const allInquirySource = useMemo(() => {
+    /* SEARCH IS BACKEND-ONLY, and the two sources are shown one at a time:
+
+         no search yet  → `crmRecentBookings` (what the modal opens with)
+         after a search → ONLY what `crmCustomerByPhone` returned
+
+       They are not merged. Merging put the recent bookings back on screen
+       alongside the results, so a search appeared to return rows the backend
+       had not matched. Reset clears `submittedQuery` and the recent list
+       returns.
+
+       The localStorage mirror is deliberately not part of either source — a
+       booking created here still appears because submit re-reads the customer
+       from the CRM. */
+    const rows = submittedQuery ? crmRows : recentRows;
+
+    // Dedupe by id; a customer's booking can arrive from either source.
     const map = new Map<string, Inquiry>();
-    // 1. Add CRM recent rows
-    recentRows.forEach((r) => map.set(r.id, r));
-    // 2. Add searched CRM customer rows
-    crmRows.forEach((r) => map.set(r.id, r));
-
-    /* The list is BACKEND-ONLY: `crmRecentBookings` on open, plus the bookings
-       a `crmCustomerByPhone` search returns. The localStorage mirror is
-       deliberately NOT merged in — it used to append local-only rows and, worse,
-       spread its fields over a CRM row and win. A booking created here still
-       appears because submit re-reads the customer from the CRM. */
+    rows.forEach((r) => map.set(r.id, r));
     return Array.from(map.values());
-  }, [recentRows, crmRows]);
+  }, [recentRows, crmRows, submittedQuery]);
 
-  // 1. Filter dataset by search query first
-  const searchFilteredInquiries = useMemo(() => {
-    /* Digits-only view of a value, so punctuation cannot decide a match. */
-    const digitsOf = (v?: string | null) => String(v ?? "").replace(/\D/g, "");
+  /**
+   * "Customer found, but no inquiries" notice.
+   *
+   * A phone search can match customers who have no bookings at all — searching
+   * "9750" returns Maha Ahmed (0509750309) with zero. Those must NOT become rows
+   * (an inquiry list may only contain inquiries), but showing an empty table and
+   * nothing else reads as "the search is broken", so the customer is reported
+   * here instead.
+   *
+   * DERIVED, not stored: it is a function of the last search's results, so it
+   * survives until the next search replaces `crmCustomers` and clears itself on
+   * Reset — no extra state to keep in sync.
+   */
+  const noBookingsNotice = useMemo(() => {
+    if (!submittedQuery) return null;
+    if (!crmCustomers.length) return null;
+    // Any real inquiry among the results means the table has rows to show.
+    if (crmRows.length) return null;
 
-    const q = searchQuery.toLowerCase().trim();
-    if (!q) return allInquirySource;
+    const first = crmCustomers[0];
+    const label = String(first?.name ?? "").trim() || "Unnamed customer";
+    const phoneLabel = String(first?.phone ?? "").trim();
+    /* A partial number can match many customers who all have no bookings; name
+       the first and count the rest rather than printing hundreds of names. */
+    const others = crmCustomers.length - 1;
+    return {
+      name: label,
+      phone: phoneLabel,
+      others,
+    };
+  }, [submittedQuery, crmCustomers, crmRows]);
 
-    const qDigits = digitsOf(q);
-    /* Digit matching runs only for an all-digits query. A size like "R17"
-       would otherwise reduce to "17" and match every phone containing 17. */
-    const numericQuery = qDigits.length > 0 && !/[a-z]/i.test(q);
-
-    return allInquirySource.filter((item) => {
-      return (
-        item.id.toLowerCase().includes(q) ||
-        item.name.toLowerCase().includes(q) ||
-        item.phone.toLowerCase().includes(q) ||
-        (numericQuery && digitsOf(item.phone).includes(qDigits)) ||
-        (item.vehiclePlateNumber &&
-          item.vehiclePlateNumber.toLowerCase().includes(q)) ||
-        (numericQuery && digitsOf(item.vehiclePlateNumber).includes(qDigits)) ||
-        (numericQuery && digitsOf(item.id).includes(qDigits)) ||
-        (item.tireSize1 && item.tireSize1.toLowerCase().includes(q)) ||
-        (item.tireSize2 && item.tireSize2.toLowerCase().includes(q))
-      );
-    });
-  }, [allInquirySource, searchQuery]);
+  /* 1. No client-side text filtering — `crmCustomerByPhone` has already done the
+        matching, so re-filtering its rows here could only DROP results the
+        backend deliberately returned (it matches on the customer's stored
+        number, which may be spaced or prefixed: a search for "050" legitimately
+        returns "971 50 508 4910"). The rows are shown exactly as returned. */
+  const searchFilteredInquiries = allInquirySource;
 
   // 2. Count search-filtered items by status for tab badges
   const statusCounts = useMemo(() => {
@@ -1575,6 +1608,7 @@ export default function BookInquiryModal({
                     type="button"
                     onClick={() => {
                       setSearchQuery("");
+                      setSubmittedQuery("");
                       setCrmCustomers([]);
                       setCurrentPage(1);
                     }}
@@ -1639,6 +1673,27 @@ export default function BookInquiryModal({
                   })}
                 </div>
               </div>
+
+              {/* Customer matched, but has no inquiries on record. Persists
+                  until the next search — see `noBookingsNotice`. */}
+              {noBookingsNotice && (
+                <div
+                  role="status"
+                  className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs font-semibold text-amber-900"
+                >
+                  <ExclamationCircleIcon className="w-4 h-4 shrink-0 mt-px text-amber-500" />
+                  <span>
+                    Customer found:{" "}
+                    <span className="font-bold">{noBookingsNotice.name}</span>
+                    {noBookingsNotice.phone && ` (${noBookingsNotice.phone})`}
+                    {noBookingsNotice.others > 0 &&
+                      ` and ${noBookingsNotice.others} other customer${
+                        noBookingsNotice.others === 1 ? "" : "s"
+                      }`}{" "}
+                    — No inquiries found.
+                  </span>
+                </div>
+              )}
 
               {/* Inquiry Table */}
               <div className="overflow-x-auto min-h-[200px] rounded-lg border border-slate-200">
