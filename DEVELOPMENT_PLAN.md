@@ -15,7 +15,7 @@ from the Magento **GraphQL** endpoint through a thin proxy.
 Browser (React POS UI)
    │  calls service functions
    ▼
-services/graphql.ts ──► /api/graphql (proxy route) ──► https://www.tyrescart.com/graphql
+services/graphql.ts ──► /api/graphql (proxy route) ──► https://qa.tyrescart.ae/graphql
 ```
 
 ### Current structure

@@ -45,7 +45,36 @@ const RETRY_BACKOFF_MS = 300;
    missing variable can never be papered over with an empty credential. */
 const KLEVER_API_KEY = process.env.KLEVER_API_KEY;
 
-async function fetchUpstream(body: unknown, endpoint: string): Promise<Response> {
+/**
+ * HTTP Basic credentials for the upstream origin, as `user:password`.
+ *
+ * The QA host (`qa.tyrescart.ae`) sits behind nginx Basic auth: it answers
+ * `401 www-authenticate: Basic realm="Restricted Area"` to EVERY request, with
+ * or without the Klever key — verified, including with the key alone. This is a
+ * SEPARATE gate from `X-Klever-Api-Key`: Basic gets the request past nginx, the
+ * Klever key gets it past Magento. QA needs both; ungated hosts need neither.
+ *
+ * Server-only, like the API key — no `NEXT_PUBLIC_` prefix, so Next never
+ * inlines it into the client bundle. The browser talks to this proxy, and the
+ * proxy attaches the credentials, so they never leave the server.
+ *
+ * NOTE: credentials cannot instead be embedded in `GRAPHQL_ENDPOINT` as
+ * `https://user:pass@host/…` — Node's fetch rejects that URL form outright
+ * ("Request cannot be constructed from a URL that includes credentials"), even
+ * though curl accepts it. The header is the only workable route.
+ */
+const GRAPHQL_BASIC_AUTH = process.env.GRAPHQL_BASIC_AUTH;
+
+/* Encoded once at module load rather than per request. Empty when unset, so the
+   header below is omitted entirely instead of sent as an empty credential. */
+const BASIC_AUTH_HEADER = GRAPHQL_BASIC_AUTH
+  ? `Basic ${Buffer.from(GRAPHQL_BASIC_AUTH).toString("base64")}`
+  : "";
+
+async function fetchUpstream(
+  body: unknown,
+  endpoint: string,
+): Promise<Response> {
   let lastErr: unknown;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
@@ -57,6 +86,9 @@ async function fetchUpstream(body: unknown, endpoint: string): Promise<Response>
           Accept: "application/json",
           // Omitted entirely when unset, rather than sent as an empty string.
           ...(KLEVER_API_KEY ? { "X-Klever-Api-Key": KLEVER_API_KEY } : {}),
+          // Same rule: sent only when credentials are configured, so an ungated
+          // host never receives a stray Authorization header.
+          ...(BASIC_AUTH_HEADER ? { Authorization: BASIC_AUTH_HEADER } : {}),
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         },
@@ -76,6 +108,10 @@ async function fetchUpstream(body: unknown, endpoint: string): Promise<Response>
           status: upstream.status,
           keyPresent: Boolean(KLEVER_API_KEY),
           keyLength: KLEVER_API_KEY ? KLEVER_API_KEY.length : 0,
+          /* Boolean only — the credentials themselves are never logged. A 401
+             with `basicAuthPresent: false` on a gated host says the variable is
+             missing; `true` says it is set but wrong. */
+          basicAuthPresent: Boolean(BASIC_AUTH_HEADER),
           ms: Date.now() - started,
           attempt,
         });

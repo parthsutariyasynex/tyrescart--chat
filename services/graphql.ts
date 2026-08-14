@@ -106,7 +106,7 @@ export async function executeGraphQLQuery(
 ) {
   const isServer = typeof window === "undefined";
   const targetUrl = isServer
-    ? "https://www.tyrescart.com/graphql"
+    ? (process.env.GRAPHQL_ENDPOINT || "https://qa.tyrescart.ae/graphql")
     : "/api/graphql";
 
   try {

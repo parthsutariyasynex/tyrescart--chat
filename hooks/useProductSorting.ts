@@ -36,7 +36,11 @@ export function parseDateSortKey(dateVal?: unknown, yearVal?: unknown): number {
     if (raw) {
       const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
       if (isoMatch) {
-        return Number(isoMatch[1]) * 10000 + Number(isoMatch[2]) * 100 + Number(isoMatch[3]);
+        return (
+          Number(isoMatch[1]) * 10000 +
+          Number(isoMatch[2]) * 100 +
+          Number(isoMatch[3])
+        );
       }
       const parsed = Date.parse(raw);
       if (!isNaN(parsed)) {
@@ -84,12 +88,12 @@ function compareValues(aVal: unknown, bVal: unknown, asc: boolean): number {
 
   const x = aVal as number;
   const y = bVal as number;
-  return asc ? (x < y ? -1 : 1) : (x > y ? -1 : 1);
+  return asc ? (x < y ? -1 : 1) : x > y ? -1 : 1;
 }
 
 export function useProductSorting<T extends SortableRow>(
   defaultColumn: keyof T | null = "date",
-  defaultAsc: boolean = false
+  defaultAsc: boolean = false,
 ) {
   const [sortColumn, setSortColumn] = useState<keyof T | null>(defaultColumn);
   const [sortAsc, setSortAsc] = useState<boolean>(defaultAsc);
@@ -103,10 +107,14 @@ export function useProductSorting<T extends SortableRow>(
         // Year joins date in opening DESCENDING. Ascending put year 0 — rows
         // with no year, which render "-" — at the top of the first click, so
         // sorting by Year showed a page of blanks instead of 2026 first.
-        setSortAsc(column === "date" || column === "dateKey" || column === "year" ? false : true);
+        setSortAsc(
+          column === "date" || column === "dateKey" || column === "year"
+            ? false
+            : true,
+        );
       }
     },
-    [sortColumn]
+    [sortColumn],
   );
 
   const sortItems = useCallback(
@@ -117,8 +125,14 @@ export function useProductSorting<T extends SortableRow>(
         // Special date sorting: compares full date (latest first by default).
         // If year is same, sorts by exact date within that year.
         if (sortColumn === "date" || sortColumn === "dateKey") {
-          const aKey = a.dateKey !== undefined && a.dateKey !== 0 ? a.dateKey : parseDateSortKey(a.date, a.year);
-          const bKey = b.dateKey !== undefined && b.dateKey !== 0 ? b.dateKey : parseDateSortKey(b.date, b.year);
+          const aKey =
+            a.dateKey !== undefined && a.dateKey !== 0
+              ? a.dateKey
+              : parseDateSortKey(a.date, a.year);
+          const bKey =
+            b.dateKey !== undefined && b.dateKey !== 0
+              ? b.dateKey
+              : parseDateSortKey(b.date, b.year);
 
           if (aKey === bKey) return 0;
           return sortAsc ? aKey - bKey : bKey - aKey;
@@ -148,15 +162,21 @@ export function useProductSorting<T extends SortableRow>(
           const bYear = Number(b.year) || 0;
           if (aYear !== bYear) return sortAsc ? aYear - bYear : bYear - aYear;
 
-          const aKey = a.dateKey !== undefined && a.dateKey !== 0 ? a.dateKey : parseDateSortKey(a.date, a.year);
-          const bKey = b.dateKey !== undefined && b.dateKey !== 0 ? b.dateKey : parseDateSortKey(b.date, b.year);
+          const aKey =
+            a.dateKey !== undefined && a.dateKey !== 0
+              ? a.dateKey
+              : parseDateSortKey(a.date, a.year);
+          const bKey =
+            b.dateKey !== undefined && b.dateKey !== 0
+              ? b.dateKey
+              : parseDateSortKey(b.date, b.year);
           return bKey - aKey;
         }
 
         return compareValues(a[sortColumn], b[sortColumn], sortAsc);
       });
     },
-    [sortColumn, sortAsc]
+    [sortColumn, sortAsc],
   );
 
   return {

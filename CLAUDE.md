@@ -16,7 +16,7 @@ headless browser over CDP and measuring (see "Measuring" below).
 
 `.env.local` is optional. There is no database and no auth secret — the only
 network dependency is the Magento GraphQL endpoint, which
-`app/api/graphql/route.ts` proxies to `https://www.tyrescart.com/graphql`.
+`app/api/graphql/route.ts` proxies to `https://qa.tyrescart.ae/graphql`.
 
 ## Architecture
 
