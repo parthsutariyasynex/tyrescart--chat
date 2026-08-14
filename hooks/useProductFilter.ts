@@ -76,6 +76,8 @@ export interface FilterOptions<T> {
   maxPriceInput?: string;
   offerFilter?: string;
   supplierFilter?: string;
+  showSupplierType?: boolean;
+  showCompetitorType?: boolean;
   searchFields?: readonly string[];
   searchSizeFields?: readonly string[];
   /**
@@ -101,12 +103,47 @@ export function useProductFilter<T extends Record<string, any>>({
   maxPriceInput = "",
   offerFilter = "ALL",
   supplierFilter = "ALL",
+  showSupplierType = true,
+  showCompetitorType = true,
   searchFields = SEARCHABLE_FIELDS,
   searchSizeFields = DEFAULT_SIZE_FIELDS,
   globalSearchFields,
 }: FilterOptions<T>): T[] {
   return useMemo(() => {
     let result: T[] = allProducts;
+
+    // 0. Supplier vs Competitor (S & C checkboxes filter)
+    // If both checked OR both unchecked -> show ALL. Otherwise filter specifically.
+    const isBothChecked = showSupplierType && showCompetitorType;
+    const isNeitherChecked = !showSupplierType && !showCompetitorType;
+
+    if (!isBothChecked && !isNeitherChecked) {
+      result = result.filter((item) => {
+        const rawType = String(
+          item.productType || item.product_source || item.product_type || "",
+        ).toLowerCase();
+        const rawSource = String(
+          item.source || item.supplier || item.source_name || "",
+        ).toLowerCase();
+
+        // Check if item is Competitor
+        const isCompetitor =
+          rawType.includes("competitor") ||
+          rawType === "competitor" ||
+          rawSource.includes("competitor") ||
+          rawSource === "pitstop" || // common competitor sources if rawType empty
+          rawSource === "mivomoto";
+
+        // Check if item is Supplier
+        const isSupplier =
+          rawType.includes("supplier") || rawType === "supplier" || !isCompetitor;
+
+        if (showSupplierType) return isSupplier;
+        if (showCompetitorType) return isCompetitor;
+
+        return true;
+      });
+    }
 
     // 1. Search Query with aspect rim fallback
     if (searchQuery && searchQuery.trim()) {
@@ -136,19 +173,23 @@ export function useProductFilter<T extends Record<string, any>>({
       }
     }
 
-    // 2. Category exact match (supports category & brand_category)
-    if (categoryFilter !== "ALL") {
+    // 2. Category match (case-insensitive partial match)
+    if (categoryFilter && categoryFilter !== "ALL") {
+      const targetCat = categoryFilter.trim().toLowerCase();
       result = result.filter((item) => {
-        const cat = item.category || item.brand_category;
-        return cat === categoryFilter;
+        const cat = String(item.category || item.brand_category || "").toLowerCase();
+        return cat.includes(targetCat) || targetCat.includes(cat);
       });
     }
 
-    // 3. Supplier / Source exact match (supports supplier, source, source_name, product_source)
-    if (supplierFilter !== "ALL") {
+    // 3. Supplier / Source match (case-insensitive partial match)
+    if (supplierFilter && supplierFilter !== "ALL") {
+      const targetSrc = supplierFilter.trim().toLowerCase();
       result = result.filter((item) => {
-        const src = item.supplier || item.source || item.source_name || item.product_source;
-        return src === supplierFilter;
+        const src = String(
+          item.supplier || item.source || item.source_name || item.product_source || "",
+        ).toLowerCase();
+        return src.includes(targetSrc) || targetSrc.includes(src);
       });
     }
 
@@ -276,6 +317,8 @@ export function useProductFilter<T extends Record<string, any>>({
     maxPriceInput,
     offerFilter,
     supplierFilter,
+    showSupplierType,
+    showCompetitorType,
     searchFields,
     searchSizeFields,
     globalSearchFields,

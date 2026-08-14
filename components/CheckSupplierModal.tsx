@@ -209,6 +209,8 @@ export default function CheckSupplierModal({
   const [maxPriceInput, setMaxPriceInput] = useState("");
   const [offerFilter, setOfferFilter] = useState("ALL");
   const [supplierFilter, setSupplierFilter] = useState("ALL");
+  const [showSupplierType, setShowSupplierType] = useState(false);
+  const [showCompetitorType, setShowCompetitorType] = useState(false);
 
   const handleSearchChange = (val: string) => {
     setSearch(val);
@@ -288,6 +290,8 @@ export default function CheckSupplierModal({
     maxPriceInput,
     offerFilter,
     supplierFilter,
+    showSupplierType,
+    showCompetitorType,
   });
 
   const handleResetFilters = () => {
@@ -301,6 +305,8 @@ export default function CheckSupplierModal({
     setMaxPriceInput("");
     setOfferFilter("ALL");
     setSupplierFilter("ALL");
+    setShowSupplierType(false);
+    setShowCompetitorType(false);
     setCurrentPage(1);
   };
 
@@ -717,6 +723,10 @@ export default function CheckSupplierModal({
               setMinPriceInput={setMinPriceInput}
               maxPriceInput={maxPriceInput}
               setMaxPriceInput={setMaxPriceInput}
+              showSupplierType={showSupplierType}
+              setShowSupplierType={setShowSupplierType}
+              showCompetitorType={showCompetitorType}
+              setShowCompetitorType={setShowCompetitorType}
               showOfferFilter={true}
               offerFilter={offerFilter}
               setOfferFilter={setOfferFilter}

@@ -371,6 +371,8 @@ export default function SupplierProductsPage() {
   );
   const [searchQuery, setSearchQuery] = useState("");
   const [supplierFilter, setSupplierFilter] = useState("ALL");
+  const [showSupplierType, setShowSupplierType] = useState(false);
+  const [showCompetitorType, setShowCompetitorType] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState("ALL");
   const [offerFilter, setOfferFilter] = useState("ALL");
   const [brandInput, setBrandInput] = useState("");
@@ -742,6 +744,8 @@ export default function SupplierProductsPage() {
     allProducts,
     searchQuery: dSearchQuery,
     supplierFilter,
+    showSupplierType,
+    showCompetitorType,
     categoryFilter,
     offerFilter,
     brandInput: dBrandInput,
@@ -923,6 +927,8 @@ export default function SupplierProductsPage() {
   const resetFilters = () => {
     setSearchQuery("");
     setSupplierFilter("ALL");
+    setShowSupplierType(false);
+    setShowCompetitorType(false);
     setCategoryFilter("ALL");
     setOfferFilter("ALL");
     setBrandInput("");
@@ -1087,6 +1093,10 @@ export default function SupplierProductsPage() {
             setMinPriceInput={setMinPriceInput}
             maxPriceInput={maxPriceInput}
             setMaxPriceInput={setMaxPriceInput}
+            showSupplierType={showSupplierType}
+            setShowSupplierType={setShowSupplierType}
+            showCompetitorType={showCompetitorType}
+            setShowCompetitorType={setShowCompetitorType}
             showOfferFilter
             offerFilter={offerFilter}
             setOfferFilter={setOfferFilter}

@@ -298,6 +298,8 @@ export default function TcProductsPage() {
   /** Offer filter — 'ALL' = show all products, 'HAS_OFFER' = any offer, or specific offer label.
    *  Defaults to 'ALL' so all products are shown when no specific offer is selected. */
   const [offerFilter, setOfferFilter] = useState('ALL');
+  const [showSupplierType, setShowSupplierType] = useState(false);
+  const [showCompetitorType, setShowCompetitorType] = useState(false);
 
   const [pageSize, setPageSize] = useState(15);
   const [currentPage, setCurrentPage] = useState(1);
@@ -563,6 +565,8 @@ export default function TcProductsPage() {
     minPriceInput,
     maxPriceInput,
     offerFilter,
+    showSupplierType,
+    showCompetitorType,
     // The hook defaults to the RAW SupplierProductItem names
     // ("product_name", "sku", "brand_category"), which do not exist on this
     // page's mapped shape — so without these the Query box silently searched
@@ -635,6 +639,8 @@ export default function TcProductsPage() {
 
   const resetFilters = () => {
     setSearchQuery('');
+    setShowSupplierType(false);
+    setShowCompetitorType(false);
     setCategoryFilter('ALL');
     setBrandInput('');
     setSizeInput('');
@@ -876,6 +882,11 @@ export default function TcProductsPage() {
 
             maxPriceInput={maxPriceInput}
             setMaxPriceInput={setMaxPriceInput}
+
+            showSupplierType={showSupplierType}
+            setShowSupplierType={setShowSupplierType}
+            showCompetitorType={showCompetitorType}
+            setShowCompetitorType={setShowCompetitorType}
 
             showOfferFilter
             offerFilter={offerFilter}

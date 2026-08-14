@@ -147,24 +147,54 @@ export default function TyresGuideModal({
     setCurrentPage(1);
   }, [searchQuery, pageSize]);
 
-  /* Filter vehicles by search query */
+  /* old Filter vehicles by search query */
+  // const filteredVehicles = useMemo(() => {
+  //   if (!searchQuery.trim()) return vehicles;
+  //   const q = searchQuery.toLowerCase().trim();
+  //   return vehicles.filter((v) => {
+  //     // const make = (v.make_name || "").toLowerCase();
+  //     // const model = (v.model_name || "").toLowerCase();
+  //     // const years = (v.year_ranges || "").toLowerCase();
+  //     const fSize =
+  //       `${v.front_width}/${v.front_height} r${v.front_rim}`.toLowerCase();
+  //     const rSize =
+  //       `${v.rear_width}/${v.rear_height} r${v.rear_rim}`.toLowerCase();
+  //     return (
+  //       // make.includes(q) ||
+  //       // model.includes(q) ||
+  //       // years.includes(q) ||
+  //       fSize.includes(q) || rSize.includes(q)
+  //     );
+  //   });
+  // }, [vehicles, searchQuery]);
+
+  /* New Filter vehicles by search query */
+  const normalizeTyreSize = (value: string) =>
+    value.toLowerCase().replace(/[^0-9]/g, "");
+
   const filteredVehicles = useMemo(() => {
     if (!searchQuery.trim()) return vehicles;
-    const q = searchQuery.toLowerCase().trim();
+
+    const q = normalizeTyreSize(searchQuery);
+
     return vehicles.filter((v) => {
-      const make = (v.make_name || "").toLowerCase();
-      const model = (v.model_name || "").toLowerCase();
-      const years = (v.year_ranges || "").toLowerCase();
-      const fSize =
-        `${v.front_width}/${v.front_height} r${v.front_rim}`.toLowerCase();
-      const rSize =
-        `${v.rear_width}/${v.rear_height} r${v.rear_rim}`.toLowerCase();
+      // const make = (v.make_name || "").toLowerCase();
+      // const model = (v.model_name || "").toLowerCase();
+      // const years = (v.year_ranges || "").toLowerCase();
+
+      const fSize = normalizeTyreSize(
+        `${v.front_width}/${v.front_height} r${v.front_rim}`,
+      );
+
+      const rSize = normalizeTyreSize(
+        `${v.rear_width}/${v.rear_height} r${v.rear_rim}`,
+      );
+
       return (
-        make.includes(q) ||
-        model.includes(q) ||
-        years.includes(q) ||
-        fSize.includes(q) ||
-        rSize.includes(q)
+        // make.includes(q) ||
+        // model.includes(q) ||
+        // years.includes(q) ||
+        fSize === q || rSize === q
       );
     });
   }, [vehicles, searchQuery]);
@@ -233,7 +263,7 @@ export default function TyresGuideModal({
             <input
               autoComplete="off"
               type="text"
-              placeholder="Search make, model, year, or tyre size..."
+              placeholder="Search tyre size..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full h-9 pl-9 pr-8 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
