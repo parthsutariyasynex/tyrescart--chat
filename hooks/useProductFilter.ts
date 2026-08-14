@@ -131,12 +131,13 @@ export function useProductFilter<T extends Record<string, any>>({
           rawType.includes("competitor") ||
           rawType === "competitor" ||
           rawSource.includes("competitor") ||
-          rawSource === "pitstop" || // common competitor sources if rawType empty
-          rawSource === "mivomoto";
+          rawSource === "pitstop";
 
         // Check if item is Supplier
         const isSupplier =
-          rawType.includes("supplier") || rawType === "supplier" || !isCompetitor;
+          rawType.includes("supplier") ||
+          rawType === "supplier" ||
+          (!isCompetitor && rawType !== "competitor");
 
         if (showSupplierType) return isSupplier;
         if (showCompetitorType) return isCompetitor;
