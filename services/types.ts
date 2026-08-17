@@ -551,6 +551,12 @@ export interface KleverVehicleItem {
   rear_height: number | string | null;
   rear_rim: number | string | null;
   is_stock: boolean | number | string | null;
+  /** Future API-provided brand logo URL fields */
+  brand_logo?: string | null;
+  make_logo?: string | null;
+  logo_url?: string | null;
+  logo?: string | null;
+  image?: string | null;
 }
 
 export interface KleverVehicleSearchResult {

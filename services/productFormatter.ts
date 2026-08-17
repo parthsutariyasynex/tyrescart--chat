@@ -120,12 +120,26 @@ function offerLabel(offer: string | undefined | null): string {
  * Formats a single product for clipboard copy.
  */
 export function buildRowString(item: FormattableProduct): string {
-  const brand = item.brand || '';
-  const rawPattern = item.pattern || item.sizeFull || item.size || '';
-  
+  const brand = (item.brand || '').trim();
+  const rawPattern = (item.pattern || item.sizeFull || item.size || '').trim();
+
+  // Clean trailing "Tyre" or "Tyres" suffix from brand (e.g. "Matrax Tyres" -> "Matrax")
+  const cleanBrand = brand.replace(/\s+tyres?$/i, '').trim();
+
   let productName = rawPattern;
-  if (brand && !rawPattern.toLowerCase().startsWith(brand.toLowerCase())) {
-    productName = `${brand} ${rawPattern}`.trim();
+  if (cleanBrand) {
+    const patternLower = rawPattern.toLowerCase();
+    const brandLower = cleanBrand.toLowerCase();
+    const brandFirstWord = brandLower.split(/\s+/)[0];
+
+    const alreadyHasBrand =
+      patternLower.startsWith(brandLower) ||
+      patternLower.startsWith(brandFirstWord) ||
+      patternLower.includes(brandLower);
+
+    if (!alreadyHasBrand) {
+      productName = `${cleanBrand} ${rawPattern}`.trim();
+    }
   }
 
   const origin = item.country && item.country !== '-' ? item.country.trim() : '';
