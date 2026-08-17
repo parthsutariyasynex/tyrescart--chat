@@ -543,6 +543,11 @@ export interface KleverQuoteHistory {
 export interface KleverVehicleItem {
   make_name: string | null;
   model_name: string | null;
+  /** Slug forms of the above ("Audi"/"A5" → "audi"/"a5"). These are the keys
+   *  `kleverVehicleYears` and `kleverVehicleModifications` take, so a selected
+   *  row needs no name→slug lookup. */
+  make_slug?: string | null;
+  model_slug?: string | null;
   year_ranges: string | null;
   front_width: number | string | null;
   front_height: number | string | null;
@@ -562,5 +567,43 @@ export interface KleverVehicleItem {
 export interface KleverVehicleSearchResult {
   status: boolean | number | string | null;
   data: KleverVehicleItem[] | null;
+}
+
+/** One production year from `kleverVehicleYears`. Both fields are the year. */
+export interface KleverVehicleYear {
+  slug: number | string | null;
+  name: number | string | null;
+}
+
+/** Front/rear wheel spec on a modification. */
+export interface KleverWheel {
+  /** e.g. "245/35ZR20 95Y XL". NULL on the rear of a SQUARE fitment — it means
+   *  "same as front", not "unknown". Verified across 510 modifications:
+   *  `rear_wheel.tire_full` is non-null if and only if front ≠ rear. */
+  tire_full: string | null;
+  rim_diameter?: number | string | null;
+  rim_width?: number | string | null;
+  rim_offset?: number | string | null;
+  pressure_psi?: string | null;
+}
+
+/** One trim/engine variant from `kleverVehicleModifications`. */
+export interface KleverVehicleModification {
+  name: string | null;
+  trim: string | null;
+  is_stock: boolean | number | string | null;
+  front_wheel: KleverWheel | null;
+  rear_wheel: KleverWheel | null;
+}
+
+/** A deduplicated front/rear fitment pair for one vehicle. */
+export interface KleverFitmentPair {
+  /** Display size, load/speed suffix stripped, e.g. "245/35 R20". */
+  front: string;
+  rear: string;
+  /** True when front ≠ rear (the API supplied a distinct rear size). */
+  staggered: boolean;
+  /** True when at least one contributing modification is factory stock. */
+  isStock: boolean;
 }
 

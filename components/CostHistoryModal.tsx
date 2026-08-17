@@ -157,7 +157,7 @@ export default function CostHistoryModal({
       .then((rows) => { if (alive) setHistory(rows); })
       .catch(() => { if (alive) setHistory([]); });
     return () => { alive = false; };
-  }, [product.id, product.productType, product.source, product.itemCode, product.cost, isFitting]);
+  }, [product, isFitting]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") handleClose(); };

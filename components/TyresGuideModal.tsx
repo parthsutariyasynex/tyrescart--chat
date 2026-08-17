@@ -5,6 +5,7 @@ import React, {
   useState,
   useSyncExternalStore,
   useMemo,
+  useRef,
 } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -15,12 +16,53 @@ import {
   CheckCircleIcon,
   SparklesIcon,
 } from "@heroicons/react/24/outline";
-import { fetchKleverVehicleSearchGraphQL } from "../services/graphql";
+import {
+  fetchKleverVehicleSearchGraphQL,
+  fetchKleverVehicleFitments,
+  fetchKleverAllVehicles,
+} from "../services/graphql";
 import type { KleverVehicleItem } from "../services/types";
 import Pagination from "./Pagination";
 
 /** No external store — subscription is a no-op; module scope keeps it stable. */
 const subscribeNever = () => () => {};
+
+
+
+/**
+ * "215/55 R17" / "215/55R17" / "2155517" → `{ width: 215, height: 55, rim: 17 }`.
+ *
+ * Digits-only, matching the tag-conversion rule the input already uses: exactly
+ * 7 digits split 3-2-2. Anything else (a partial entry mid-typing, a
+ * full-profile van size like "185 R14", an exotic motorcycle notation) returns
+ * null so the caller can fall back rather than query a nonsense size.
+ */
+function parseSearchSize(
+  value: string,
+): { width: number; height: number; rim: number } | null {
+  if (!value) return null;
+  const str = String(value).trim();
+
+  // 1. Digits-only check for 7-digit inputs (e.g. "2056016", "2155517")
+  const digits = str.replace(/[^0-9]/g, "");
+  if (digits.length === 7) {
+    const w = Number(digits.slice(0, 3));
+    const h = Number(digits.slice(3, 5));
+    const r = Number(digits.slice(5, 7));
+    if (w >= 100 && h >= 20 && r >= 10) return { width: w, height: h, rim: r };
+  }
+
+  // 2. Flexible separator check (e.g. "205/60 R16", "205/60/16", "205 60 16", "205-60-16")
+  const match = str.match(/(\d{3})[/\s\-]+(\d{2})[/\s\-R]+(\d{2})/i);
+  if (match) {
+    const w = Number(match[1]);
+    const h = Number(match[2]);
+    const r = Number(match[3]);
+    if (w >= 100 && h >= 20 && r >= 10) return { width: w, height: h, rim: r };
+  }
+
+  return null;
+}
 
 interface TyresGuideModalProps {
   isOpen: boolean;
@@ -69,7 +111,6 @@ export default function TyresGuideModal({
   const [searchQuery, setSearchQuery] = useState("");
   const [frontTag, setFrontTag] = useState("");
   const [rearTag, setRearTag] = useState("");
-  const [selectedVehicleKey, setSelectedVehicleKey] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
 
@@ -79,19 +120,56 @@ export default function TyresGuideModal({
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
 
+  /* Dynamic page-level size resolution states */
+  const [resolvedSizesMap, setResolvedSizesMap] = useState<Record<string, { front: string; rear: string }>>({});
+  const [resolvingKeys, setResolvingKeys] = useState<Record<string, boolean>>({});
+
   /* Slide-up animation states */
   const [isAnimatedOpen, setIsAnimatedOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
 
-  /* Fetch fitment guide from API */
-  const handleFetchGuide = async () => {
+
+
+  /**
+   * Load vehicles for a tyre size.
+   *
+   * `override` exists because the Search button commits the typed text to
+   * `frontTag` in the same tick it fetches — React has not re-rendered yet, so
+   * reading state here would use the PREVIOUS size. The caller passes the size
+   * it just committed; everything else falls back to current state.
+   */
+  const handleFetchGuide = async (
+    override?: { width: number; height: number; rim: number } | null,
+    isUserSearch: boolean = false,
+  ) => {
     setLoading(true);
     setError(null);
-    setHasSearched(true);
+    if (isUserSearch) {
+      setHasSearched(true);
+    }
+
+    const size =
+      override !== undefined
+        ? override
+        : (parseSearchSize(frontTag) ?? parseSearchSize(searchQuery));
 
     try {
-      const data = await fetchKleverVehicleSearchGraphQL(215, 55, 17);
-      setVehicles(data);
+      if (size) {
+        const data = await fetchKleverVehicleSearchGraphQL(
+          size.width,
+          size.height,
+          size.rim,
+        );
+        if (data && data.length > 0) {
+          setVehicles(data);
+        } else {
+          const allData = await fetchKleverAllVehicles();
+          setVehicles(allData);
+        }
+      } else {
+        const data = await fetchKleverAllVehicles();
+        setVehicles(data);
+      }
     } catch (err) {
       console.error("[TyresGuideModal] Vehicle search error:", err);
       setError("Failed to load vehicle fitment guide. Please try again.");
@@ -153,16 +231,12 @@ export default function TyresGuideModal({
   const normalizeTyreSize = (value: string) =>
     value.toLowerCase().replace(/[^0-9]/g, "");
 
-  const { filteredVehicles, relatedSizes } = useMemo(() => {
-    const qRaw = searchQuery.trim();
+  const { filteredVehicles, fitmentList } = useMemo(() => {
+    // Only search on committed tags (frontTag & rearTag) to disable live auto-search while typing
+    const qRaw: string = "";
     const fTagRaw = frontTag.trim();
     const rTagRaw = rearTag.trim();
 
-    if (!qRaw && !fTagRaw && !rTagRaw) {
-      return { filteredVehicles: vehicles, relatedSizes: [] };
-    }
-
-    const qNorm = qRaw ? normalizeTyreSize(qRaw) : "";
     const fNorm = fTagRaw ? normalizeTyreSize(fTagRaw) : "";
     const rNorm = rTagRaw ? normalizeTyreSize(rTagRaw) : "";
 
@@ -172,179 +246,147 @@ export default function TyresGuideModal({
       { size: string; type: "Front" | "Rear"; count: number }
     >();
 
+    // Helper check for partial match
+    const matchesTag = (sizeNorm: string, sizeRaw: string, tagNorm: string, tagRaw: string) => {
+      if (!tagNorm && !tagRaw) return false;
+      if (tagNorm && sizeNorm.includes(tagNorm)) return true;
+      if (tagRaw && sizeRaw.toLowerCase().includes(tagRaw.toLowerCase())) return true;
+      if (!sizeNorm && !sizeRaw) return true;
+      return false;
+    };
+
+    if (!fNorm && !rNorm) {
+      return {
+        filteredVehicles: [],
+        fitmentList: [],
+      };
+    }
+
     vehicles.forEach((v) => {
-      const fSizeRaw =
+      const rowKey = `${v.make_slug || v.make_name}|${v.model_slug || v.model_name}`.toLowerCase();
+        const resolved = resolvedSizesMap[rowKey];
+
+        const fSizeRaw =
+          v.front_width && v.front_height && v.front_rim
+            ? `${v.front_width}/${v.front_height} R${v.front_rim}`
+            : resolved?.front && resolved.front !== "—"
+              ? resolved.front
+              : "";
+        const rSizeRaw =
+          v.rear_width && v.rear_height && v.rear_rim
+            ? `${v.rear_width}/${v.rear_height} R${v.rear_rim}`
+            : resolved?.rear && resolved.rear !== "—"
+              ? resolved.rear
+              : "";
+
+        const fSizeNorm = fSizeRaw ? normalizeTyreSize(fSizeRaw) : "";
+        const rSizeNorm = rSizeRaw ? normalizeTyreSize(rSizeRaw) : "";
+
+        // 1. Both Front Tag & Rear Tag are active
+        if (fNorm && rNorm) {
+          const isMatch =
+            (matchesTag(fSizeNorm, fSizeRaw, fNorm, fTagRaw) && matchesTag(rSizeNorm, rSizeRaw, rNorm, rTagRaw)) ||
+            (matchesTag(fSizeNorm, fSizeRaw, rNorm, rTagRaw) && matchesTag(rSizeNorm, rSizeRaw, fNorm, fTagRaw));
+          if (isMatch) exactMatches.push(v);
+          return;
+        }
+
+        // 2. Front Tag is active
+        if (fNorm || fTagRaw) {
+          const isFrontMatch = matchesTag(fSizeNorm, fSizeRaw, fNorm, fTagRaw);
+          const isRearMatch = matchesTag(rSizeNorm, rSizeRaw, fNorm, fTagRaw);
+          if (isFrontMatch || isRearMatch || hasSearched) {
+            exactMatches.push(v);
+
+            const isStaggered = Boolean(
+              fSizeNorm && rSizeNorm && fSizeNorm !== rSizeNorm,
+            );
+
+            if (isFrontMatch && isStaggered && rSizeRaw && rSizeNorm !== fNorm) {
+              const existing = relatedSizeMap.get(rSizeRaw) || {
+                size: rSizeRaw,
+                type: "Rear" as const,
+                count: 0,
+              };
+              existing.count += 1;
+              relatedSizeMap.set(rSizeRaw, existing);
+            }
+
+            if (isRearMatch && isStaggered && fSizeRaw && fSizeNorm !== fNorm) {
+              const existing = relatedSizeMap.get(fSizeRaw) || {
+                size: fSizeRaw,
+                type: "Front" as const,
+                count: 0,
+              };
+              existing.count += 1;
+              relatedSizeMap.set(fSizeRaw, existing);
+            }
+          }
+        }
+      });
+
+    const fitmentMap = new Map<
+      string,
+      {
+        front: string;
+        rear: string;
+        count: number;
+        isStock: boolean;
+        vehicles: KleverVehicleItem[];
+      }
+    >();
+
+    const fallbackSize = frontTag || (parseSearchSize(searchQuery) ? `${parseSearchSize(searchQuery)?.width}/${parseSearchSize(searchQuery)?.height} R${parseSearchSize(searchQuery)?.rim}` : searchQuery);
+
+    exactMatches.forEach((v) => {
+      const rowKey = `${v.make_slug || v.make_name}|${v.model_slug || v.model_name}`.toLowerCase();
+      const resolved = resolvedSizesMap[rowKey];
+
+      const front =
         v.front_width && v.front_height && v.front_rim
           ? `${v.front_width}/${v.front_height} R${v.front_rim}`
-          : "";
-      const rSizeRaw =
+          : resolved?.front && resolved.front !== "—"
+            ? resolved.front
+            : fallbackSize || "";
+
+      const rear =
         v.rear_width && v.rear_height && v.rear_rim
           ? `${v.rear_width}/${v.rear_height} R${v.rear_rim}`
-          : "";
+          : resolved?.rear && resolved.rear !== "—"
+            ? resolved.rear
+            : front;
 
-      const fSizeNorm = fSizeRaw ? normalizeTyreSize(fSizeRaw) : "";
-      const rSizeNorm = rSizeRaw ? normalizeTyreSize(rSizeRaw) : "";
-
-      // 1. Both Front Tag & Rear Tag are active
-      if (fNorm && rNorm) {
-        const isMatch =
-          (fSizeNorm === fNorm && rSizeNorm === rNorm) ||
-          (fSizeNorm === rNorm && rSizeNorm === fNorm);
-        if (isMatch) exactMatches.push(v);
-        return;
-      }
-
-      // 2. Front Tag is active + user is typing in input
-      if (fNorm && qNorm) {
-        const isMatch =
-          (fSizeNorm === fNorm &&
-            (rSizeNorm.includes(qNorm) || fSizeNorm.includes(qNorm))) ||
-          (rSizeNorm === fNorm &&
-            (fSizeNorm.includes(qNorm) || rSizeNorm.includes(qNorm)));
-        if (isMatch) exactMatches.push(v);
-        return;
-      }
-
-      // 3. Front Tag is active (no typing)
-      if (fNorm) {
-        const isFrontMatch = fSizeNorm === fNorm;
-        const isRearMatch = rSizeNorm === fNorm;
-        if (isFrontMatch || isRearMatch) {
-          exactMatches.push(v);
-
-          const isStaggered = Boolean(
-            fSizeNorm && rSizeNorm && fSizeNorm !== rSizeNorm,
-          );
-
-          if (isFrontMatch && isStaggered && rSizeRaw && rSizeNorm !== fNorm) {
-            const existing = relatedSizeMap.get(rSizeRaw) || {
-              size: rSizeRaw,
-              type: "Rear" as const,
-              count: 0,
-            };
-            existing.count += 1;
-            relatedSizeMap.set(rSizeRaw, existing);
-          }
-
-          if (isRearMatch && isStaggered && fSizeRaw && fSizeNorm !== fNorm) {
-            const existing = relatedSizeMap.get(fSizeRaw) || {
-              size: fSizeRaw,
-              type: "Front" as const,
-              count: 0,
-            };
-            existing.count += 1;
-            relatedSizeMap.set(fSizeRaw, existing);
-          }
+      if (front || rear) {
+        const key = `${front || "—"} / ${rear || front || "—"}`;
+        const existing = fitmentMap.get(key) || {
+          front: front || "—",
+          rear: rear || front || "—",
+          count: 0,
+          isStock: Boolean(v.is_stock),
+          vehicles: [],
+        };
+        existing.count += 1;
+        if (!existing.vehicles.some((ex) => ex.make_name === v.make_name && ex.model_name === v.model_name)) {
+          existing.vehicles.push(v);
         }
-        return;
-      }
-
-      // 4. Instant Live Search while typing (no tags set)
-      if (qNorm) {
-        const isFrontMatch = fSizeNorm.includes(qNorm);
-        const isRearMatch = rSizeNorm.includes(qNorm);
-
-        if (isFrontMatch || isRearMatch) {
-          exactMatches.push(v);
-
-          const isStaggered = Boolean(
-            fSizeNorm && rSizeNorm && fSizeNorm !== rSizeNorm,
-          );
-
-          if (
-            isFrontMatch &&
-            isStaggered &&
-            rSizeRaw &&
-            !rSizeNorm.includes(qNorm)
-          ) {
-            const existing = relatedSizeMap.get(rSizeRaw) || {
-              size: rSizeRaw,
-              type: "Rear" as const,
-              count: 0,
-            };
-            existing.count += 1;
-            relatedSizeMap.set(rSizeRaw, existing);
-          }
-
-          if (
-            isRearMatch &&
-            isStaggered &&
-            fSizeRaw &&
-            !fSizeNorm.includes(qNorm)
-          ) {
-            const existing = relatedSizeMap.get(fSizeRaw) || {
-              size: fSizeRaw,
-              type: "Front" as const,
-              count: 0,
-            };
-            existing.count += 1;
-            relatedSizeMap.set(fSizeRaw, existing);
-          }
-        }
+        fitmentMap.set(key, existing);
       }
     });
 
-    const relatedList = Array.from(relatedSizeMap.values()).sort(
+    const fitmentList = Array.from(fitmentMap.values()).sort(
       (a, b) => b.count - a.count,
     );
 
     return {
       filteredVehicles: exactMatches,
-      relatedSizes: relatedList,
+      fitmentList,
     };
-  }, [vehicles, searchQuery, frontTag, rearTag]);
+  }, [vehicles, searchQuery, frontTag, rearTag, resolvedSizesMap, hasSearched]);
 
-  /* API-Ready Brand Grouping for Left Panel Search Results */
-  const brandGroups = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        make_name: string;
-        logoUrl?: string | null;
-        vehicles: KleverVehicleItem[];
-      }
-    >();
-
-    filteredVehicles.forEach((v) => {
-      const make = v.make_name || "Other";
-      const rawLogo =
-        v.brand_logo ||
-        v.make_logo ||
-        v.logo_url ||
-        v.logo ||
-        v.image;
-
-      const logoUrl =
-        typeof rawLogo === "string" && rawLogo.trim() ? rawLogo.trim() : null;
-
-      const existing = map.get(make);
-      if (!existing) {
-        map.set(make, {
-          make_name: make,
-          logoUrl,
-          vehicles: [v],
-        });
-      } else {
-        existing.vehicles.push(v);
-        if (!existing.logoUrl && logoUrl) {
-          existing.logoUrl = logoUrl;
-        }
-      }
-    });
-
-    return Array.from(map.values());
-  }, [filteredVehicles]);
-
-  /* Right Panel Table vehicles: filter by selected vehicle card if active */
+  /* Right Panel Table vehicles: paginated list of filteredVehicles or vehicles */
   const tableVehicles = useMemo(() => {
-    const list = filteredVehicles.length > 0 ? filteredVehicles : vehicles;
-    if (selectedVehicleKey) {
-      return list.filter(
-        (v) => `${v.make_name}-${v.model_name}` === selectedVehicleKey,
-      );
-    }
-    return list;
-  }, [filteredVehicles, vehicles, selectedVehicleKey]);
+    return filteredVehicles.length > 0 ? filteredVehicles : vehicles;
+  }, [filteredVehicles, vehicles]);
 
   /* Pagination slices */
   const totalItems = tableVehicles.length;
@@ -355,6 +397,90 @@ export default function TyresGuideModal({
     const startIdx = (validCurrentPage - 1) * pageSize;
     return tableVehicles.slice(startIdx, startIdx + pageSize);
   }, [tableVehicles, validCurrentPage, pageSize]);
+
+  /**
+   * Page-level size resolution for the visible table rows.
+   *
+   * Only rows that have NO size of their own are resolved — a
+   * `kleverVehicleSearch` row already carries front/rear width/height/rim, so
+   * the search flow resolves nothing and issues no `kleverVehicleModifications`
+   * request at all. This is the List flow's mechanism only.
+   *
+   * DEDUPE LIVES IN A REF, NOT IN STATE. Both `resolvedSizesMap` and
+   * `resolvingKeys` are written by this effect, so having them in the dependency
+   * array made it re-enter on its own writes: every resolution re-ran the whole
+   * effect, which is how one search produced ~105 modification calls. The ref is
+   * mutated synchronously before any request starts, so a re-render cannot
+   * queue the same vehicle twice, and the effect now depends only on the page.
+   *
+   * Requests are issued ONE VEHICLE AT A TIME. Each `fetchKleverVehicleFitments`
+   * internally fans out over that vehicle's years at concurrency 8, so firing
+   * all 15 rows at once meant ~120 in-flight requests; sequential keeps the page
+   * responsive and lets the cancellation below actually take effect.
+   */
+  const requestedSizeKeysRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!paginatedVehicles.length) return;
+
+    const rowKeyOf = (v: KleverVehicleItem) =>
+      `${v.make_slug || v.make_name}|${v.model_slug || v.model_name}`.toLowerCase();
+
+    const toResolve = paginatedVehicles.filter((v) => {
+      // Search rows already have their sizes — never re-fetch them.
+      if (v.front_width && v.front_height && v.front_rim) return false;
+      return !requestedSizeKeysRef.current.has(rowKeyOf(v));
+    });
+
+    if (!toResolve.length) return;
+
+    // Claimed up front so a re-render mid-flight cannot re-queue the same rows.
+    toResolve.forEach((v) => requestedSizeKeysRef.current.add(rowKeyOf(v)));
+    setResolvingKeys((prev) => {
+      const next = { ...prev };
+      toResolve.forEach((v) => {
+        next[rowKeyOf(v)] = true;
+      });
+      return next;
+    });
+
+    /* Stops the queue when the page changes or the list is replaced by a
+       search, instead of letting a previous page's resolutions run on. */
+    let alive = true;
+
+    void (async () => {
+      for (const v of toResolve) {
+        if (!alive) return;
+        const make = String(v.make_slug || v.make_name || "").trim();
+        const model = String(v.model_slug || v.model_name || "").trim();
+        const key = `${make}|${model}`.toLowerCase();
+        let resolvedPair = { front: "—", rear: "—" };
+        try {
+          const fitments = await fetchKleverVehicleFitments(make, model);
+          /* Prefer the factory-stock fitment; `rear` is already the front size
+             for a square car — `fetchKleverVehicleFitments` resolves a null
+             `rear_wheel.tire_full` to the front size at source. */
+          const stockFitment = fitments.find((f) => f.isStock) || fitments[0];
+          if (stockFitment) {
+            resolvedPair = { front: stockFitment.front, rear: stockFitment.rear };
+          }
+        } catch {
+          // Leave the em-dash placeholder for this vehicle.
+        }
+        if (!alive) return;
+        setResolvedSizesMap((prev) => ({ ...prev, [key]: resolvedPair }));
+        setResolvingKeys((prev) => {
+          const copy = { ...prev };
+          delete copy[key];
+          return copy;
+        });
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [paginatedVehicles]);
 
   const startRecord =
     totalItems === 0 ? 0 : (validCurrentPage - 1) * pageSize + 1;
@@ -445,7 +571,10 @@ export default function TyresGuideModal({
                         Front: {frontTag}
                         <button
                           type="button"
-                          onClick={() => setFrontTag("")}
+                          onClick={() => {
+                            setFrontTag("");
+                            void handleFetchGuide(null);
+                          }}
                           className="hover:text-emerald-200 transition-colors cursor-pointer"
                           title="Remove Front size filter"
                         >
@@ -480,31 +609,22 @@ export default function TyresGuideModal({
                             : "Add rear size (optional)"
                         }
                         value={searchQuery}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          const norm = val.toLowerCase().replace(/[^0-9]/g, "");
-                          // Auto convert to tag pill as soon as a full 7-digit tyre size (e.g. 2155517) is entered
-                          if (norm.length === 7) {
-                            if (!frontTag) {
-                              setFrontTag(val.trim());
-                              setSearchQuery("");
-                              return;
-                            } else if (!rearTag) {
-                              setRearTag(val.trim());
-                              setSearchQuery("");
-                              return;
-                            }
-                          }
-                          setSearchQuery(val);
-                        }}
+                        onChange={(e) => setSearchQuery(e.target.value)}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" && searchQuery.trim()) {
+                            const typed = searchQuery.trim();
+                            const parsed = parseSearchSize(typed);
+                            const tagVal = parsed
+                              ? `${parsed.width}/${parsed.height} R${parsed.rim}`
+                              : typed;
                             if (!frontTag) {
-                              setFrontTag(searchQuery.trim());
+                              setFrontTag(tagVal);
                               setSearchQuery("");
+                              void handleFetchGuide(parsed, true);
                             } else if (!rearTag) {
-                              setRearTag(searchQuery.trim());
+                              setRearTag(tagVal);
                               setSearchQuery("");
+                              void handleFetchGuide(parsed, true);
                             }
                           }
                         }}
@@ -512,21 +632,50 @@ export default function TyresGuideModal({
                       />
                     )}
 
+                    {/* Clear Button */}
+                    {(frontTag || rearTag || searchQuery.trim()) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFrontTag("");
+                          setRearTag("");
+                          setSearchQuery("");
+                          setHasSearched(false);
+                          setCurrentPage(1);
+                          void handleFetchGuide(null, false);
+                        }}
+                        className="ml-auto inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 text-xs font-bold transition-colors cursor-pointer shrink-0 border border-slate-200/80"
+                        title="Clear search and show all vehicles"
+                      >
+                        <XMarkIcon className="w-3.5 h-3.5" />
+                        Clear
+                      </button>
+                    )}
+
                     {/* Search Button */}
                     <button
                       type="button"
                       onClick={() => {
-                        if (searchQuery.trim()) {
+                        const typed = searchQuery.trim();
+                        let nextFront = frontTag;
+                        const parsed = parseSearchSize(typed) || parseSearchSize(frontTag);
+                        if (typed) {
+                          const tagVal = parsed
+                            ? `${parsed.width}/${parsed.height} R${parsed.rim}`
+                            : typed;
                           if (!frontTag) {
-                            setFrontTag(searchQuery.trim());
+                            nextFront = tagVal;
+                            setFrontTag(tagVal);
                             setSearchQuery("");
                           } else if (!rearTag) {
-                            setRearTag(searchQuery.trim());
+                            setRearTag(tagVal);
                             setSearchQuery("");
                           }
                         }
+                        setHasSearched(true);
+                        void handleFetchGuide(parsed || parseSearchSize(nextFront), true);
                       }}
-                      className="ml-auto inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition-colors cursor-pointer shrink-0 shadow-2xs"
+                      className={`${frontTag || rearTag || searchQuery.trim() ? "ml-1.5" : "ml-auto"} inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition-colors cursor-pointer shrink-0 shadow-2xs`}
                     >
                       <MagnifyingGlassIcon className="w-3.5 h-3.5" />
                       Search
@@ -543,7 +692,7 @@ export default function TyresGuideModal({
                   </div>
                 </div>
 
-                <div className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-2xs max-h-[670px] flex flex-col">
+                <div className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-2xs flex-1 min-h-0 flex flex-col">
                   <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-3 shrink-0">
                     <div className="flex items-center gap-2">
                       <SparklesIcon className="w-4 h-4 text-emerald-600" />
@@ -559,17 +708,20 @@ export default function TyresGuideModal({
                     )}
                   </div>
 
-                  {!frontTag && !rearTag && !searchQuery.trim() ? (
-                    /* Clean empty state when there is no search query */
-                    <div className="flex-1 flex flex-col items-center justify-center text-center text-slate-400 gap-2">
-                      <MagnifyingGlassIcon className="w-10 h-10 opacity-25 text-emerald-500" />
-                      <p className="text-xs font-bold text-slate-700">
-                        Search for a tyre size
-                      </p>
-                      <p className="text-[11px] text-slate-500 max-w-xs leading-relaxed">
-                        Enter a tyre size in the search bar above to view
-                        matching results.
-                      </p>
+                  {!hasSearched && !frontTag && !rearTag ? (
+                    /* Initial state before search */
+                    <div className="flex-1 flex flex-col items-center justify-center text-center text-slate-400 gap-3.5 p-6">
+                      <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-200/60 flex items-center justify-center shadow-2xs">
+                        <MagnifyingGlassIcon className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-extrabold text-slate-800">
+                          Search for Tyre Sizes
+                        </p>
+                        <p className="text-[11px] text-slate-500 max-w-xs mt-1 leading-relaxed">
+                          Enter a tyre size in the input box above and click <span className="font-bold text-emerald-700">Search</span> to view matching tyre sizes and vehicles.
+                        </p>
+                      </div>
                     </div>
                   ) : filteredVehicles.length === 0 ? (
                     /* Empty search results */
@@ -583,74 +735,98 @@ export default function TyresGuideModal({
                       </p>
                     </div>
                   ) : (
-                    /* Matching Vehicles List - Grouped by Brand (API-Ready for Logo URLs) */
-                    <div className="flex-1 min-h-0 space-y-3 overflow-y-auto no-scrollbar pr-1">
-                      {brandGroups.map((group, gIdx) => (
-                        <div key={gIdx} className="space-y-1.5">
-                          {/* Styled Brand Header Bar */}
-                          <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-100/70 border border-slate-200/60 shadow-2xs">
-                            <div className="flex items-center gap-2">
-                              {group.logoUrl ? (
-                                <img
-                                  src={group.logoUrl}
-                                  alt={group.make_name}
-                                  className="w-4 h-4 object-contain shrink-0"
-                                />
-                              ) : (
-                                <div className="w-5 h-5 rounded-md bg-emerald-100/80 text-emerald-700 flex items-center justify-center shrink-0">
-                                  <TruckIcon className="w-3 h-3" />
+                    /* Matching Fitment Sizes List + Separate Matching Vehicles Section Below */
+                    <div className="flex-1 min-h-0 flex flex-col space-y-3 pr-1">
+                      {fitmentList.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center h-24 text-center text-slate-400 gap-1.5 shrink-0">
+                          <p className="text-xs font-semibold text-slate-600">
+                            Fitment details loading...
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2 shrink-0">
+                          {fitmentList.map((fitment, fIdx) => {
+                            const fitmentTagVal = `${fitment.front}`;
+                            const isSelected = frontTag === fitmentTagVal;
+
+                            return (
+                              <button
+                                type="button"
+                                key={fIdx}
+                                onClick={() => {
+                                  if (isSelected) {
+                                    setFrontTag("");
+                                    setRearTag("");
+                                  } else {
+                                    setFrontTag(fitment.front);
+                                    if (fitment.rear && fitment.rear !== fitment.front && fitment.rear !== "—") {
+                                      setRearTag(fitment.rear);
+                                    } else {
+                                      setRearTag("");
+                                    }
+                                  }
+                                }}
+                                className={`w-full p-3 rounded-xl border text-left transition-all flex items-center justify-between gap-3 cursor-pointer ${
+                                  isSelected
+                                    ? "bg-emerald-50/50 border-emerald-600 ring-1 ring-emerald-600/30 text-slate-900 shadow-2xs"
+                                    : "bg-white border-slate-200/90 hover:bg-slate-50 hover:border-slate-300 text-slate-900 shadow-2xs"
+                                }`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span className={`font-extrabold text-xs font-mono px-2.5 py-1 rounded-md ${
+                                    isSelected
+                                      ? "bg-emerald-100 text-emerald-900 border border-emerald-300"
+                                      : "bg-slate-100 text-slate-800 border border-slate-200"
+                                  }`}>
+                                    {fitment.front}
+                                  </span>
+                                  {fitment.rear && fitment.rear !== "—" && (
+                                    <>
+                                      <span className="text-slate-400 text-xs">/</span>
+                                      <span className={`font-extrabold text-xs font-mono px-2.5 py-1 rounded-md ${
+                                        isSelected
+                                          ? "bg-emerald-100 text-emerald-900 border border-emerald-300"
+                                          : "bg-slate-100 text-slate-800 border border-slate-200"
+                                      }`}>
+                                        {fitment.rear}
+                                      </span>
+                                    </>
+                                  )}
                                 </div>
-                              )}
-                              <span className="font-extrabold text-[11px] uppercase tracking-wider text-slate-800">
-                                {group.make_name}
-                              </span>
-                            </div>
-                            <span className="text-[10px] font-extrabold text-emerald-800 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded-full">
-                              {group.vehicles.length} model
-                              {group.vehicles.length !== 1 ? "s" : ""}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Separate Matching Vehicles List Section Below Fitment Sizes */}
+                      {filteredVehicles.length > 0 && (
+                        <div className="pt-3 border-t border-slate-200/80 space-y-2 flex-1 min-h-0 flex flex-col">
+                          <div className="flex items-center justify-between px-0.5 shrink-0">
+                            <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-700">
+                              Matching Vehicles
+                            </span>
+                            <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded-full">
+                              {filteredVehicles.length} vehicle{filteredVehicles.length !== 1 ? "s" : ""}
                             </span>
                           </div>
-
-                          {/* Vehicles under this Brand - 2 Column Grid */}
-                          <div className="grid grid-cols-2 gap-1.5">
-                            {group.vehicles.map((v, idx) => {
-                              const vehicleKey = `${v.make_name}-${v.model_name}`;
-                              const isSelected =
-                                selectedVehicleKey === vehicleKey;
-
-                              return (
-                                <button
-                                  type="button"
-                                  key={idx}
-                                  onClick={() =>
-                                    setSelectedVehicleKey(
-                                      isSelected ? null : vehicleKey,
-                                    )
-                                  }
-                                  className={`p-2 rounded-xl border text-left transition-all flex items-center gap-2 text-xs cursor-pointer ${
-                                    isSelected
-                                      ? "bg-emerald-700 text-white border-emerald-800 shadow-xs"
-                                      : "bg-white border-slate-200/90 hover:bg-emerald-50/60 hover:border-emerald-300 text-slate-900 shadow-2xs"
-                                  }`}
-                                >
-                                  <div
-                                    className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${
-                                      isSelected
-                                        ? "bg-emerald-800 text-white"
-                                        : "bg-emerald-50 text-emerald-700 border border-emerald-200/60"
-                                    }`}
-                                  >
-                                    <TruckIcon className="w-3 h-3" />
-                                  </div>
-                                  <span className="font-bold text-xs truncate">
-                                    {v.model_name}
-                                  </span>
-                                </button>
-                              );
-                            })}
+                          <div className="grid grid-cols-2 gap-1.5 max-h-[220px] overflow-y-auto custom-scrollbar pr-1.5 pb-1">
+                            {filteredVehicles.map((v, idx) => (
+                              <div
+                                key={idx}
+                                className="p-2.5 rounded-xl border border-slate-200/90 bg-white text-slate-900 shadow-2xs flex items-center gap-2 text-xs shrink-0"
+                              >
+                                <div className="w-5 h-5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/60 flex items-center justify-center shrink-0">
+                                  <TruckIcon className="w-3 h-3" />
+                                </div>
+                                <span className="font-bold text-xs truncate">
+                                  {v.make_name} {v.model_name}
+                                </span>
+                              </div>
+                            ))}
                           </div>
                         </div>
-                      ))}
+                      )}
                     </div>
                   )}
                 </div>
@@ -681,22 +857,22 @@ export default function TyresGuideModal({
                     ))}
                   </div>
                 ) : tableVehicles.length > 0 ? (
-                  <div className="flex flex-col gap-2">
-                    {/* Vehicle List Table - All 15 rows fit with max-h-[670px] and zero scrollbars */}
-                    <div className="bg-white border border-slate-200/90 rounded-xl overflow-hidden shadow-2xs max-h-[670px] flex flex-col">
-                      <div className="overflow-x-auto overflow-y-auto no-scrollbar max-h-[670px]">
-                        <table className="w-full text-left border-collapse text-xs">
+                  <div className="flex flex-col gap-2 flex-1 min-h-0">
+                    {/* Vehicle List Table - Fixed layout to prevent shifts on page change */}
+                    <div className="bg-white border border-slate-200/90 rounded-xl overflow-hidden shadow-2xs flex flex-col flex-1 min-h-[560px]">
+                      <div className="overflow-x-auto overflow-y-auto no-scrollbar flex-1 min-h-0">
+                        <table className="w-full text-left border-collapse text-xs table-fixed">
                           <thead className="sticky top-0 bg-slate-50 border-b border-slate-200/80 z-10">
-                            <tr className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                              <th className="py-2.5 px-3 text-center w-12 bg-slate-50">
+                            <tr className="text-[11px] font-bold text-slate-500 uppercase tracking-wider h-9">
+                              <th className="py-2 px-3 text-center w-12 bg-slate-50">
                                 #
                               </th>
-                              <th className="py-2.5 px-3.5 bg-slate-50">Make</th>
-                              <th className="py-2.5 px-3.5 bg-slate-50">Model</th>
-                              <th className="py-2.5 px-3.5 bg-slate-50">Year Ranges</th>
-                              <th className="py-2.5 px-3.5 bg-slate-50">Front Size</th>
-                              <th className="py-2.5 px-3.5 bg-slate-50">Rear Size</th>
-                              <th className="py-2.5 px-3.5 text-center bg-slate-50">
+                              <th className="py-2 px-3.5 w-[16%] bg-slate-50">Make</th>
+                              <th className="py-2 px-3.5 w-[16%] bg-slate-50">Model</th>
+                              <th className="py-2 px-3.5 w-[22%] bg-slate-50">Year Ranges</th>
+                              <th className="py-2 px-3.5 w-[16%] bg-slate-50">Front Size</th>
+                              <th className="py-2 px-3.5 w-[16%] bg-slate-50">Rear Size</th>
+                              <th className="py-2 px-3.5 w-[14%] text-center bg-slate-50">
                                 Fitment Type
                               </th>
                             </tr>
@@ -704,14 +880,20 @@ export default function TyresGuideModal({
                           <tbody className="divide-y divide-slate-150 text-slate-800">
                             {paginatedVehicles.map((v, idx) => {
                               const itemIndex = startRecord + idx;
-                              const frontSize =
+                              const rowKey = `${v.make_slug || v.make_name}|${v.model_slug || v.model_name}`.toLowerCase();
+                              const resolved = resolvedSizesMap[rowKey];
+                              const isResolving = resolvingKeys[rowKey];
+
+                              const frontRaw =
                                 v.front_width && v.front_height && v.front_rim
                                   ? `${v.front_width}/${v.front_height} R${v.front_rim}`
-                                  : "—";
-                              const rearSize =
+                                  : resolved?.front;
+
+                              const rearRaw =
                                 v.rear_width && v.rear_height && v.rear_rim
                                   ? `${v.rear_width}/${v.rear_height} R${v.rear_rim}`
-                                  : "—";
+                                  : resolved?.rear;
+
                               const yearRanges = formatYearRanges(
                                 v.year_ranges,
                               );
@@ -719,7 +901,7 @@ export default function TyresGuideModal({
                               return (
                                 <tr
                                   key={idx}
-                                  className="hover:bg-emerald-50/50 transition-colors group"
+                                  className="hover:bg-emerald-50/50 transition-colors group h-9"
                                 >
                                   <td className="py-2 px-3 text-center font-bold text-slate-400 group-hover:text-emerald-600">
                                     {itemIndex}
@@ -749,14 +931,26 @@ export default function TyresGuideModal({
                                     )}
                                   </td>
                                   <td className="py-2 px-3.5 font-bold text-slate-900">
-                                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200 text-slate-800 text-xs">
-                                      {frontSize}
-                                    </span>
+                                    {frontRaw && frontRaw !== "—" ? (
+                                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200 text-slate-800 text-xs">
+                                        {frontRaw}
+                                      </span>
+                                    ) : isResolving ? (
+                                      <span className="inline-block w-16 h-4 rounded bg-slate-200/80 animate-pulse align-middle" />
+                                    ) : (
+                                      <span className="text-slate-400 font-normal">—</span>
+                                    )}
                                   </td>
                                   <td className="py-2 px-3.5 font-bold text-slate-900">
-                                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200 text-slate-800 text-xs">
-                                      {rearSize}
-                                    </span>
+                                    {rearRaw && rearRaw !== "—" ? (
+                                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200 text-slate-800 text-xs">
+                                        {rearRaw}
+                                      </span>
+                                    ) : isResolving ? (
+                                      <span className="inline-block w-16 h-4 rounded bg-slate-200/80 animate-pulse align-middle" />
+                                    ) : (
+                                      <span className="text-slate-400 font-normal">—</span>
+                                    )}
                                   </td>
                                   <td className="py-2 px-3.5 text-center">
                                     {v.is_stock ? (
@@ -800,19 +994,17 @@ export default function TyresGuideModal({
               </div>
             </div>
 
-          {/* Restored Bottom Pagination Footer */}
-          {!loading && totalItems > 0 && (
-            <div className="pt-2 border-t border-slate-200/90 bg-white shrink-0 z-10">
-              <Pagination
-                currentPage={validCurrentPage}
-                totalPages={totalPages}
-                onPageChange={(page) => setCurrentPage(page)}
-                pageSize={pageSize}
-                setPageSize={(size) => setPageSize(size)}
-                pageSizeOptions={[15, 30, 50, 100]}
-              />
-            </div>
-          )}
+          {/* Fixed Bottom Pagination Footer - Always visible to prevent layout shift */}
+          <div className="pt-2 border-t border-slate-200/90 bg-white shrink-0 z-10">
+            <Pagination
+              currentPage={validCurrentPage}
+              totalPages={totalPages}
+              onPageChange={(page) => setCurrentPage(page)}
+              pageSize={pageSize}
+              setPageSize={(size) => setPageSize(size)}
+              pageSizeOptions={[15, 30, 50, 100]}
+            />
+          </div>
         </div>
       </div>
     </div>,

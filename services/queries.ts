@@ -679,6 +679,16 @@ export function tcAttributeLabelsQuery(): string {
    All three args are plain numbers, so they are interpolated directly — no
    string escaping is needed the way the filter-string queries above need it.
 ───────────────────────────────────────────────────────────── */
+/**
+ * Vehicles fitting one tyre size.
+ *
+ * `make_slug` / `model_slug` are selected because they are the keys
+ * `kleverVehicleYears` and `kleverVehicleModifications` take — "Audi"/"A5"
+ * arrive as "audi"/"a5", so a selected row needs no name→slug lookup.
+ *
+ * NOTE: GraphQL has no /* *\/ comment syntax — only `#`. A block comment inside
+ * one of these documents is a parse error, not an annotation.
+ */
 export function kleverVehicleSearchQuery(width: number, height: number, rim: number): string {
   return `query {
     kleverVehicleSearch(width: ${width}, height: ${height}, rim: ${rim}) {
@@ -686,6 +696,8 @@ export function kleverVehicleSearchQuery(width: number, height: number, rim: num
       data {
         make_name
         model_name
+        make_slug
+        model_slug
         year_ranges
         front_width
         front_height
@@ -694,6 +706,96 @@ export function kleverVehicleSearchQuery(width: number, height: number, rim: num
         rear_height
         rear_rim
         is_stock
+      }
+    }
+  }`;
+}
+
+/** Every vehicle make. Takes no required arguments. */
+export function kleverVehicleMakesQuery(): string {
+  return `query {
+    kleverVehicleMakes {
+      data {
+        name
+        slug
+      }
+      meta {
+        count
+      }
+    }
+  }`;
+}
+
+/**
+ * Every model for one make.
+ *
+ * Returns the FULL list — `limit` is optional and omitting it gives all of them
+ * (measured: Toyota returns 41 with and without `limit: 1000`). Carries no
+ * wheel/tyre fields: sizes live only on `kleverVehicleModifications`.
+ */
+export function kleverVehicleModelsQuery(make: string): string {
+  const esc = (v: string) => String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return `query {
+    kleverVehicleModels(make: "${esc(make)}") {
+      data {
+        name
+        slug
+        year_ranges
+      }
+      meta {
+        count
+      }
+    }
+  }`;
+}
+
+/**
+ * Production years for a make/model, newest first.
+ *
+ * `data` is `[KleverVehicleYear]!` — an OBJECT list, so it needs a sub-selection;
+ * asking for `data` bare fails with "must have a sub selection". `slug` and
+ * `name` both carry the year as an Int.
+ */
+export function kleverVehicleYearsQuery(make: string, model: string): string {
+  const esc = (v: string) => String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return `query {
+    kleverVehicleYears(make: "${esc(make)}", model: "${esc(model)}") {
+      data {
+        slug
+        name
+      }
+      meta {
+        count
+      }
+    }
+  }`;
+}
+
+/**
+ * Trim/engine variants for ONE year, with their wheel specs.
+ *
+ * `year` is `Int!` and there is no bulk form — `years: [...]`, `generation:` and
+ * omitting it are all rejected, so a full fitment list costs one request per
+ * year (Camry 25, Porsche 911 23). Fetch only when a vehicle is selected.
+ */
+export function kleverVehicleModificationsQuery(
+  make: string,
+  model: string,
+  year: number,
+): string {
+  const esc = (v: string) => String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return `query {
+    kleverVehicleModifications(make: "${esc(make)}", model: "${esc(model)}", year: ${Number(year)}) {
+      data {
+        name
+        trim
+        is_stock
+        front_wheel {
+          tire_full
+        }
+        rear_wheel {
+          tire_full
+        }
       }
     }
   }`;

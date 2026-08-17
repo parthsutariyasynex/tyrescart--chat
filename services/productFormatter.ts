@@ -51,6 +51,38 @@ export function stripLoadIndex(sizeStr: string): string {
 }
 
 /**
+ * A tyre size reduced to its comparable form: `"245/35 R20"`.
+ *
+ * Built on `stripLoadIndex`, which removes the trailing load index and speed
+ * rating, plus two things that helper deliberately leaves alone because they
+ * matter when displaying a supplier row but not when comparing sizes:
+ *
+ *   - the **Z speed marker** — `225/50ZR17` and `225/50R17` are the same size,
+ *     so `ZR` folds to `R`. Without this the Klever feed yields two entries for
+ *     one fitment (measured: 8 raw sizes deduped to 8 instead of ~6)
+ *   - **spacing** — the vehicle API returns `"245/35R20"` while the table
+ *     renders `"245/35 R20"`; both normalise to the spaced form so a fitment
+ *     can be matched against the size search
+ *
+ * Returns "" when nothing size-shaped is present, so callers can skip the row
+ * rather than render an empty pill.
+ */
+export function normaliseTyreSize(raw: string | null | undefined): string {
+  const base = stripLoadIndex(String(raw ?? "").trim());
+  if (!base) return "";
+  const m = base
+    .toUpperCase()
+    .replace(/\s+/g, "")
+    .match(/^(\d{2,3})\/(\d{2,3})Z?R(\d{2})$/);
+  if (m) return `${m[1]}/${m[2]} R${m[3]}`;
+  /* Full-profile van sizes ("185 R14") carry no aspect ratio — kept as-is
+     rather than forced into the width/profile shape. */
+  const flat = base.toUpperCase().replace(/\s+/g, "").match(/^(\d{2,3})Z?R(\d{2})$/);
+  if (flat) return `${flat[1]} R${flat[2]}`;
+  return base;
+}
+
+/**
  * How many units a customer actually PAYS for to drive away with four tyres,
  * given the row's promotion. Used only to derive the Set of 4 figure — the
  * per-unit Price column is untouched.

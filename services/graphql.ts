@@ -19,11 +19,18 @@ import {
   CREATE_KLEVER_QUOTE,
   ADD_QUOTE_HISTORY,
   kleverVehicleSearchQuery,
+  kleverVehicleMakesQuery,
+  kleverVehicleModelsQuery,
+  kleverVehicleYearsQuery,
+  kleverVehicleModificationsQuery,
   type TcProductsQueryVars,
   updateCrmCustomerMutation,
 } from "./queries";
 import type {
   KleverVehicleItem,
+  KleverVehicleYear,
+  KleverVehicleModification,
+  KleverFitmentPair,
   KleverQuote,
   KleverQuoteInput,
   KleverQuoteHistory,
@@ -44,6 +51,7 @@ import type {
   CrmCustomerUpdateInput,
   CrmCustomerUpdateResult,
 } from "./types";
+import { normaliseTyreSize } from "./productFormatter";
 
 /**
  * A GraphQL request that failed, carrying the HTTP status so callers can tell a
@@ -523,4 +531,205 @@ export async function fetchKleverVehicleSearchGraphQL(
   return (
     (data?.kleverVehicleSearch?.data as KleverVehicleItem[] | undefined) ?? []
   );
+}
+
+/**
+ * The WHOLE vehicle catalogue as flat make/model rows — 1,362 vehicles across
+ * 113 makes, measured.
+ *
+ * `kleverVehicleSearch` can only answer "which vehicles use THIS tyre size"
+ * (width/height/rim are all `Int!`), so it can never list everything. Makes →
+ * Models can, at 1 + 113 = 114 requests / ~25 s at concurrency 8.
+ *
+ * The rows carry NO tyre sizes: `kleverVehicleModels` exposes only name, slug
+ * and year_ranges. Sizes come from `fetchKleverVehicleFitments` when a vehicle
+ * is selected — filling them in for all 1,362 up front would be ~27,000
+ * requests.
+ *
+ * Memoised for the session: the catalogue does not change between page loads,
+ * and 25 s is far too long to repeat on every toggle.
+ */
+let allVehiclesCache: Promise<KleverVehicleItem[]> | null = null;
+
+export function fetchKleverAllVehicles(): Promise<KleverVehicleItem[]> {
+  if (allVehiclesCache) return allVehiclesCache;
+
+  const task = (async () => {
+    const makesData = await executeGraphQLQuery(kleverVehicleMakesQuery());
+    const makes =
+      (makesData?.kleverVehicleMakes?.data as
+        | { name: string | null; slug: string | null }[]
+        | undefined) ?? [];
+
+    const perMake = await pool(makes, 8, async (mk) => {
+      const slug = String(mk?.slug ?? "").trim();
+      if (!slug) return [] as KleverVehicleItem[];
+      try {
+        const data = await executeGraphQLQuery(kleverVehicleModelsQuery(slug));
+        const models =
+          (data?.kleverVehicleModels?.data as
+            | { name: string | null; slug: string | null; year_ranges: unknown }[]
+            | undefined) ?? [];
+        return models.map((m) => ({
+          make_name: mk.name ?? null,
+          model_name: m.name ?? null,
+          make_slug: slug,
+          model_slug: m.slug ?? null,
+          /* `kleverVehicleModels` returns a real ARRAY here while
+             `kleverVehicleSearch` returns a JSON-encoded STRING. The table's
+             formatter handles both, so the array is passed through as the
+             string form it already parses. */
+          year_ranges:
+            m.year_ranges == null ? null : JSON.stringify(m.year_ranges),
+          /* No size data on this endpoint — left null so the table renders "—"
+             rather than inventing a fitment. */
+          front_width: null,
+          front_height: null,
+          front_rim: null,
+          rear_width: null,
+          rear_height: null,
+          rear_rim: null,
+          is_stock: null,
+        })) as KleverVehicleItem[];
+      } catch {
+        // One failed make must not lose the other 112.
+        return [] as KleverVehicleItem[];
+      }
+    });
+
+    return perMake.flat();
+  })();
+
+  allVehiclesCache = task;
+  task.catch(() => {
+    allVehiclesCache = null;
+  });
+  return task;
+}
+
+/** Production years for a make/model, newest first. */
+export async function fetchKleverVehicleYearsGraphQL(
+  make: string,
+  model: string,
+): Promise<number[]> {
+  const data = await executeGraphQLQuery(kleverVehicleYearsQuery(make, model));
+  const rows =
+    (data?.kleverVehicleYears?.data as KleverVehicleYear[] | undefined) ?? [];
+  return rows
+    .map((r) => Number(r?.slug ?? r?.name))
+    .filter((y) => Number.isFinite(y) && y > 0);
+}
+
+/** Trim variants for one year. */
+export async function fetchKleverVehicleModificationsGraphQL(
+  make: string,
+  model: string,
+  year: number,
+): Promise<KleverVehicleModification[]> {
+  const data = await executeGraphQLQuery(
+    kleverVehicleModificationsQuery(make, model, year),
+  );
+  return (
+    (data?.kleverVehicleModifications?.data as
+      | KleverVehicleModification[]
+      | undefined) ?? []
+  );
+}
+
+/**
+ * Every distinct front/rear fitment pair for one vehicle.
+ *
+ * `kleverVehicleModifications` takes a single mandatory `year: Int!` — there is
+ * no bulk form (`years: [...]`, `generation:` and omitting it are all rejected)
+ * — so this fans out one request per year. Measured: Camry 25 years / 26 calls,
+ * Porsche 911 23 / 24, Audi A5 18 / 19. At the pool size below that is ~4-5 s
+ * rather than the ~24 s a sequential loop costs.
+ *
+ * CALL ONLY WHEN A VEHICLE IS SELECTED. A size search returns ~79 vehicles;
+ * resolving all of them up front would be ~1,600 requests.
+ *
+ * Results are memoised per `make|model` for the session — reopening a vehicle
+ * is then free, and the fitment list does not change between page loads.
+ */
+const fitmentCache = new Map<string, Promise<KleverFitmentPair[]>>();
+
+/** Same worker-pool shape the catalogue syncs use. */
+async function pool<T, R>(
+  items: readonly T[],
+  size: number,
+  run: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(size, items.length) }, async () => {
+      while (next < items.length) {
+        const i = next++;
+        out[i] = await run(items[i]);
+      }
+    }),
+  );
+  return out;
+}
+
+export function fetchKleverVehicleFitments(
+  make: string,
+  model: string,
+): Promise<KleverFitmentPair[]> {
+  const key = `${make}|${model}`.toLowerCase();
+  const hit = fitmentCache.get(key);
+  if (hit) return hit;
+
+  const task = (async () => {
+    const years = await fetchKleverVehicleYearsGraphQL(make, model);
+    if (!years.length) return [];
+
+    const perYear = await pool(years, 8, (year) =>
+      fetchKleverVehicleModificationsGraphQL(make, model, year).catch(() => []),
+    );
+
+    /* Deduped on the NORMALISED pair, so "225/50R17 98H" and "225/50ZR17 94W"
+       collapse to one entry instead of two spellings of the same size. */
+    const byPair = new Map<string, KleverFitmentPair>();
+    for (const mod of perYear.flat()) {
+      const frontRaw = mod?.front_wheel?.tire_full;
+      if (!frontRaw) continue;
+      /* A NULL rear means SQUARE — the same size on both axles — not missing
+         data. Verified across 510 modifications: `rear_wheel.tire_full` is
+         non-null if and only if front ≠ rear, and rear === front never occurs.
+         Falling back to the front size is therefore the correct reading;
+         treating null as "unknown" would blank the rear column on every
+         non-staggered car (Camry, Audi A5 …). */
+      const rearRaw = mod?.rear_wheel?.tire_full || frontRaw;
+
+      const front = normaliseTyreSize(frontRaw);
+      const rear = normaliseTyreSize(rearRaw);
+      if (!front) continue;
+
+      const pairKey = `${front}|${rear}`;
+      const prev = byPair.get(pairKey);
+      const isStock = Boolean(
+        mod?.is_stock === true ||
+          mod?.is_stock === 1 ||
+          String(mod?.is_stock) === "1",
+      );
+      if (prev) {
+        // One stock variant is enough to mark the pair as a factory fitment.
+        if (isStock) prev.isStock = true;
+      } else {
+        byPair.set(pairKey, {
+          front,
+          rear,
+          staggered: front !== rear,
+          isStock,
+        });
+      }
+    }
+    return [...byPair.values()];
+  })();
+
+  fitmentCache.set(key, task);
+  // A failed lookup must not be cached, or the vehicle can never be retried.
+  task.catch(() => fitmentCache.delete(key));
+  return task;
 }
