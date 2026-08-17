@@ -559,7 +559,7 @@ export default function TyresGuideModal({
           )}
 
           {/* Responsive 2-panel layout: 40% Left Panel & 60% Right Panel */}
-          <div className="flex flex-col lg:flex-row gap-4 items-start">
+          <div className="flex flex-col lg:flex-row gap-4 items-stretch flex-1 min-h-0">
               {/* Left Panel: 40% Width for Search Bar & Tyre Size Search Results - STICKY TOP */}
               <div className="w-full lg:w-[40%] flex flex-col gap-3 shrink-0 lg:sticky lg:top-0">
                 {/* Zero-Layout-Shift Search Bar Container */}
@@ -744,7 +744,7 @@ export default function TyresGuideModal({
                           </p>
                         </div>
                       ) : (
-                        <div className="space-y-2 shrink-0">
+                        <div className="space-y-2 max-h-[190px] overflow-y-auto custom-scrollbar pr-1 shrink-0">
                           {fitmentList.map((fitment, fIdx) => {
                             const fitmentTagVal = `${fitment.front}`;
                             const isSelected = frontTag === fitmentTagVal;
@@ -780,7 +780,7 @@ export default function TyresGuideModal({
                                   }`}>
                                     {fitment.front}
                                   </span>
-                                  {fitment.rear && fitment.rear !== "—" && (
+                                  {fitment.rear && fitment.rear !== "—" && fitment.rear !== fitment.front && (
                                     <>
                                       <span className="text-slate-400 text-xs">/</span>
                                       <span className={`font-extrabold text-xs font-mono px-2.5 py-1 rounded-md ${
@@ -810,18 +810,19 @@ export default function TyresGuideModal({
                               {filteredVehicles.length} vehicle{filteredVehicles.length !== 1 ? "s" : ""}
                             </span>
                           </div>
-                          <div className="grid grid-cols-2 gap-1.5 max-h-[220px] overflow-y-auto custom-scrollbar pr-1.5 pb-1">
+                          <div className="grid grid-cols-4 gap-1.5 max-h-[230px] overflow-y-auto custom-scrollbar pr-2 pb-1">
                             {filteredVehicles.map((v, idx) => (
-                              <div
-                                key={idx}
-                                className="p-2.5 rounded-xl border border-slate-200/90 bg-white text-slate-900 shadow-2xs flex items-center gap-2 text-xs shrink-0"
-                              >
-                                <div className="w-5 h-5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/60 flex items-center justify-center shrink-0">
-                                  <TruckIcon className="w-3 h-3" />
+                              <div key={idx} className="flex items-center justify-start min-w-0">
+                                <div
+                                  className="w-fit max-w-full inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200/90 bg-white text-slate-900 shadow-2xs text-xs hover:border-emerald-500 hover:bg-emerald-50/40 transition-all"
+                                >
+                                  <div className="w-5 h-5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/60 flex items-center justify-center shrink-0">
+                                    <TruckIcon className="w-3 h-3" />
+                                  </div>
+                                  <span className="font-extrabold text-xs text-slate-800 truncate">
+                                    {v.make_name} {v.model_name}
+                                  </span>
                                 </div>
-                                <span className="font-bold text-xs truncate">
-                                  {v.make_name} {v.model_name}
-                                </span>
                               </div>
                             ))}
                           </div>
@@ -859,8 +860,8 @@ export default function TyresGuideModal({
                 ) : tableVehicles.length > 0 ? (
                   <div className="flex flex-col gap-2 flex-1 min-h-0">
                     {/* Vehicle List Table - Fixed layout to prevent shifts on page change */}
-                    <div className="bg-white border border-slate-200/90 rounded-xl overflow-hidden shadow-2xs flex flex-col flex-1 min-h-[560px]">
-                      <div className="overflow-x-auto overflow-y-auto no-scrollbar flex-1 min-h-0">
+                    <div className="bg-white border border-slate-200/90 rounded-xl overflow-hidden shadow-2xs flex flex-col flex-1 min-h-0">
+                      <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
                         <table className="w-full text-left border-collapse text-xs table-fixed">
                           <thead className="sticky top-0 bg-slate-50 border-b border-slate-200/80 z-10">
                             <tr className="text-[11px] font-bold text-slate-500 uppercase tracking-wider h-9">
@@ -995,7 +996,7 @@ export default function TyresGuideModal({
             </div>
 
           {/* Fixed Bottom Pagination Footer - Always visible to prevent layout shift */}
-          <div className="pt-2 border-t border-slate-200/90 bg-white shrink-0 z-10">
+          <div className="pt-2 border-t border-slate-200/90 bg-white shrink-0 sticky bottom-0 z-20">
             <Pagination
               currentPage={validCurrentPage}
               totalPages={totalPages}

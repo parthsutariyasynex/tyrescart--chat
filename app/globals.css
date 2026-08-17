@@ -388,13 +388,13 @@ body {
 .custom-scrollbar {
   -ms-overflow-style: auto !important;
   scrollbar-width: thin !important;
-  scrollbar-color: #94a3b8 #f1f5f9 !important;
+  scrollbar-color: #64748b #f1f5f9 !important;
 }
 
 .custom-scrollbar::-webkit-scrollbar {
   display: block !important;
-  width: 6px !important;
-  height: 6px !important;
+  width: 7px !important;
+  height: 7px !important;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
@@ -405,7 +405,7 @@ body {
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
   display: block !important;
-  background: #94a3b8 !important;
+  background: #64748b !important;
   border-radius: 9999px !important;
 }
 
