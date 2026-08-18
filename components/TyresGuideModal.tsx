@@ -890,9 +890,6 @@ export default function TyresGuideModal({
                      the right. Neither the amber warning nor the pre-search
                      prompt applies here. */
                   <div className="flex-1 flex flex-col items-center justify-center text-center p-4 gap-2.5">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200/60 flex items-center justify-center shadow-2xs">
-                      <TruckIcon className="w-5 h-5" />
-                    </div>
                     <p className="text-xs font-extrabold text-slate-800">
                       Showing all vehicles
                     </p>
@@ -901,7 +898,9 @@ export default function TyresGuideModal({
                       fitments.
                     </p>
                   </div>
-                ) : !loading && filteredVehicles.length === 0 && fitmentList.length === 0 ? (
+                ) : !loading &&
+                  filteredVehicles.length === 0 &&
+                  fitmentList.length === 0 ? (
                   /* Empty search results with Warning */
                   <div className="flex-1 flex flex-col items-center justify-center text-center p-4 gap-2.5">
                     <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center shadow-2xs">
@@ -935,10 +934,7 @@ export default function TyresGuideModal({
                           : searchedFront;
 
                         const staggeredFitments = fitmentList.filter(
-                          (f) =>
-                            f.rear &&
-                            f.rear !== "—" &&
-                            f.rear !== f.front,
+                          (f) => f.rear && f.rear !== "—" && f.rear !== f.front,
                         );
 
                         return (
