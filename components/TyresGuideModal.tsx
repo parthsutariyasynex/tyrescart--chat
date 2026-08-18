@@ -64,64 +64,31 @@ function parseSearchSize(
 }
 
 /**
- * Brand logo candidates for a make slug, best source first.
+ * Brand logo for a make, from Klever's own logo host.
  *
- * TWO sets are combined because neither alone covers this catalogue. Measured
- * against all 113 makes the API returns:
+ * Keyed on `make_slug` exactly as `kleverVehicleSearch` returns it —
+ * abarth → /logos/abarth.png. Verified against every make the API lists:
+ * 113 / 113 present (100%), each a distinct image, and an unknown slug
+ * returns a real 404 rather than a shared placeholder.
  *
- *   car-logos-dataset          97 makes
- *   + VehicleSpecs adds         6 makes (denza, ineos, jaecoo, ora, polaris, seres)
- *   = combined                103 / 113  (91%)
+ * This replaces the two jsDelivr sets that were here before
+ * (car-logos-dataset + VehicleSpecs, which together reached 103/113 and left
+ * dorcen, firefly, forthing, iran-khodro, kaiyi, rox, skywell, tank, vgv and
+ * voyah on the truck icon). Same-origin-family host as the rest of the API, no
+ * third-party CDN, no version pin to keep current, and no alias table — the
+ * slugs match because both come from the same backend.
  *
- * The dataset is tried FIRST so every brand that works today keeps the exact
- * image it has now — VehicleSpecs only fills gaps. The remaining 10 (dorcen,
- * firefly, forthing, iran-khodro, kaiyi, rox, skywell, tank, vgv, voyah) are in
- * neither set and keep the truck icon.
- *
- * VehicleSpecs is PINNED to @1.0.0 rather than @main: an unpinned ref
- * re-resolves on every upstream commit, so a rename there would silently break
- * these logos with no change on our side.
- *
- * The Klever API carries no logo field of its own (`kleverVehicleMakes` exposes
- * only `name` and `slug`), so the slug is the only handle available.
+ * The truck fallback is kept for a row with no slug at all, or a network
+ * failure.
  */
-const LOGO_CDN_DATASET =
-  "https://cdn.jsdelivr.net/gh/filippofilip95/car-logos-dataset@master/logos/optimized";
-const LOGO_CDN_VEHICLESPECS =
-  "https://cdn.jsdelivr.net/gh/VehicleSpecs/brand-logos@1.0.0";
+const LOGO_BASE_URL = "https://wheel-api.klever.ae/logos";
 
-/** Slugs each set spells differently from this project. */
-const DATASET_ALIASES: Record<string, string> = {
-  mercedes: "mercedes-benz",
-  "mercedes-maybach": "maybach",
-  "bmw-alpina": "alpina",
-  gac: "gac-group",
-  baic: "baic-motor",
-};
-const VEHICLESPECS_ALIASES: Record<string, string> = {
-  mercedes: "mercedes-benz",
-  "mercedes-maybach": "maybach",
-  "bmw-alpina": "alpina",
-};
-
-function normaliseMakeSlug(makeSlug: string | null | undefined): string {
-  return String(makeSlug ?? "")
+function makeLogoUrl(makeSlug: string | null | undefined): string {
+  const slug = String(makeSlug ?? "")
     .toLowerCase()
     .trim()
     .replace(/\s+/g, "-");
-}
-
-/** Every URL to try, in order. Empty when there is no slug to build from. */
-function makeLogoCandidates(makeSlug: string | null | undefined): string[] {
-  const slug = normaliseMakeSlug(makeSlug);
-  if (!slug) return [];
-  const ds = DATASET_ALIASES[slug] ?? slug;
-  const vs = VEHICLESPECS_ALIASES[slug] ?? slug;
-  return [
-    `${LOGO_CDN_DATASET}/${ds}.png`,
-    `${LOGO_CDN_VEHICLESPECS}/${vs}-logo.svg`,
-    `${LOGO_CDN_VEHICLESPECS}/${vs}-logo.png`,
-  ];
+  return slug ? `${LOGO_BASE_URL}/${slug}.png` : "";
 }
 
 interface TyresGuideModalProps {
@@ -1173,35 +1140,16 @@ export default function TyresGuideModal({
                                           <div className="w-11 h-11 rounded-lg bg-white border border-slate-200/80 flex items-center justify-center shrink-0 overflow-hidden p-1.5">
                                             {/* eslint-disable-next-line @next/next/no-img-element */}
                                             <img
-                                              src={
-                                                makeLogoCandidates(
-                                                  v.make_slug || v.make_name,
-                                                )[0] || ""
-                                              }
+                                              src={makeLogoUrl(
+                                                v.make_slug || v.make_name,
+                                              )}
                                               alt={`${v.make_name}`}
                                               className="w-full h-full object-contain"
                                               onError={(e) => {
-                                                /* Walk the candidate list, then
-                                                   give up. `data-logo-step`
-                                                   tracks position so a brand
-                                                   missing from the first set
-                                                   falls through to the next
-                                                   rather than showing a broken
-                                                   image. */
+                                                /* One source now, so there is
+                                                   nothing to fall through to —
+                                                   show the truck icon. */
                                                 const img = e.currentTarget;
-                                                const urls = makeLogoCandidates(
-                                                  v.make_slug || v.make_name,
-                                                );
-                                                const step =
-                                                  Number(
-                                                    img.dataset.logoStep ?? "0",
-                                                  ) + 1;
-                                                if (step < urls.length) {
-                                                  img.dataset.logoStep =
-                                                    String(step);
-                                                  img.src = urls[step];
-                                                  return;
-                                                }
                                                 img.onerror = null;
                                                 img.style.display = "none";
                                                 if (img.nextElementSibling) {
