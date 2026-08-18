@@ -13,8 +13,8 @@ import {
   BookOpenIcon,
   MagnifyingGlassIcon,
   TruckIcon,
-  CheckCircleIcon,
   SparklesIcon,
+  ExclamationTriangleIcon,
 } from "@heroicons/react/24/outline";
 import {
   fetchKleverVehicleSearchGraphQL,
@@ -110,6 +110,20 @@ export default function TyresGuideModal({
   const [searchQuery, setSearchQuery] = useState("");
   const [frontTag, setFrontTag] = useState("");
   const [rearTag, setRearTag] = useState("");
+
+  /**
+   * The fitment chip the user has highlighted, as `front|rear`.
+   *
+   * SELECTION ONLY — it deliberately does not touch `frontTag`/`rearTag` and
+   * does not refetch. Clicking a chip used to call `setFrontTag`/`setRearTag`
+   * plus `handleFetchGuide`, which ran a NEW search and replaced the result
+   * set: picking one combination out of a 4-car result collapsed the table to
+   * whatever that single size returned. The search result is the source of
+   * truth; a chip click only marks which combination is being looked at.
+   */
+  const [selectedFitmentKey, setSelectedFitmentKey] = useState<string | null>(
+    null,
+  );
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
 
@@ -154,8 +168,8 @@ export default function TyresGuideModal({
       override !== undefined
         ? override
         : (parseSearchSize(frontTag) ??
-           parseSearchSize(rearTag) ??
-           parseSearchSize(searchQuery));
+          parseSearchSize(rearTag) ??
+          parseSearchSize(searchQuery));
 
     try {
       if (size) {
@@ -172,6 +186,7 @@ export default function TyresGuideModal({
         }
       } else {
         const data = await fetchKleverAllVehicles();
+        catalogueRef.current = data;
         setVehicles(data);
       }
     } catch (err) {
@@ -230,6 +245,8 @@ export default function TyresGuideModal({
   /* Reset to page 1 on search or page size change */
   useEffect(() => {
     setCurrentPage(1);
+    // A new search invalidates whichever chip was highlighted.
+    setSelectedFitmentKey(null);
   }, [searchQuery, frontTag, rearTag, pageSize]);
 
   const normalizeTyreSize = (value: string) =>
@@ -257,10 +274,10 @@ export default function TyresGuideModal({
       tagRaw: string,
     ) => {
       if (!tagNorm && !tagRaw) return false;
+      if (!sizeNorm && !sizeRaw) return false;
       if (tagNorm && sizeNorm.includes(tagNorm)) return true;
       if (tagRaw && sizeRaw.toLowerCase().includes(tagRaw.toLowerCase()))
         return true;
-      if (!sizeNorm && !sizeRaw) return true;
       return false;
     };
 
@@ -320,7 +337,7 @@ export default function TyresGuideModal({
           targetNorm,
           targetRaw,
         );
-        if (isFrontMatch || isRearMatch || hasSearched) {
+        if (isFrontMatch || isRearMatch) {
           exactMatches.push(v);
 
           const isStaggered = Boolean(
@@ -426,15 +443,67 @@ export default function TyresGuideModal({
       filteredVehicles: exactMatches,
       fitmentList,
     };
-  }, [vehicles, searchQuery, frontTag, rearTag, resolvedSizesMap, hasSearched]);
+  }, [vehicles, searchQuery, frontTag, rearTag, resolvedSizesMap]);
 
   /* Right Panel Table vehicles: paginated list of filteredVehicles or vehicles */
+  /**
+   * Vehicles shown under "Matching Vehicles".
+   *
+   * With no chip selected this is the whole search result. Selecting a chip
+   * narrows it to the cars that actually use THAT front/rear combination —
+   * `fitmentMap` already collected them while grouping, so this is a lookup,
+   * not a re-filter, and it costs no request. The underlying search result is
+   * untouched: clearing the chip restores the full list immediately.
+   */
+  const selectedFitment = useMemo(
+    () =>
+      selectedFitmentKey
+        ? fitmentList.find((f) => `${f.front}|${f.rear}` === selectedFitmentKey)
+        : undefined,
+    [fitmentList, selectedFitmentKey],
+  );
+
+  const matchingVehicles = selectedFitment?.vehicles ?? filteredVehicles;
+
   const tableVehicles = useMemo(() => {
-    if (frontTag || rearTag || searchQuery || hasSearched) {
-      return filteredVehicles;
+    /* Only a live size filter narrows the table. `hasSearched` used to be part
+       of this condition, which meant CLEARING a search left the table on
+       `filteredVehicles` — and that memo returns [] when no tag is set, so the
+       table went blank instead of falling back to the catalogue. */
+    /* A filter that matches nothing keeps the catalogue on screen rather than
+       emptying the table. The left panel already reports the miss ("This size
+       is not found in list — showing complete vehicle catalogue on the right"),
+       so blanking the table as well removed the list the user was reading and
+       replaced it with a second, redundant not-found message. */
+    const fallback = vehicles;
+    if (frontTag || rearTag) {
+      return filteredVehicles.length > 0 ? filteredVehicles : fallback;
     }
-    return vehicles;
-  }, [filteredVehicles, vehicles, frontTag, rearTag, searchQuery, hasSearched]);
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      const matches = vehicles.filter((v) => {
+        const make = (v.make_name || "").toLowerCase();
+        const model = (v.model_name || "").toLowerCase();
+        const fSize =
+          v.front_width && v.front_height && v.front_rim
+            ? `${v.front_width}/${v.front_height}`
+            : "";
+        const rSize =
+          v.rear_width && v.rear_height && v.rear_rim
+            ? `${v.rear_width}/${v.rear_height}`
+            : "";
+        return (
+          make.includes(q) ||
+          model.includes(q) ||
+          fSize.includes(q) ||
+          rSize.includes(q)
+        );
+      });
+      // Same rule for the free-text filter: no match keeps the full list.
+      return matches.length > 0 ? matches : fallback;
+    }
+    return fallback;
+  }, [filteredVehicles, vehicles, frontTag, rearTag, searchQuery]);
 
   /* Pagination slices */
   const totalItems = tableVehicles.length;
@@ -467,6 +536,18 @@ export default function TyresGuideModal({
    * responsive and lets the cancellation below actually take effect.
    */
   const requestedSizeKeysRef = useRef<Set<string>>(new Set());
+
+  /**
+   * The last full vehicle catalogue that was loaded.
+   *
+   * A size search REPLACES `vehicles` with its own results, so a search that
+   * matches nothing leaves `vehicles` empty and there is no list left to fall
+   * back to. Held in a ref (not state) because it is only ever read as a
+   * fallback during render — storing it in state would re-render on every
+   * catalogue load for no visual change. Never refetched: it is filled from the
+   * memoised `fetchKleverAllVehicles` result the list flow already produced.
+   */
+  const catalogueRef = useRef<KleverVehicleItem[]>([]);
 
   useEffect(() => {
     if (!paginatedVehicles.length) return;
@@ -633,7 +714,8 @@ export default function TyresGuideModal({
                         type="button"
                         onClick={() => {
                           setFrontTag("");
-                          void handleFetchGuide(null);
+                          const remaining = parseSearchSize(rearTag);
+                          void handleFetchGuide(remaining || null);
                         }}
                         className="hover:text-emerald-200 transition-colors cursor-pointer"
                         title="Remove Front size filter"
@@ -649,7 +731,11 @@ export default function TyresGuideModal({
                       Rear: {rearTag}
                       <button
                         type="button"
-                        onClick={() => setRearTag("")}
+                        onClick={() => {
+                          setRearTag("");
+                          const remaining = parseSearchSize(frontTag);
+                          void handleFetchGuide(remaining || null);
+                        }}
                         className="hover:text-emerald-200 transition-colors cursor-pointer"
                         title="Remove Rear size filter"
                       >
@@ -700,7 +786,17 @@ export default function TyresGuideModal({
                         setFrontTag("");
                         setRearTag("");
                         setSearchQuery("");
-                        setHasSearched(false);
+                        /* `hasSearched` deliberately STAYS true. Resetting it
+                           sent the panel back to the "Search for Tyre Sizes"
+                           prompt even though the default vehicle list had been
+                           restored underneath — clearing a search should show
+                           that list, not the pre-search state.
+
+                           `handleFetchGuide(null)` routes to
+                           `fetchKleverAllVehicles`, which is memoised for the
+                           session, so restoring the list costs NO new requests;
+                           it just puts the cached catalogue back into `vehicles`
+                           after the search response replaced it. */
                         setCurrentPage(1);
                         void handleFetchGuide(null, false);
                       }}
@@ -761,7 +857,7 @@ export default function TyresGuideModal({
                   <div className="flex items-center gap-2">
                     <SparklesIcon className="w-4 h-4 text-emerald-600" />
                     <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-800">
-                      Search Results
+                      Selected Size
                     </h3>
                   </div>
                   {(frontTag || rearTag || searchQuery.trim()) && (
@@ -815,15 +911,35 @@ export default function TyresGuideModal({
                       </p>
                     </div>
                   </div>
-                ) : filteredVehicles.length === 0 ? (
-                  /* Empty search results */
-                  <div className="flex-1 flex flex-col items-center justify-center text-center text-slate-400 gap-2">
-                    <TruckIcon className="w-10 h-10 opacity-30 text-rose-500" />
-                    <p className="text-xs font-bold text-slate-700">
-                      No matching tyre sizes found
+                ) : !frontTag && !rearTag ? (
+                  /* Search was cleared: no size filter is active, so there is
+                     nothing to report as "not found" — the full catalogue is on
+                     the right. Neither the amber warning nor the pre-search
+                     prompt applies here. */
+                  <div className="flex-1 flex flex-col items-center justify-center text-center p-4 gap-2.5">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200/60 flex items-center justify-center shadow-2xs">
+                      <TruckIcon className="w-5 h-5" />
+                    </div>
+                    <p className="text-xs font-extrabold text-slate-800">
+                      Showing all vehicles
                     </p>
-                    <p className="text-[11px] text-slate-500 max-w-xs">
-                      No fitments matched your query. Try another tyre size.
+                    <p className="text-[11px] text-slate-500 max-w-xs leading-relaxed">
+                      Enter a tyre size above to narrow the list to matching
+                      fitments.
+                    </p>
+                  </div>
+                ) : filteredVehicles.length === 0 ? (
+                  /* Empty search results with Warning */
+                  <div className="flex-1 flex flex-col items-center justify-center text-center p-4 gap-2.5">
+                    <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center shadow-2xs">
+                      <ExclamationTriangleIcon className="w-5 h-5" />
+                    </div>
+                    <p className="text-xs font-extrabold text-amber-900">
+                      This size is not found in list
+                    </p>
+                    <p className="text-[11px] text-slate-500 max-w-xs leading-relaxed">
+                      No vehicle fitments matched your searched tyre size.
+                      Showing complete vehicle catalogue on the right.
                     </p>
                   </div>
                 ) : (
@@ -836,85 +952,130 @@ export default function TyresGuideModal({
                         </p>
                       </div>
                     ) : (
-                      <div className="flex flex-wrap gap-2 max-h-[190px] overflow-y-auto custom-scrollbar pr-1 shrink-0">
-                        {fitmentList.map((fitment, fIdx) => {
-                          const fitmentTagVal = `${fitment.front}`;
-                          const isSelected = frontTag === fitmentTagVal;
+                      (() => {
+                        const searchedFront =
+                          frontTag ||
+                          (fitmentList.length > 0 ? fitmentList[0].front : "");
+                        const searchedRear = rearTag;
+                        const searchedKey = searchedRear
+                          ? `${searchedFront}|${searchedRear}`
+                          : searchedFront;
 
-                          return (
-                            <button
-                              type="button"
-                              key={fIdx}
-                              onClick={() => {
-                                if (isSelected) {
-                                  setFrontTag("");
-                                  setRearTag("");
-                                } else {
-                                  setFrontTag(fitment.front);
-                                  if (
-                                    fitment.rear &&
-                                    fitment.rear !== fitment.front &&
-                                    fitment.rear !== "—"
-                                  ) {
-                                    setRearTag(fitment.rear);
-                                  } else {
-                                    setRearTag("");
-                                  }
-                                }
-                              }}
-                              className={`px-3 py-1.5 rounded-lg border text-left transition-all flex items-center gap-2 cursor-pointer ${
-                                isSelected
-                                  ? "bg-emerald-50 border-emerald-600 ring-1 ring-emerald-600/30 text-slate-900 shadow-2xs"
-                                  : "bg-white border-slate-200/90 hover:bg-slate-50 hover:border-slate-300 text-slate-900 shadow-2xs"
-                              }`}
-                            >
-                              <span
-                                className={`font-extrabold text-xs font-mono px-2 py-0.5 rounded-md ${
-                                  isSelected
-                                    ? "bg-emerald-100 text-emerald-900 border border-emerald-300"
-                                    : "bg-slate-100 text-slate-800 border border-slate-200"
-                                }`}
-                              >
-                                {fitment.front}
-                              </span>
-                              {fitment.rear &&
-                                fitment.rear !== "—" &&
-                                fitment.rear !== fitment.front && (
-                                  <>
-                                    <span className="text-slate-400 text-xs">
-                                      /
+                        const staggeredFitments = fitmentList.filter(
+                          (f) =>
+                            f.rear &&
+                            f.rear !== "—" &&
+                            f.rear !== f.front,
+                        );
+
+                        return (
+                          <div className="flex flex-col gap-3 max-h-[190px] overflow-y-auto custom-scrollbar pr-1 shrink-0">
+                            {searchedFront && (
+                              <div className="space-y-1.5">
+                                <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-700">
+                                  Selected Size
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedFitmentKey((prev) =>
+                                        prev === searchedKey
+                                          ? null
+                                          : searchedKey,
+                                      );
+                                    }}
+                                    className={`px-2.5 py-1.5 rounded-lg border text-left transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ${
+                                      selectedFitmentKey === searchedKey ||
+                                      selectedFitmentKey === null
+                                        ? "bg-emerald-50/80 border-emerald-600 ring-2 ring-emerald-500/20"
+                                        : "bg-white border-slate-200/90 hover:bg-slate-50 hover:border-slate-300"
+                                    }`}
+                                  >
+                                    <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-blue-50 border border-blue-200/90 text-blue-900">
+                                      {searchedFront}
+                                      {searchedRear ? " (front)" : ""}
                                     </span>
-                                    <span
-                                      className={`font-extrabold text-xs font-mono px-2 py-0.5 rounded-md ${
-                                        isSelected
-                                          ? "bg-emerald-100 text-emerald-900 border border-emerald-300"
-                                          : "bg-slate-100 text-slate-800 border border-slate-200"
-                                      }`}
-                                    >
-                                      {fitment.rear}
-                                    </span>
-                                  </>
-                                )}
-                            </button>
-                          );
-                        })}
-                      </div>
+                                    {searchedRear && (
+                                      <>
+                                        <span className="text-slate-600 text-xs">
+                                          /
+                                        </span>
+                                        <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200/90 text-amber-950">
+                                          {searchedRear} (rear)
+                                        </span>
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+
+                            {staggeredFitments.length > 0 && (
+                              <div className="space-y-1.5">
+                                <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-700">
+                                  Suggested Size
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  {staggeredFitments.map((fitment, fIdx) => {
+                                    const fitmentKey = `${fitment.front}|${fitment.rear}`;
+                                    const isSelected =
+                                      selectedFitmentKey === fitmentKey;
+
+                                    return (
+                                      <button
+                                        type="button"
+                                        key={fIdx}
+                                        onClick={() => {
+                                          setSelectedFitmentKey((prev) =>
+                                            prev === fitmentKey
+                                              ? null
+                                              : fitmentKey,
+                                          );
+                                        }}
+                                        className={`px-2.5 py-1.5 rounded-lg border text-left transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ${
+                                          isSelected
+                                            ? "bg-emerald-50/80 border-emerald-600 ring-2 ring-emerald-500/20"
+                                            : "bg-white border-slate-200/90 hover:bg-slate-50 hover:border-slate-300"
+                                        }`}
+                                      >
+                                        <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-blue-50 border border-blue-200/90 text-blue-900">
+                                          {fitment.front} (front)
+                                        </span>
+                                        <span className="text-slate-600 text-xs">
+                                          /
+                                        </span>
+                                        <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200/90 text-amber-950">
+                                          {fitment.rear} (rear)
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()
                     )}
 
                     {/* Separate Matching Vehicles List Section Below Fitment Sizes */}
-                    {filteredVehicles.length > 0 && (
+                    {/* Shown ONLY for an explicitly selected size combination.
+                        A plain search lists the available sizes; the vehicles
+                        for one of them appear once that chip is clicked. */}
+                    {selectedFitment && matchingVehicles.length > 0 && (
                       <div className="pt-3 border-t border-slate-200/80 space-y-2 flex flex-col max-h-full min-h-0">
                         <div className="flex items-center justify-between px-0.5 shrink-0">
                           <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-700">
                             Matching Vehicles
                           </span>
                           <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded-full">
-                            {filteredVehicles.length} vehicle
-                            {filteredVehicles.length !== 1 ? "s" : ""}
+                            {matchingVehicles.length} vehicle
+                            {matchingVehicles.length !== 1 ? "s" : ""}
                           </span>
                         </div>
                         <div className="grid grid-cols-4 gap-1.5 content-start max-h-[380px] overflow-y-auto custom-scrollbar pr-2 pb-1">
-                          {filteredVehicles.map((v, idx) => (
+                          {matchingVehicles.map((v, idx) => (
                             <div
                               key={idx}
                               className="flex items-center justify-start min-w-0"
@@ -1004,23 +1165,20 @@ export default function TyresGuideModal({
                             <th className="py-2 px-3 text-center w-12 bg-slate-50">
                               #
                             </th>
-                            <th className="py-2 px-3.5 w-[16%] bg-slate-50">
+                            <th className="py-2 px-3.5 w-[20%] bg-slate-50">
                               Make
                             </th>
-                            <th className="py-2 px-3.5 w-[16%] bg-slate-50">
+                            <th className="py-2 px-3.5 w-[20%] bg-slate-50">
                               Model
                             </th>
-                            <th className="py-2 px-3.5 w-[22%] bg-slate-50">
+                            <th className="py-2 px-3.5 w-[24%] bg-slate-50">
                               Year Ranges
                             </th>
-                            <th className="py-2 px-3.5 w-[16%] bg-slate-50">
+                            <th className="py-2 px-3.5 w-[18%] bg-slate-50">
                               Front Size
                             </th>
-                            <th className="py-2 px-3.5 w-[16%] bg-slate-50">
+                            <th className="py-2 px-3.5 w-[18%] bg-slate-50">
                               Rear Size
-                            </th>
-                            <th className="py-2 px-3.5 w-[14%] text-center bg-slate-50">
-                              Stock Status
                             </th>
                           </tr>
                         </thead>
@@ -1030,13 +1188,6 @@ export default function TyresGuideModal({
                             const rowKey =
                               `${v.make_slug || v.make_name}|${v.model_slug || v.model_name}`.toLowerCase();
                             const resolved = resolvedSizesMap[rowKey];
-                            /* SEARCH rows carry a real boolean from
-                               `kleverVehicleSearch`; LIST rows do not —
-                               `kleverVehicleModels` has no `is_stock`, so
-                               theirs is null and the flag comes from the
-                               already-fetched fitments. `??` not `||`, so a
-                               genuine `false` from search still wins. */
-                            const stockValue = v.is_stock ?? resolved?.isStock;
                             const isResolving = resolvingKeys[rowKey];
 
                             const frontRaw =
@@ -1144,65 +1295,6 @@ export default function TyresGuideModal({
                                     </span>
                                   )}
                                 </td>
-                                <td className="py-2 px-3.5 text-center">
-                                  {/* Still resolving this row's fitments: the
-                                      stock flag is not known yet, so showing
-                                      "Not Available" would state something the
-                                      data has not said. Skeleton until the
-                                      answer arrives; an unresolved or failed
-                                      row falls through to "Not Available"
-                                      exactly as before. */}
-                                  {stockValue === undefined ||
-                                  stockValue === null ? (
-                                    /* Pending = actively resolving OR not yet
-                                       attempted (`resolved` is only written once
-                                       a lookup finishes, success or failure). A
-                                       row rendered before the resolver claims it
-                                       would otherwise flash "Not Available"
-                                       before any answer existed. */
-                                    isResolving || !resolved ? (
-                                      <Skeleton className="inline-block w-20 h-4 rounded-full align-middle" />
-                                    ) : (
-                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
-                                        Not Available
-                                      </span>
-                                    )
-                                  ) : stockValue === true ||
-                                  stockValue === 1 ||
-                                  String(stockValue) === "1" ||
-                                  String(stockValue).toLowerCase() === "true" ||
-                                  String(stockValue).toLowerCase() ===
-                                    "available" ||
-                                  String(stockValue).toLowerCase() ===
-                                    "stock" ||
-                                  String(stockValue).toLowerCase() ===
-                                    "in_stock" ? (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                      <CheckCircleIcon className="w-3 h-3 text-emerald-600" />
-                                      Available
-                                    </span>
-                                  ) : stockValue === 2 ||
-                                    String(stockValue) === "2" ||
-                                    String(stockValue).toLowerCase() ===
-                                      "limited" ||
-                                    String(stockValue).toLowerCase() ===
-                                      "limited stock" ||
-                                    String(stockValue).toLowerCase() ===
-                                      "limited_stock" ||
-                                    String(stockValue).toLowerCase() ===
-                                      "low" ? (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-50 text-amber-700 border border-amber-200">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                                      Limited Stock
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
-                                      Not Available
-                                    </span>
-                                  )}
-                                </td>
                               </tr>
                             );
                           })}
@@ -1211,7 +1303,7 @@ export default function TyresGuideModal({
                     </div>
                   </div>
                 </div>
-              ) : hasSearched ? (
+              ) : (
                 <div className="flex flex-col items-center justify-center h-[580px] bg-white border border-slate-200/90 rounded-xl text-slate-400 gap-3">
                   <TruckIcon className="w-12 h-12 opacity-30 text-emerald-500" />
                   <p className="text-base font-bold text-slate-700">
@@ -1220,13 +1312,6 @@ export default function TyresGuideModal({
                   <p className="text-xs text-slate-500 max-w-sm text-center">
                     No vehicles matched your search query. Try typing another
                     make, model, or year.
-                  </p>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center h-[580px] bg-white border border-slate-200/90 rounded-xl text-slate-400 gap-3">
-                  <BookOpenIcon className="w-12 h-12 opacity-20 text-emerald-500" />
-                  <p className="text-sm font-semibold text-slate-600">
-                    Type vehicle name to look up fitments
                   </p>
                 </div>
               )}
