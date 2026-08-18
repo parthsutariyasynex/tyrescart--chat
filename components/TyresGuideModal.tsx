@@ -159,7 +159,6 @@ export default function TyresGuideModal({
   ) => {
     setLoading(true);
     setError(null);
-    setVehicles([]);
     if (isUserSearch) {
       setHasSearched(true);
     }
