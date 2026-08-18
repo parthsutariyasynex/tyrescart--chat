@@ -63,6 +63,67 @@ function parseSearchSize(
   return null;
 }
 
+/**
+ * Brand logo candidates for a make slug, best source first.
+ *
+ * TWO sets are combined because neither alone covers this catalogue. Measured
+ * against all 113 makes the API returns:
+ *
+ *   car-logos-dataset          97 makes
+ *   + VehicleSpecs adds         6 makes (denza, ineos, jaecoo, ora, polaris, seres)
+ *   = combined                103 / 113  (91%)
+ *
+ * The dataset is tried FIRST so every brand that works today keeps the exact
+ * image it has now — VehicleSpecs only fills gaps. The remaining 10 (dorcen,
+ * firefly, forthing, iran-khodro, kaiyi, rox, skywell, tank, vgv, voyah) are in
+ * neither set and keep the truck icon.
+ *
+ * VehicleSpecs is PINNED to @1.0.0 rather than @main: an unpinned ref
+ * re-resolves on every upstream commit, so a rename there would silently break
+ * these logos with no change on our side.
+ *
+ * The Klever API carries no logo field of its own (`kleverVehicleMakes` exposes
+ * only `name` and `slug`), so the slug is the only handle available.
+ */
+const LOGO_CDN_DATASET =
+  "https://cdn.jsdelivr.net/gh/filippofilip95/car-logos-dataset@master/logos/optimized";
+const LOGO_CDN_VEHICLESPECS =
+  "https://cdn.jsdelivr.net/gh/VehicleSpecs/brand-logos@1.0.0";
+
+/** Slugs each set spells differently from this project. */
+const DATASET_ALIASES: Record<string, string> = {
+  mercedes: "mercedes-benz",
+  "mercedes-maybach": "maybach",
+  "bmw-alpina": "alpina",
+  gac: "gac-group",
+  baic: "baic-motor",
+};
+const VEHICLESPECS_ALIASES: Record<string, string> = {
+  mercedes: "mercedes-benz",
+  "mercedes-maybach": "maybach",
+  "bmw-alpina": "alpina",
+};
+
+function normaliseMakeSlug(makeSlug: string | null | undefined): string {
+  return String(makeSlug ?? "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "-");
+}
+
+/** Every URL to try, in order. Empty when there is no slug to build from. */
+function makeLogoCandidates(makeSlug: string | null | undefined): string[] {
+  const slug = normaliseMakeSlug(makeSlug);
+  if (!slug) return [];
+  const ds = DATASET_ALIASES[slug] ?? slug;
+  const vs = VEHICLESPECS_ALIASES[slug] ?? slug;
+  return [
+    `${LOGO_CDN_DATASET}/${ds}.png`,
+    `${LOGO_CDN_VEHICLESPECS}/${vs}-logo.svg`,
+    `${LOGO_CDN_VEHICLESPECS}/${vs}-logo.png`,
+  ];
+}
+
 interface TyresGuideModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -220,6 +281,19 @@ export default function TyresGuideModal({
       cancelAnimationFrame(raf2);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  /* Focus the size input when the modal opens.
+     Deferred past the 300ms slide-up: focusing an element that is still
+     translating scrolls the panel and fights the transition, so the field is
+     focused once it has settled. The input is conditionally rendered (it is
+     removed once BOTH tags are set), hence the null check. */
+  useEffect(() => {
+    if (!isOpen) return;
+    const t = setTimeout(() => {
+      searchInputRef.current?.focus();
+    }, 350);
+    return () => clearTimeout(t);
   }, [isOpen]);
 
   const handleClose = () => {
@@ -558,6 +632,9 @@ export default function TyresGuideModal({
    * all 15 rows at once meant ~120 in-flight requests; sequential keeps the page
    * responsive and lets the cancellation below actually take effect.
    */
+  /** The size input, focused when the modal opens so typing works immediately. */
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+
   const requestedSizeKeysRef = useRef<Set<string>>(new Set());
 
   /**
@@ -770,6 +847,7 @@ export default function TyresGuideModal({
                   {/* Text Input */}
                   {(!frontTag || !rearTag) && (
                     <input
+                      ref={searchInputRef}
                       autoComplete="off"
                       type="text"
                       placeholder={
@@ -822,6 +900,11 @@ export default function TyresGuideModal({
                            after the search response replaced it. */
                         setCurrentPage(1);
                         void handleFetchGuide(null, false);
+                        /* Re-focus the search input so the user can immediately
+                           type another size without clicking. Deferred because
+                           the input is conditionally rendered — it needs a tick
+                           to re-appear after the tags are cleared. */
+                        setTimeout(() => searchInputRef.current?.focus(), 50);
                       }}
                       className="ml-auto inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 text-xs font-bold transition-colors cursor-pointer shrink-0 border border-slate-200/80"
                       title="Clear search and show all vehicles"
@@ -1065,63 +1148,77 @@ export default function TyresGuideModal({
                             {/* Part 2: Matching Vehicles (Appears on Side when size chip clicked) */}
                             {hasVehiclesOnSide && (
                               <div className="pl-0 md:pl-4 border-t md:border-t-0 md:border-l border-slate-500 space-y-2 flex flex-col max-h-full min-h-0 pt-3 md:pt-0">
-                                <div className="flex items-center justify-between px-0.5 shrink-0">
-                                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-700">
-                                    Matching Vehicles
-                                  </span>
-                                </div>
                                 <div className="flex flex-col gap-2 w-full max-h-[500px] overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden pr-2 pb-1">
-                                  {matchingVehicles.map((v, idx) => (
-                                    <div
-                                      key={idx}
-                                      className="flex items-center justify-start min-w-0"
-                                    >
-                                      <div className="w-fit max-w-full inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200/90 bg-white text-slate-900 shadow-2xs text-xs hover:border-emerald-500 hover:bg-emerald-50/40 transition-all">
-                                        <div className="w-7 h-5 rounded-md bg-slate-50 border border-slate-200/80 flex items-center justify-center shrink-0 overflow-hidden p-0.5">
-                                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                                          <img
-                                            src={`https://cdn.imagin.studio/getImage?customer=img&make=${(
-                                              v.make_slug ||
-                                              v.make_name ||
-                                              ""
-                                            )
-                                              .toLowerCase()
-                                              .trim()}&modelFamily=${(
-                                              v.model_slug ||
-                                              v.model_name ||
-                                              ""
-                                            )
-                                              .toLowerCase()
-                                              .split(" ")[0]
-                                              .replace(
-                                                /[^a-z0-9]/g,
-                                                "",
-                                              )}&zoomType=fullscreen&angle=01`}
-                                            alt={`${v.make_name} ${v.model_name}`}
-                                            className="w-full h-full object-contain"
-                                            onError={(e) => {
-                                              e.currentTarget.onerror = null;
-                                              e.currentTarget.style.display =
-                                                "none";
-                                              if (
-                                                e.currentTarget
-                                                  .nextElementSibling
-                                              ) {
-                                                (
-                                                  e.currentTarget
-                                                    .nextElementSibling as HTMLElement
-                                                ).style.display = "block";
+                                  {/* One chip per MAKE. `matchingVehicles` holds a
+                                      row per model, so listing them verbatim
+                                      repeated the same make (Volvo ×4,
+                                      Mercedes-Benz ×4). The first row of each
+                                      make is kept so the logo still resolves
+                                      from its `make_slug`. */}
+                                  {matchingVehicles
+                                    .filter(
+                                      (v, i, arr) =>
+                                        arr.findIndex(
+                                          (o) =>
+                                            (o.make_slug || o.make_name) ===
+                                            (v.make_slug || v.make_name),
+                                        ) === i,
+                                    )
+                                    .map((v, idx) => (
+                                      <div
+                                        key={idx}
+                                        className="flex items-center justify-start min-w-0"
+                                      >
+                                        <div className="w-fit max-w-full inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200/90 bg-white text-slate-900 shadow-2xs text-xs hover:border-emerald-500 hover:bg-emerald-50/40 transition-all">
+                                          <div className="w-11 h-11 rounded-lg bg-white border border-slate-200/80 flex items-center justify-center shrink-0 overflow-hidden p-1.5">
+                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                            <img
+                                              src={
+                                                makeLogoCandidates(
+                                                  v.make_slug || v.make_name,
+                                                )[0] || ""
                                               }
-                                            }}
-                                          />
-                                          <TruckIcon className="w-3.5 h-3.5 text-emerald-600 hidden" />
+                                              alt={`${v.make_name}`}
+                                              className="w-full h-full object-contain"
+                                              onError={(e) => {
+                                                /* Walk the candidate list, then
+                                                   give up. `data-logo-step`
+                                                   tracks position so a brand
+                                                   missing from the first set
+                                                   falls through to the next
+                                                   rather than showing a broken
+                                                   image. */
+                                                const img = e.currentTarget;
+                                                const urls = makeLogoCandidates(
+                                                  v.make_slug || v.make_name,
+                                                );
+                                                const step =
+                                                  Number(
+                                                    img.dataset.logoStep ?? "0",
+                                                  ) + 1;
+                                                if (step < urls.length) {
+                                                  img.dataset.logoStep =
+                                                    String(step);
+                                                  img.src = urls[step];
+                                                  return;
+                                                }
+                                                img.onerror = null;
+                                                img.style.display = "none";
+                                                if (img.nextElementSibling) {
+                                                  (
+                                                    img.nextElementSibling as HTMLElement
+                                                  ).style.display = "block";
+                                                }
+                                              }}
+                                            />
+                                            <TruckIcon className="w-5 h-5 text-emerald-600 hidden" />
+                                          </div>
+                                          <span className="font-extrabold text-xs text-slate-800 truncate">
+                                            {v.make_name}
+                                          </span>
                                         </div>
-                                        <span className="font-extrabold text-xs text-slate-800 truncate">
-                                          {v.make_name} {v.model_name}
-                                        </span>
                                       </div>
-                                    </div>
-                                  ))}
+                                    ))}
                                 </div>
                               </div>
                             )}

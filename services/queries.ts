@@ -506,7 +506,10 @@ export function updateCrmCustomerMutation(input: CrmCustomerUpdateInput): string
   ];
   for (const [key, gql] of optional) {
     const value = String(input[key] ?? "").trim();
-    if (value) fields.push(`${gql}: "${esc(value)}"`);
+    /* City must be sent even when blank so the user can clear it.
+       Other optional fields are still omitted when empty to avoid
+       overwriting data already on the customer record. */
+    if (value || key === "city") fields.push(`${gql}: "${esc(value)}"`);
   }
   return `mutation {
     updateCrmCustomer(input: { ${fields.join(", ")} }) {
