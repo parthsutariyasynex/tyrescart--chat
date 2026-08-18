@@ -88,28 +88,30 @@ export default function Header({
 }: HeaderProps) {
   return (
     <header className={SHELL[variant]}>
-      {/* ── Left ── */}
-      {left ?? (
-        <div className={badge ? "flex items-center gap-3" : undefined}>
-          {title && (
-            <h1
-              className={
-                variant === "sticky"
-                  ? "text-lg font-bold text-slate-900 tracking-tight"
-                  : "text-lg font-bold text-gray-800 tracking-tight"
-              }
-            >
-              {title}
-            </h1>
-          )}
-          {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
-          {badge}
-        </div>
-      )}
-      {search}
+      {/* ── Left / Search Section ── */}
+      <div className="flex items-center gap-3 flex-1 min-w-0 mr-4">
+        {left ?? (
+          <div className="flex items-center gap-3 shrink-0">
+            {title && (
+              <h1
+                className={
+                  variant === "sticky"
+                    ? "text-lg font-bold text-slate-900 tracking-tight whitespace-nowrap"
+                    : "text-lg font-bold text-gray-800 tracking-tight whitespace-nowrap"
+                }
+              >
+                {title}
+              </h1>
+            )}
+            {subtitle && <p className="text-xs text-slate-500 mt-0.5 whitespace-nowrap">{subtitle}</p>}
+            {badge}
+          </div>
+        )}
+        {search}
+      </div>
 
-      {/* ── Right ── */}
-      <div className={`flex items-center ${ACTION_GAP[variant]} max-xl:min-w-0 max-xl:overflow-x-auto`}>
+      {/* ── Right Section ── */}
+      <div className={`flex items-center ${ACTION_GAP[variant]} shrink-0`}>
         {actions}
         {features.bookInquiry && bookInquiry !== false &&
           (bookInquiry === "emerald" ? <HeaderBookInquiry variant="emerald" /> : <HeaderBookInquiry />)}
