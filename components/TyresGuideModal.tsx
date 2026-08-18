@@ -969,7 +969,7 @@ export default function TyresGuideModal({
                         );
 
                         return (
-                          <div className="flex flex-col gap-3 max-h-[190px] overflow-y-auto custom-scrollbar pr-1 shrink-0">
+                          <div className="flex flex-col gap-3 pr-1 shrink-0">
                             {searchedFront && (
                               <div className="space-y-1.5">
                                 <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-700">
