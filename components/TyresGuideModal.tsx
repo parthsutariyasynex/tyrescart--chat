@@ -868,36 +868,9 @@ export default function TyresGuideModal({
                   )}
                 </div>
 
-                {loading ? (
-                  /* Loading the vehicle list.
-                     The LIST flow costs 114 requests (1 Makes + 113 Models) and
-                     runs for tens of seconds; without this branch the panel kept
-                     showing "Search for Tyre Sizes", which reads as "nothing is
-                     happening" rather than "loading". Purely a display state —
-                     no request is added or removed by it. */
-                  <div className="flex-1 flex flex-col gap-2 p-1 overflow-hidden">
-                    <div className="flex items-center gap-2 px-1 pb-1 shrink-0">
-                      <span className="w-3.5 h-3.5 rounded-full border-2 border-emerald-600 border-t-transparent animate-spin" />
-                      <span className="text-[11px] font-bold text-slate-700">
-                        Loading vehicles&hellip;
-                      </span>
-                    </div>
-                    {[...Array(6)].map((_, i) => (
-                      <div key={i} className="space-y-1.5">
-                        <div className="skeleton h-6 w-full rounded-lg" />
-                        <div className="grid grid-cols-2 gap-1.5">
-                          <div className="skeleton h-8 rounded-xl" />
-                          <div className="skeleton h-8 rounded-xl" />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : !hasSearched && !frontTag && !rearTag ? (
+                {!hasSearched && !frontTag && !rearTag ? (
                   /* Initial state before search */
-                  <div className="flex-1 flex flex-col items-center justify-center text-center text-slate-400 gap-3.5 p-6">
-                    <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-200/60 flex items-center justify-center shadow-2xs">
-                      <MagnifyingGlassIcon className="w-6 h-6" />
-                    </div>
+                  <div className="flex-1 flex flex-col items-center justify-center text-center text-slate-400 gap-2 p-6">
                     <div>
                       <p className="text-xs font-extrabold text-slate-800">
                         Search for Tyre Sizes
@@ -928,7 +901,7 @@ export default function TyresGuideModal({
                       fitments.
                     </p>
                   </div>
-                ) : filteredVehicles.length === 0 ? (
+                ) : !loading && filteredVehicles.length === 0 && fitmentList.length === 0 ? (
                   /* Empty search results with Warning */
                   <div className="flex-1 flex flex-col items-center justify-center text-center p-4 gap-2.5">
                     <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center shadow-2xs">
