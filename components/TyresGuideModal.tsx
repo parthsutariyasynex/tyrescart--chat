@@ -455,13 +455,37 @@ export default function TyresGuideModal({
    * not a re-filter, and it costs no request. The underlying search result is
    * untouched: clearing the chip restores the full list immediately.
    */
-  const selectedFitment = useMemo(
-    () =>
-      selectedFitmentKey
-        ? fitmentList.find((f) => `${f.front}|${f.rear}` === selectedFitmentKey)
-        : undefined,
-    [fitmentList, selectedFitmentKey],
-  );
+  const selectedFitment = useMemo(() => {
+    if (!selectedFitmentKey) return undefined;
+
+    // A staggered chip carries the full `front|rear` key.
+    const exact = fitmentList.find(
+      (f) => `${f.front}|${f.rear}` === selectedFitmentKey,
+    );
+    if (exact) return exact;
+
+    /* The "Selected Size" chip for a front-only search uses just the front
+       size as its key, which never equals a `front|rear` entry — so the lookup
+       missed and Matching Vehicles stayed hidden. Gather every combination
+       sharing that front size instead, de-duped by make+model. */
+    const sameFront = fitmentList.filter((f) => f.front === selectedFitmentKey);
+    if (!sameFront.length) return undefined;
+
+    const merged: KleverVehicleItem[] = [];
+    for (const f of sameFront) {
+      for (const v of f.vehicles) {
+        if (
+          !merged.some(
+            (ex) =>
+              ex.make_name === v.make_name && ex.model_name === v.model_name,
+          )
+        ) {
+          merged.push(v);
+        }
+      }
+    }
+    return { ...sameFront[0], vehicles: merged, count: merged.length };
+  }, [fitmentList, selectedFitmentKey]);
 
   const matchingVehicles = selectedFitment?.vehicles ?? filteredVehicles;
 
@@ -860,12 +884,12 @@ export default function TyresGuideModal({
                       Selected Size
                     </h3>
                   </div>
-                  {(frontTag || rearTag || searchQuery.trim()) && (
+                  {/* {(frontTag || rearTag || searchQuery.trim()) && (
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                       {filteredVehicles.length} match
                       {filteredVehicles.length !== 1 ? "es" : ""}
                     </span>
-                  )}
+                  )} */}
                 </div>
 
                 {!hasSearched && !frontTag && !rearTag ? (
@@ -915,8 +939,8 @@ export default function TyresGuideModal({
                     </p>
                   </div>
                 ) : (
-                  /* Matching Fitment Sizes List + Separate Matching Vehicles Section Below */
-                  <div className="flex-1 min-h-0 flex flex-col space-y-3 pr-1">
+                  /* Matching Fitment Sizes List + Separate Matching Vehicles Section Side-by-Side */
+                  <div className="flex-1 min-h-0 flex flex-col pr-1">
                     {fitmentList.length === 0 ? (
                       <div className="flex flex-col items-center justify-center py-4 text-center text-slate-400 gap-1.5 shrink-0">
                         <p className="text-xs font-semibold text-slate-600">
@@ -933,166 +957,178 @@ export default function TyresGuideModal({
                           ? `${searchedFront}|${searchedRear}`
                           : searchedFront;
 
+                        // Deduplicate staggered combinations so each unique pair appears only once
                         const staggeredFitments = fitmentList.filter(
-                          (f) => f.rear && f.rear !== "—" && f.rear !== f.front,
+                          (f, idx, arr) => {
+                            const isStag =
+                              f.rear && f.rear !== "—" && f.rear !== f.front;
+                            if (!isStag) return false;
+                            const key = `${f.front}|${f.rear}`;
+                            return (
+                              arr.findIndex(
+                                (item) => `${item.front}|${item.rear}` === key,
+                              ) === idx
+                            );
+                          },
                         );
 
+                        const hasVehiclesOnSide =
+                          Boolean(selectedFitment) &&
+                          matchingVehicles.length > 0;
+
                         return (
-                          <div className="flex flex-col gap-3 pr-1 shrink-0">
-                            {searchedFront && (
-                              <div className="space-y-1.5">
-                                <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-700">
-                                  Selected Size
+                          <div
+                            className={`grid gap-4 w-full ${
+                              hasVehiclesOnSide
+                                ? "grid-cols-1 md:grid-cols-2"
+                                : "grid-cols-1"
+                            }`}
+                          >
+                            {/* Part 1: Selected & Suggested Sizes */}
+                            <div className="flex flex-col gap-3 max-h-[500px] overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden pr-1 w-full">
+                              {searchedFront && (
+                                <div className="space-y-1.5 w-full">
+                                  <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-700">
+                                    Selected Size
+                                  </div>
+                                  <div className="flex flex-col gap-2 w-full">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedFitmentKey(searchedKey);
+                                      }}
+                                      className={`w-full px-3.5 py-2.5 rounded-xl border text-left transition-all flex items-center justify-start gap-2 cursor-pointer shadow-2xs ${
+                                        selectedFitmentKey === searchedKey
+                                          ? "bg-emerald-50/60 border-emerald-500 ring-1 ring-emerald-500/20"
+                                          : "bg-white border-slate-200/90 hover:bg-slate-50 hover:border-slate-300"
+                                      }`}
+                                    >
+                                      <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-blue-50 text-blue-900">
+                                        {searchedFront}
+                                        {searchedRear ? " (front)" : ""}
+                                      </span>
+                                      {searchedRear && (
+                                        <>
+                                          <span className="text-slate-600 text-xs">
+                                            /
+                                          </span>
+                                          <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-amber-50 text-amber-950">
+                                            {searchedRear} (rear)
+                                          </span>
+                                        </>
+                                      )}
+                                    </button>
+                                  </div>
                                 </div>
-                                <div className="flex flex-wrap gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setSelectedFitmentKey((prev) =>
-                                        prev === searchedKey
-                                          ? null
-                                          : searchedKey,
+                              )}
+
+                              {staggeredFitments.length > 0 && (
+                                <div className="space-y-1.5 w-full">
+                                  <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-700">
+                                    Suggested Size
+                                  </div>
+                                  <div className="flex flex-col gap-2.5 w-full">
+                                    {staggeredFitments.map((fitment, fIdx) => {
+                                      const fitmentKey = `${fitment.front}|${fitment.rear}`;
+                                      const isSelected =
+                                        selectedFitmentKey === fitmentKey;
+
+                                      return (
+                                        <button
+                                          type="button"
+                                          key={fIdx}
+                                          onClick={() => {
+                                            setSelectedFitmentKey(fitmentKey);
+                                          }}
+                                          className={`w-full px-3.5 py-2.5 rounded-xl border text-left transition-all flex items-center justify-start gap-2 cursor-pointer shadow-2xs ${
+                                            isSelected
+                                              ? "bg-emerald-50/60 border-emerald-500 ring-1 ring-emerald-500/20"
+                                              : "bg-white border-slate-200/90 hover:bg-slate-50 hover:border-slate-300"
+                                          }`}
+                                        >
+                                          <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-blue-50 text-blue-900">
+                                            {fitment.front} (front)
+                                          </span>
+                                          <span className="text-slate-600 text-xs">
+                                            /
+                                          </span>
+                                          <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-amber-50 text-amber-950">
+                                            {fitment.rear} (rear)
+                                          </span>
+                                        </button>
                                       );
-                                    }}
-                                    className={`px-2.5 py-1.5 rounded-lg border text-left transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ${
-                                      selectedFitmentKey === searchedKey ||
-                                      selectedFitmentKey === null
-                                        ? "bg-emerald-50/80 border-emerald-600 ring-2 ring-emerald-500/20"
-                                        : "bg-white border-slate-200/90 hover:bg-slate-50 hover:border-slate-300"
-                                    }`}
-                                  >
-                                    <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-blue-50 border border-blue-200/90 text-blue-900">
-                                      {searchedFront}
-                                      {searchedRear ? " (front)" : ""}
-                                    </span>
-                                    {searchedRear && (
-                                      <>
-                                        <span className="text-slate-600 text-xs">
-                                          /
-                                        </span>
-                                        <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200/90 text-amber-950">
-                                          {searchedRear} (rear)
-                                        </span>
-                                      </>
-                                    )}
-                                  </button>
+                                    })}
+                                  </div>
                                 </div>
-                              </div>
-                            )}
+                              )}
+                            </div>
 
-                            {staggeredFitments.length > 0 && (
-                              <div className="space-y-1.5">
-                                <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-700">
-                                  Suggested Size
+                            {/* Part 2: Matching Vehicles (Appears on Side when size chip clicked) */}
+                            {hasVehiclesOnSide && (
+                              <div className="pl-0 md:pl-4 border-t md:border-t-0 md:border-l border-slate-500 space-y-2 flex flex-col max-h-full min-h-0 pt-3 md:pt-0">
+                                <div className="flex items-center justify-between px-0.5 shrink-0">
+                                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-700">
+                                    Matching Vehicles
+                                  </span>
                                 </div>
-                                <div className="flex flex-wrap gap-2">
-                                  {staggeredFitments.map((fitment, fIdx) => {
-                                    const fitmentKey = `${fitment.front}|${fitment.rear}`;
-                                    const isSelected =
-                                      selectedFitmentKey === fitmentKey;
-
-                                    return (
-                                      <button
-                                        type="button"
-                                        key={fIdx}
-                                        onClick={() => {
-                                          setSelectedFitmentKey((prev) =>
-                                            prev === fitmentKey
-                                              ? null
-                                              : fitmentKey,
-                                          );
-                                        }}
-                                        className={`px-2.5 py-1.5 rounded-lg border text-left transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ${
-                                          isSelected
-                                            ? "bg-emerald-50/80 border-emerald-600 ring-2 ring-emerald-500/20"
-                                            : "bg-white border-slate-200/90 hover:bg-slate-50 hover:border-slate-300"
-                                        }`}
-                                      >
-                                        <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-blue-50 border border-blue-200/90 text-blue-900">
-                                          {fitment.front} (front)
+                                <div className="flex flex-col gap-2 w-full max-h-[500px] overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden pr-2 pb-1">
+                                  {matchingVehicles.map((v, idx) => (
+                                    <div
+                                      key={idx}
+                                      className="flex items-center justify-start min-w-0"
+                                    >
+                                      <div className="w-fit max-w-full inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200/90 bg-white text-slate-900 shadow-2xs text-xs hover:border-emerald-500 hover:bg-emerald-50/40 transition-all">
+                                        <div className="w-7 h-5 rounded-md bg-slate-50 border border-slate-200/80 flex items-center justify-center shrink-0 overflow-hidden p-0.5">
+                                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                                          <img
+                                            src={`https://cdn.imagin.studio/getImage?customer=img&make=${(
+                                              v.make_slug ||
+                                              v.make_name ||
+                                              ""
+                                            )
+                                              .toLowerCase()
+                                              .trim()}&modelFamily=${(
+                                              v.model_slug ||
+                                              v.model_name ||
+                                              ""
+                                            )
+                                              .toLowerCase()
+                                              .split(" ")[0]
+                                              .replace(
+                                                /[^a-z0-9]/g,
+                                                "",
+                                              )}&zoomType=fullscreen&angle=01`}
+                                            alt={`${v.make_name} ${v.model_name}`}
+                                            className="w-full h-full object-contain"
+                                            onError={(e) => {
+                                              e.currentTarget.onerror = null;
+                                              e.currentTarget.style.display =
+                                                "none";
+                                              if (
+                                                e.currentTarget
+                                                  .nextElementSibling
+                                              ) {
+                                                (
+                                                  e.currentTarget
+                                                    .nextElementSibling as HTMLElement
+                                                ).style.display = "block";
+                                              }
+                                            }}
+                                          />
+                                          <TruckIcon className="w-3.5 h-3.5 text-emerald-600 hidden" />
+                                        </div>
+                                        <span className="font-extrabold text-xs text-slate-800 truncate">
+                                          {v.make_name} {v.model_name}
                                         </span>
-                                        <span className="text-slate-600 text-xs">
-                                          /
-                                        </span>
-                                        <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200/90 text-amber-950">
-                                          {fitment.rear} (rear)
-                                        </span>
-                                      </button>
-                                    );
-                                  })}
+                                      </div>
+                                    </div>
+                                  ))}
                                 </div>
                               </div>
                             )}
                           </div>
                         );
                       })()
-                    )}
-
-                    {/* Separate Matching Vehicles List Section Below Fitment Sizes */}
-                    {/* Shown ONLY for an explicitly selected size combination.
-                        A plain search lists the available sizes; the vehicles
-                        for one of them appear once that chip is clicked. */}
-                    {selectedFitment && matchingVehicles.length > 0 && (
-                      <div className="pt-3 border-t border-slate-200/80 space-y-2 flex flex-col max-h-full min-h-0">
-                        <div className="flex items-center justify-between px-0.5 shrink-0">
-                          <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-700">
-                            Matching Vehicles
-                          </span>
-                          <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded-full">
-                            {matchingVehicles.length} vehicle
-                            {matchingVehicles.length !== 1 ? "s" : ""}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-4 gap-1.5 content-start max-h-[380px] overflow-y-auto custom-scrollbar pr-2 pb-1">
-                          {matchingVehicles.map((v, idx) => (
-                            <div
-                              key={idx}
-                              className="flex items-center justify-start min-w-0"
-                            >
-                              <div className="w-fit max-w-full inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200/90 bg-white text-slate-900 shadow-2xs text-xs hover:border-emerald-500 hover:bg-emerald-50/40 transition-all">
-                                <div className="w-7 h-5 rounded-md bg-slate-50 border border-slate-200/80 flex items-center justify-center shrink-0 overflow-hidden p-0.5">
-                                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img
-                                    src={`https://cdn.imagin.studio/getImage?customer=img&make=${(
-                                      v.make_slug ||
-                                      v.make_name ||
-                                      ""
-                                    )
-                                      .toLowerCase()
-                                      .trim()}&modelFamily=${(
-                                      v.model_slug ||
-                                      v.model_name ||
-                                      ""
-                                    )
-                                      .toLowerCase()
-                                      .split(" ")[0]
-                                      .replace(
-                                        /[^a-z0-9]/g,
-                                        "",
-                                      )}&zoomType=fullscreen&angle=01`}
-                                    alt={`${v.make_name} ${v.model_name}`}
-                                    className="w-full h-full object-contain"
-                                    onError={(e) => {
-                                      e.currentTarget.onerror = null;
-                                      e.currentTarget.style.display = "none";
-                                      if (e.currentTarget.nextElementSibling) {
-                                        (
-                                          e.currentTarget
-                                            .nextElementSibling as HTMLElement
-                                        ).style.display = "block";
-                                      }
-                                    }}
-                                  />
-                                  <TruckIcon className="w-3.5 h-3.5 text-emerald-600 hidden" />
-                                </div>
-                                <span className="font-extrabold text-xs text-slate-800 truncate">
-                                  {v.make_name} {v.model_name}
-                                </span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
                     )}
                   </div>
                 )}
