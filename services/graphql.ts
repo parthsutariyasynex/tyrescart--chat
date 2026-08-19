@@ -19,6 +19,7 @@ import {
   CREATE_KLEVER_QUOTE,
   ADD_QUOTE_HISTORY,
   kleverVehicleSearchQuery,
+  urlTemplatesQuery,
   kleverVehicleMakesQuery,
   kleverVehicleModelsQuery,
   kleverVehicleYearsQuery,
@@ -27,6 +28,7 @@ import {
   updateCrmCustomerMutation,
 } from "./queries";
 import type {
+  UrlTemplateItem,
   KleverVehicleItem,
   KleverVehicleYear,
   KleverVehicleModification,
@@ -604,6 +606,42 @@ export function fetchKleverAllVehicles(): Promise<KleverVehicleItem[]> {
   task.catch(() => {
     allVehiclesCache = null;
   });
+  return task;
+}
+
+/**
+ * Configured browse-tyres links for a tyre size.
+ *
+ * Front-only values → square fitment; add the rear three for staggered. The
+ * backend decides which templates apply and returns a ready `resolved_url` for
+ * each, so no URL is ever built here — that keeps the links correct whichever
+ * GraphQL endpoint is configured.
+ *
+ * Memoised per value-set for the session: the same size resolves to the same
+ * links, and the popup can be opened repeatedly without re-querying.
+ */
+const urlTemplateCache = new Map<string, Promise<UrlTemplateItem[]>>();
+
+export function fetchUrlTemplates(
+  values: { code: string; value: string }[],
+): Promise<UrlTemplateItem[]> {
+  const clean = values.filter(
+    (v) => v && v.code && String(v.value ?? "").trim() !== "",
+  );
+  if (!clean.length) return Promise.resolve([]);
+
+  const key = clean.map((v) => `${v.code}=${v.value}`).join("&");
+  const hit = urlTemplateCache.get(key);
+  if (hit) return hit;
+
+  const task = executeGraphQLQuery(urlTemplatesQuery(clean))
+    .then(
+      (data) =>
+        (data?.urlTemplates?.items as UrlTemplateItem[] | undefined) ?? [],
+    );
+  urlTemplateCache.set(key, task);
+  // A failed lookup must not be cached, or the size can never be retried.
+  task.catch(() => urlTemplateCache.delete(key));
   return task;
 }
 

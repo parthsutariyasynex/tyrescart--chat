@@ -309,15 +309,28 @@ function mapSupplierToProduct(p: CachedSupplierProduct): Product {
     pattern: p.product_name ?? "",
     size: intern(stripLoadIndex(fullSize)),
     sizeFull: intern(fullSize),
-    runflat:
-      p.runflat !== undefined && p.runflat !== null
-        ? typeof p.runflat === "boolean"
-          ? p.runflat
-          : String(p.runflat).toLowerCase() === "yes" ||
-            String(p.runflat) === "1"
-        : /run\s*flat|\bRFT\b|\bZP\b|\bSSR\b|\bMOE\b/i.test(
-            p.product_name ?? "",
-          ),
+    /* The feed sends the WORD, not a flag: measured across 27,147 current rows
+       the only non-empty values are "Runflat" (1,018) and "RunFlat" (343).
+       Comparing against "yes"/"1" scored every one of those 1,361 rows false.
+       An empty string is treated as MISSING so the product-name fallback can
+       still spot RFT/ZP/SSR/MOE markings — 8,514 rows carry "". */
+    runflat: (() => {
+      if (typeof p.runflat === "boolean") return p.runflat;
+      const raw = String(p.runflat ?? "").trim().toLowerCase();
+      if (raw) {
+        return (
+          raw === "yes" ||
+          raw === "1" ||
+          raw === "true" ||
+          raw === "runflat" ||
+          raw === "run flat" ||
+          raw === "rft"
+        );
+      }
+      return /run\s*flat|\bRFT\b|\bZP\b|\bSSR\b|\bMOE\b/i.test(
+        p.product_name ?? "",
+      );
+    })(),
     year: Number(p.year) || 0,
     country: intern(p.country ?? ""),
     flag: "",

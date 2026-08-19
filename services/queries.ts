@@ -714,6 +714,41 @@ export function kleverVehicleSearchQuery(width: number, height: number, rim: num
   }`;
 }
 
+/**
+ * Resolve the configured "browse tyres" links for a tyre size.
+ *
+ * The URL TEMPLATES LIVE SERVER-SIDE — the host, path and query shape all come
+ * from the backend, so nothing here is environment-specific and the same code
+ * works against QA and production.
+ *
+ * Pass front variables only for a square fitment; add the rear three for a
+ * staggered one. The backend OMITS any template whose required variables are
+ * not supplied — a square search simply returns fewer items. Do not treat
+ * `missing_variables` as the availability signal; the returned `items` ARE the
+ * available links.
+ */
+export function urlTemplatesQuery(
+  values: { code: string; value: string }[],
+): string {
+  const esc = (v: string) =>
+    String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const pairs = values
+    .filter((v) => v && v.code && String(v.value).trim() !== "")
+    .map((v) => `{ code: "${esc(v.code)}", value: "${esc(String(v.value))}" }`)
+    .join(", ");
+  return `query {
+    urlTemplates(values: [${pairs}]) {
+      items {
+        name
+        site
+        url_template
+        resolved_url
+        missing_variables
+      }
+    }
+  }`;
+}
+
 /** Every vehicle make. Takes no required arguments. */
 export function kleverVehicleMakesQuery(): string {
   return `query {

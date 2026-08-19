@@ -569,6 +569,17 @@ export interface KleverVehicleSearchResult {
   data: KleverVehicleItem[] | null;
 }
 
+/** One configured browse-link, as returned by `urlTemplates`. */
+export interface UrlTemplateItem {
+  name: string | null;
+  site?: string | null;
+  /** The unresolved pattern. NEVER shown to the user — resolved_url is. */
+  url_template?: string | null;
+  /** Ready-to-open URL built by the backend. Null/empty = not linkable. */
+  resolved_url: string | null;
+  missing_variables?: string[] | null;
+}
+
 /** One production year from `kleverVehicleYears`. Both fields are the year. */
 export interface KleverVehicleYear {
   slug: number | string | null;

@@ -20,8 +20,12 @@ import {
   fetchKleverVehicleSearchGraphQL,
   fetchKleverVehicleFitments,
   fetchKleverAllVehicles,
+  fetchUrlTemplates,
 } from "../services/graphql";
-import type { KleverVehicleItem } from "../services/types";
+import type {
+  KleverVehicleItem,
+  UrlTemplateItem,
+} from "../services/types";
 import Pagination from "./Pagination";
 import { Skeleton } from "./Skeletons";
 
@@ -124,6 +128,146 @@ function formatYearRanges(raw: string | null | undefined): string {
     .join(", ");
 }
 
+/**
+ * The links shown inside a "View Tyres for …" popup.
+ *
+ * Every URL comes from `urlTemplates.resolved_url` — the backend owns the host
+ * and query shape, so nothing is constructed here and the same code works
+ * against QA and production. The raw `url_template` is deliberately never
+ * rendered.
+ *
+ * The backend OMITS templates whose variables were not supplied, so a square
+ * fitment normally returns TyresCart alone and a staggered one returns
+ * TyresCart plus Tire.ae. `missing_variables` is not used to decide
+ * availability — the returned items are the availability.
+ */
+function UrlTemplateLinks({
+  front,
+  rear,
+  onNavigate,
+}: {
+  front: string;
+  rear?: string;
+  onNavigate?: () => void;
+}) {
+  const [items, setItems] = useState<UrlTemplateItem[] | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    const f = parseSearchSize(front);
+    let alive = true;
+    if (!f) {
+      /* Deferred rather than set synchronously: a setState in the effect body
+         runs during commit and triggers a cascading render. */
+      queueMicrotask(() => {
+        if (alive) setItems([]);
+      });
+      return () => {
+        alive = false;
+      };
+    }
+    const values = [
+      { code: "width", value: String(f.width) },
+      { code: "height", value: String(f.height) },
+      { code: "rim", value: String(f.rim) },
+    ];
+    /* Rear variables only for a genuine staggered fitment — sending them for a
+       square one would resolve templates that do not apply. */
+    const r = rear && rear !== "—" && rear !== front ? parseSearchSize(rear) : null;
+    if (r) {
+      values.push(
+        { code: "rwidth", value: String(r.width) },
+        { code: "rheight", value: String(r.height) },
+        { code: "rrim", value: String(r.rim) },
+      );
+    }
+
+    /* `failed` is cleared on success rather than up-front: a setState in the
+       effect body runs during commit and cascades a render. */
+    fetchUrlTemplates(values)
+      .then((list) => {
+        if (alive) {
+          setItems(list);
+          setFailed(false);
+        }
+      })
+      .catch(() => {
+        if (alive) {
+          setItems([]);
+          setFailed(true);
+        }
+      });
+    return () => {
+      alive = false;
+    };
+  }, [front, rear]);
+
+  if (items === null) {
+    return (
+      <div className="space-y-1.5">
+        <Skeleton className="h-9 w-full rounded-lg" />
+        <Skeleton className="h-9 w-full rounded-lg" />
+      </div>
+    );
+  }
+
+  if (!items.length) {
+    return (
+      <p className="px-1 py-1.5 text-[11px] font-semibold text-slate-500">
+        {failed
+          ? "Could not load tyre links. Please try again."
+          : "No tyre links configured for this size."}
+      </p>
+    );
+  }
+
+  return (
+    <>
+      {items.map((item, i) => {
+        const url = String(item?.resolved_url ?? "").trim();
+        const label = String(item?.name ?? "").trim() || "Tyres";
+        /* An item without a resolved URL is shown but not clickable, rather
+           than silently dropped — the template exists, it just cannot resolve. */
+        if (!url) {
+          return (
+            <span
+              key={i}
+              aria-disabled="true"
+              title="No link available for this size"
+              className="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-400 font-bold cursor-not-allowed"
+            >
+              <span className="flex items-center gap-1.5">
+                <MagnifyingGlassIcon className="w-4 h-4 text-slate-300" />
+                <span>{label}</span>
+              </span>
+            </span>
+          );
+        }
+        return (
+          <a
+            key={i}
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={onNavigate}
+            className="flex items-center justify-between p-2.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-950 font-bold transition-all cursor-pointer group"
+          >
+            <span className="flex items-center gap-1.5">
+              <MagnifyingGlassIcon className="w-4 h-4 text-emerald-600" />
+              <span className="underline decoration-emerald-400 decoration-2">
+                {label}
+              </span>
+            </span>
+            <span className="text-xs font-extrabold text-emerald-700 group-hover:translate-x-0.5 transition-transform">
+              ➔
+            </span>
+          </a>
+        );
+      })}
+    </>
+  );
+}
+
 export default function TyresGuideModal({
   isOpen,
   onClose,
@@ -169,9 +313,14 @@ export default function TyresGuideModal({
     {},
   );
 
+  const [expandedMake, setExpandedMake] = useState<string | null>(null);
+
   /* Slide-up animation states */
   const [isAnimatedOpen, setIsAnimatedOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
+
+  /** Ref tracking the current fetch request ID to ignore stale out-of-order responses */
+  const fetchRequestIdRef = useRef<number>(0);
 
   /**
    * Load vehicles for a tyre size.
@@ -185,6 +334,7 @@ export default function TyresGuideModal({
     override?: { width: number; height: number; rim: number } | null,
     isUserSearch: boolean = false,
   ) => {
+    const requestId = ++fetchRequestIdRef.current;
     setLoading(true);
     setError(null);
     if (isUserSearch) {
@@ -205,24 +355,45 @@ export default function TyresGuideModal({
           size.height,
           size.rim,
         );
+        if (requestId !== fetchRequestIdRef.current) return;
         if (data && data.length > 0) {
           setVehicles(data);
         } else {
           const allData = await fetchKleverAllVehicles();
+          if (requestId !== fetchRequestIdRef.current) return;
           setVehicles(allData);
         }
       } else {
         const data = await fetchKleverAllVehicles();
+        if (requestId !== fetchRequestIdRef.current) return;
         catalogueRef.current = data;
         setVehicles(data);
       }
     } catch (err) {
+      if (requestId !== fetchRequestIdRef.current) return;
       console.error("[TyresGuideModal] Vehicle search error:", err);
       setError("Failed to load vehicle fitment guide. Please try again.");
       setVehicles([]);
     } finally {
-      setLoading(false);
+      if (requestId === fetchRequestIdRef.current) {
+        setLoading(false);
+      }
     }
+  };
+
+  const resetFormState = () => {
+    fetchRequestIdRef.current += 1;
+    setSearchQuery("");
+    setFrontTag("");
+    setRearTag("");
+    setSelectedFitmentKey(null);
+    setExpandedMake(null);
+    setCurrentPage(1);
+    setError(null);
+    setHasSearched(false);
+    setResolvedSizesMap({});
+    setResolvingKeys({});
+    requestedSizeKeysRef.current.clear();
   };
 
   /* Auto-fetch on initial modal open */
@@ -242,6 +413,7 @@ export default function TyresGuideModal({
       raf1 = requestAnimationFrame(() => {
         setIsAnimatedOpen(false);
       });
+      resetFormState();
     }
     return () => {
       cancelAnimationFrame(raf1);
@@ -268,6 +440,7 @@ export default function TyresGuideModal({
     setTimeout(() => {
       onClose();
       setIsClosing(false);
+      resetFormState();
     }, 400);
   };
 
@@ -1041,32 +1214,51 @@ export default function TyresGuideModal({
                                     Selected Size
                                   </div>
                                   <div className="flex flex-col gap-2 w-full">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setSelectedFitmentKey(searchedKey);
-                                      }}
-                                      className={`w-full px-3.5 py-2.5 rounded-xl border text-left transition-all flex items-center justify-start gap-2 cursor-pointer shadow-2xs ${
-                                        selectedFitmentKey === searchedKey
-                                          ? "bg-emerald-50/60 border-emerald-500 ring-1 ring-emerald-500/20"
-                                          : "bg-white border-slate-200/90 hover:bg-slate-50 hover:border-slate-300"
-                                      }`}
-                                    >
-                                      <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-blue-50 text-blue-900">
-                                        {searchedFront}
-                                        {searchedRear ? " (front)" : ""}
-                                      </span>
-                                      {searchedRear && (
-                                        <>
-                                          <span className="text-slate-600 text-xs">
-                                            /
+                                    <div className="relative w-full">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedFitmentKey(
+                                            selectedFitmentKey === searchedKey
+                                              ? null
+                                              : searchedKey,
+                                          );
+                                        }}
+                                        className={`w-full px-3.5 py-2.5 rounded-xl border text-left transition-all flex items-center justify-start gap-2 cursor-pointer shadow-2xs ${
+                                          selectedFitmentKey === searchedKey
+                                            ? "bg-emerald-50/60 border-emerald-500 ring-1 ring-emerald-500/20"
+                                            : "bg-white border-slate-200/90 hover:bg-slate-50 hover:border-slate-300"
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-blue-50 text-blue-900">
+                                            {searchedFront}
+                                            {searchedRear ? " (front)" : ""}
                                           </span>
-                                          <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-amber-50 text-amber-950">
-                                            {searchedRear} (rear)
-                                          </span>
-                                        </>
+                                          {searchedRear && (
+                                            <>
+                                              <span className="text-slate-600 text-xs">
+                                                /
+                                              </span>
+                                              <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-amber-50 text-amber-950">
+                                                {searchedRear} (rear)
+                                              </span>
+                                            </>
+                                          )}
+                                        </div>
+                                      </button>
+
+                                      {selectedFitmentKey === searchedKey && (
+                                        <div className="absolute top-full left-0 mt-2 z-40 w-72 sm:w-80 bg-white border-2 border-emerald-500 rounded-xl p-3 shadow-xl space-y-2 text-xs text-slate-800 animate-in fade-in zoom-in-95 duration-150">
+                                          <div className="absolute -top-2 left-8 w-3.5 h-3.5 bg-white border-t-2 border-l-2 border-emerald-500 rotate-45" />
+                                          <UrlTemplateLinks
+                                            front={searchedFront}
+                                            rear={searchedRear}
+                                            onNavigate={onClose}
+                                          />
+                                        </div>
                                       )}
-                                    </button>
+                                    </div>
                                   </div>
                                 </div>
                               )}
@@ -1083,28 +1275,44 @@ export default function TyresGuideModal({
                                         selectedFitmentKey === fitmentKey;
 
                                       return (
-                                        <button
-                                          type="button"
-                                          key={fIdx}
-                                          onClick={() => {
-                                            setSelectedFitmentKey(fitmentKey);
-                                          }}
-                                          className={`w-full px-3.5 py-2.5 rounded-xl border text-left transition-all flex items-center justify-start gap-2 cursor-pointer shadow-2xs ${
-                                            isSelected
-                                              ? "bg-emerald-50/60 border-emerald-500 ring-1 ring-emerald-500/20"
-                                              : "bg-white border-slate-200/90 hover:bg-slate-50 hover:border-slate-300"
-                                          }`}
-                                        >
-                                          <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-blue-50 text-blue-900">
-                                            {fitment.front} (front)
-                                          </span>
-                                          <span className="text-slate-600 text-xs">
-                                            /
-                                          </span>
-                                          <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-amber-50 text-amber-950">
-                                            {fitment.rear} (rear)
-                                          </span>
-                                        </button>
+                                        <div key={fIdx} className="relative w-full">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setSelectedFitmentKey(
+                                                isSelected ? null : fitmentKey,
+                                              );
+                                            }}
+                                            className={`w-full px-3.5 py-2.5 rounded-xl border text-left transition-all flex items-center justify-start gap-2 cursor-pointer shadow-2xs ${
+                                              isSelected
+                                                ? "bg-emerald-50/60 border-emerald-500 ring-1 ring-emerald-500/20"
+                                                : "bg-white border-slate-200/90 hover:bg-slate-50 hover:border-slate-300"
+                                            }`}
+                                          >
+                                            <div className="flex items-center gap-2">
+                                              <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-blue-50 text-blue-900">
+                                                {fitment.front} (front)
+                                              </span>
+                                              <span className="text-slate-600 text-xs">
+                                                /
+                                              </span>
+                                              <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-amber-50 text-amber-950">
+                                                {fitment.rear} (rear)
+                                              </span>
+                                            </div>
+                                          </button>
+
+                                          {isSelected && (
+                                            <div className="absolute top-full left-0 mt-2 z-40 w-72 sm:w-80 bg-white border-2 border-emerald-500 rounded-xl p-3 shadow-xl space-y-2 text-xs text-slate-800 animate-in fade-in zoom-in-95 duration-150">
+                                              <div className="absolute -top-2 left-8 w-3.5 h-3.5 bg-white border-t-2 border-l-2 border-emerald-500 rotate-45" />
+                                              <UrlTemplateLinks
+                                                front={fitment.front}
+                                                rear={fitment.rear}
+                                                onNavigate={onClose}
+                                              />
+                                            </div>
+                                          )}
+                                        </div>
                                       );
                                     })}
                                   </div>
@@ -1112,10 +1320,15 @@ export default function TyresGuideModal({
                               )}
                             </div>
 
-                            {/* Part 2: Matching Vehicles (Appears on Side when size chip clicked) */}
+                            {/* Part 2: Matching Vehicles */}
                             {hasVehiclesOnSide && (
                               <div className="pl-0 md:pl-4 border-t md:border-t-0 md:border-l border-slate-500 space-y-2 flex flex-col max-h-full min-h-0 pt-3 md:pt-0">
-                                <div className="grid grid-cols-1 gap-3 w-full max-h-[500px] overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden pr-2 pb-1">
+                                <div
+                                  onScroll={() => {
+                                    if (expandedMake) setExpandedMake(null);
+                                  }}
+                                  className="grid grid-cols-3 gap-2.5 w-full max-h-[450px] overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden pr-1 pb-48 relative"
+                                >
                                   {/* One chip per MAKE. `matchingVehicles` holds a
                                       row per model, so listing them verbatim
                                       repeated the same make (Volvo ×4,
@@ -1131,40 +1344,142 @@ export default function TyresGuideModal({
                                             (v.make_slug || v.make_name),
                                         ) === i,
                                     )
-                                    .map((v, idx) => (
-                                      <div
-                                        key={idx}
-                                        className="relative flex flex-col items-center justify-between p-4 rounded-xl border border-slate-200/90 bg-white shadow-2xs hover:border-emerald-500 hover:ring-1 hover:ring-emerald-500/30 transition-all text-center group cursor-pointer w-full min-h-[140px]"
-                                      >
-                                        <div className="h-20 sm:h-22 w-full px-2 py-1 flex items-center justify-center shrink-0 flex-1">
-                                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                                          <img
-                                            src={makeLogoUrl(
-                                              v.make_slug || v.make_name,
-                                            )}
-                                            alt={`${v.make_name}`}
-                                            className="max-h-full max-w-full w-auto h-auto object-contain p-0.5"
-                                            onError={(e) => {
-                                              /* One source now, so there is
-                                                 nothing to fall through to —
-                                                 show the truck icon. */
-                                              const img = e.currentTarget;
-                                              img.onerror = null;
-                                              img.style.display = "none";
-                                              if (img.nextElementSibling) {
-                                                (
-                                                  img.nextElementSibling as HTMLElement
-                                                ).style.display = "block";
-                                              }
-                                            }}
-                                          />
-                                          <TruckIcon className="w-10 h-10 text-emerald-600 hidden" />
+                                    .map((v, idx) => {
+                                      const makeKey = (
+                                        v.make_slug ||
+                                        v.make_name ||
+                                        ""
+                                      ).toLowerCase();
+                                      const isExpanded =
+                                        expandedMake === makeKey;
+                                      const makeModels =
+                                        matchingVehicles.filter(
+                                          (m) =>
+                                            (
+                                              m.make_slug ||
+                                              m.make_name ||
+                                              ""
+                                            ).toLowerCase() === makeKey,
+                                        );
+                                      const isSingleModel =
+                                        makeModels.length === 1;
+                                      const openUpward = idx >= 3;
+
+                                      return (
+                                        <div
+                                          key={idx}
+                                          className="relative w-full"
+                                        >
+                                          <div
+                                            onClick={() =>
+                                              setExpandedMake(
+                                                isExpanded ? null : makeKey,
+                                              )
+                                            }
+                                            className={`relative flex flex-col items-center justify-between p-2.5 rounded-xl border transition-all text-center group cursor-pointer w-full h-28 ${
+                                              isExpanded
+                                                ? "bg-emerald-50/90 border-2 border-emerald-500 ring-2 ring-emerald-500/40 shadow-md z-20"
+                                                : "bg-white border-slate-200/90 hover:border-emerald-500 hover:ring-1 hover:ring-emerald-500/30 shadow-2xs"
+                                            }`}
+                                          >
+                                            <div className="h-14 w-full flex items-center justify-center shrink-0 flex-1">
+                                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                                              <img
+                                                src={makeLogoUrl(
+                                                  v.make_slug || v.make_name,
+                                                )}
+                                                alt={`${v.make_name}`}
+                                                className="max-h-full max-w-full w-auto h-auto object-contain p-0.5"
+                                                onError={(e) => {
+                                                  const img = e.currentTarget;
+                                                  img.onerror = null;
+                                                  img.style.display = "none";
+                                                  if (img.nextElementSibling) {
+                                                    (
+                                                      img.nextElementSibling as HTMLElement
+                                                    ).style.display = "block";
+                                                  }
+                                                }}
+                                              />
+                                              <TruckIcon className="w-7 h-7 text-emerald-600 hidden" />
+                                            </div>
+                                            <span className="font-extrabold text-[11px] sm:text-xs text-slate-800 text-center truncate w-full pt-1 shrink-0 leading-normal">
+                                              {v.make_name}
+                                            </span>
+                                          </div>
+
+                                          {isExpanded && (
+                                            <div
+                                              className={`absolute z-40 ${openUpward ? "bottom-full mb-2" : "top-full mt-2"} ${isSingleModel ? "w-48 sm:w-56" : "w-72 sm:w-80"} bg-white border-2 border-emerald-500 rounded-xl p-3 shadow-xl space-y-2 text-xs text-slate-800 animate-in fade-in zoom-in-95 duration-150 ${
+                                                idx % 3 === 0
+                                                  ? "left-0"
+                                                  : idx % 3 === 1
+                                                    ? "left-1/2 -translate-x-1/2"
+                                                    : "right-0"
+                                              }`}
+                                            >
+                                              {/* Upward/Downward pointing arrow visually connecting details to the clicked logo card */}
+                                              <div
+                                                className={`absolute w-3.5 h-3.5 bg-white border-emerald-500 rotate-45 ${
+                                                  openUpward
+                                                    ? "-bottom-2 border-b-2 border-r-2"
+                                                    : "-top-2 border-t-2 border-l-2"
+                                                } ${
+                                                  idx % 3 === 0
+                                                    ? "left-8"
+                                                    : idx % 3 === 1
+                                                      ? "left-1/2 -translate-x-1/2"
+                                                      : "right-8"
+                                                }`}
+                                              />
+
+                                              <div className="font-extrabold text-slate-800 border-b border-emerald-100 pb-1.5 flex items-center justify-between">
+                                                <span className="flex items-center gap-1.5 text-sm font-extrabold text-emerald-900">
+                                                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                                                  {v.make_name}
+                                                </span>
+                                                <button
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setExpandedMake(null);
+                                                  }}
+                                                  className="text-slate-400 hover:text-slate-600 p-0.5 rounded-md hover:bg-slate-100 cursor-pointer"
+                                                >
+                                                  <XMarkIcon className="w-4 h-4" />
+                                                </button>
+                                              </div>
+
+                                              <div
+                                                className={`grid ${isSingleModel ? "grid-cols-1" : "grid-cols-2"} gap-1.5 max-h-40 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden pr-0.5`}
+                                              >
+                                                {makeModels.map((m, mIdx) => {
+                                                  const yearStr =
+                                                    formatYearRanges(
+                                                      m.year_ranges,
+                                                    );
+                                                  return (
+                                                    <div
+                                                      key={mIdx}
+                                                      className="flex flex-col items-center justify-center text-center bg-slate-50 px-2 py-1.5 rounded-lg border border-slate-200/80 hover:bg-emerald-50/50 hover:border-emerald-300 transition-colors"
+                                                    >
+                                                      <span className="font-bold text-slate-800 text-xs leading-snug break-words text-center w-full">
+                                                        {m.model_name}
+                                                      </span>
+                                                      {yearStr && (
+                                                        <span className="text-[10px] font-semibold text-emerald-700/90 leading-tight pt-0.5 whitespace-nowrap text-center">
+                                                          {yearStr}
+                                                        </span>
+                                                      )}
+                                                    </div>
+                                                  );
+                                                })}
+                                              </div>
+                                            </div>
+                                          )}
                                         </div>
-                                        <span className="font-extrabold text-sm sm:text-base text-slate-800 text-center truncate w-full pt-2 shrink-0 leading-normal">
-                                          {v.make_name}
-                                        </span>
-                                      </div>
-                                    ))}
+                                      );
+                                    })}
                                 </div>
                               </div>
                             )}
