@@ -1115,7 +1115,7 @@ export default function TyresGuideModal({
                             {/* Part 2: Matching Vehicles (Appears on Side when size chip clicked) */}
                             {hasVehiclesOnSide && (
                               <div className="pl-0 md:pl-4 border-t md:border-t-0 md:border-l border-slate-500 space-y-2 flex flex-col max-h-full min-h-0 pt-3 md:pt-0">
-                                <div className="flex flex-col gap-2 w-full max-h-[500px] overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden pr-2 pb-1">
+                                <div className="grid grid-cols-1 gap-3 w-full max-h-[500px] overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden pr-2 pb-1">
                                   {/* One chip per MAKE. `matchingVehicles` holds a
                                       row per model, so listing them verbatim
                                       repeated the same make (Volvo ×4,
@@ -1134,37 +1134,35 @@ export default function TyresGuideModal({
                                     .map((v, idx) => (
                                       <div
                                         key={idx}
-                                        className="flex items-center justify-start min-w-0"
+                                        className="relative flex flex-col items-center justify-between p-4 rounded-xl border border-slate-200/90 bg-white shadow-2xs hover:border-emerald-500 hover:ring-1 hover:ring-emerald-500/30 transition-all text-center group cursor-pointer w-full min-h-[140px]"
                                       >
-                                        <div className="w-fit max-w-full inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200/90 bg-white text-slate-900 shadow-2xs text-xs hover:border-emerald-500 hover:bg-emerald-50/40 transition-all">
-                                          <div className="w-11 h-11 rounded-lg bg-white border border-slate-200/80 flex items-center justify-center shrink-0 overflow-hidden p-1.5">
-                                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                                            <img
-                                              src={makeLogoUrl(
-                                                v.make_slug || v.make_name,
-                                              )}
-                                              alt={`${v.make_name}`}
-                                              className="w-full h-full object-contain"
-                                              onError={(e) => {
-                                                /* One source now, so there is
-                                                   nothing to fall through to —
-                                                   show the truck icon. */
-                                                const img = e.currentTarget;
-                                                img.onerror = null;
-                                                img.style.display = "none";
-                                                if (img.nextElementSibling) {
-                                                  (
-                                                    img.nextElementSibling as HTMLElement
-                                                  ).style.display = "block";
-                                                }
-                                              }}
-                                            />
-                                            <TruckIcon className="w-5 h-5 text-emerald-600 hidden" />
-                                          </div>
-                                          <span className="font-extrabold text-xs text-slate-800 truncate">
-                                            {v.make_name}
-                                          </span>
+                                        <div className="h-20 sm:h-22 w-full px-2 py-1 flex items-center justify-center shrink-0 flex-1">
+                                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                                          <img
+                                            src={makeLogoUrl(
+                                              v.make_slug || v.make_name,
+                                            )}
+                                            alt={`${v.make_name}`}
+                                            className="max-h-full max-w-full w-auto h-auto object-contain p-0.5"
+                                            onError={(e) => {
+                                              /* One source now, so there is
+                                                 nothing to fall through to —
+                                                 show the truck icon. */
+                                              const img = e.currentTarget;
+                                              img.onerror = null;
+                                              img.style.display = "none";
+                                              if (img.nextElementSibling) {
+                                                (
+                                                  img.nextElementSibling as HTMLElement
+                                                ).style.display = "block";
+                                              }
+                                            }}
+                                          />
+                                          <TruckIcon className="w-10 h-10 text-emerald-600 hidden" />
                                         </div>
+                                        <span className="font-extrabold text-sm sm:text-base text-slate-800 text-center truncate w-full pt-2 shrink-0 leading-normal">
+                                          {v.make_name}
+                                        </span>
                                       </div>
                                     ))}
                                 </div>
