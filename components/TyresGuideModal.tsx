@@ -236,10 +236,7 @@ function UrlTemplateLinks({
               title="No link available for this size"
               className="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-400 font-bold cursor-not-allowed"
             >
-              <span className="flex items-center gap-1.5">
-                <MagnifyingGlassIcon className="w-4 h-4 text-slate-300" />
-                <span>{label}</span>
-              </span>
+              <span>{label}</span>
             </span>
           );
         }
@@ -252,11 +249,8 @@ function UrlTemplateLinks({
             onClick={onNavigate}
             className="flex items-center justify-between p-2.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-950 font-bold transition-all cursor-pointer group"
           >
-            <span className="flex items-center gap-1.5">
-              <MagnifyingGlassIcon className="w-4 h-4 text-emerald-600" />
-              <span className="underline decoration-emerald-400 decoration-2">
-                {label}
-              </span>
+            <span className="underline decoration-emerald-400 decoration-2">
+              {label}
             </span>
             <span className="text-xs font-extrabold text-emerald-700 group-hover:translate-x-0.5 transition-transform">
               ➔
@@ -1327,7 +1321,7 @@ export default function TyresGuideModal({
                                   onScroll={() => {
                                     if (expandedMake) setExpandedMake(null);
                                   }}
-                                  className="grid grid-cols-3 gap-2.5 w-full max-h-[450px] overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden pr-1 pb-48 relative"
+                                  className="grid grid-cols-3 gap-2.5 w-full max-h-[450px] overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden px-1 pt-2 pb-48 relative"
                                 >
                                   {/* One chip per MAKE. `matchingVehicles` holds a
                                       row per model, so listing them verbatim
@@ -1363,7 +1357,7 @@ export default function TyresGuideModal({
                                         );
                                       const isSingleModel =
                                         makeModels.length === 1;
-                                      const openUpward = idx >= 3;
+                                      const openUpward = idx >= 6;
 
                                       return (
                                         <div
@@ -1433,27 +1427,20 @@ export default function TyresGuideModal({
                                                 }`}
                                               />
 
-                                              <div className="font-extrabold text-slate-800 border-b border-emerald-100 pb-1.5 flex items-center justify-between">
-                                                <span className="flex items-center gap-1.5 text-sm font-extrabold text-emerald-900">
-                                                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                                                  {v.make_name}
-                                                </span>
-                                                <button
-                                                  type="button"
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setExpandedMake(null);
-                                                  }}
-                                                  className="text-slate-400 hover:text-slate-600 p-0.5 rounded-md hover:bg-slate-100 cursor-pointer"
-                                                >
-                                                  <XMarkIcon className="w-4 h-4" />
-                                                </button>
-                                              </div>
-
                                               <div
-                                                className={`grid ${isSingleModel ? "grid-cols-1" : "grid-cols-2"} gap-1.5 max-h-40 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden pr-0.5`}
+                                                className={`grid ${
+                                                  isSingleModel
+                                                    ? "grid-cols-1"
+                                                    : "grid-cols-2"
+                                                } gap-1.5 max-h-56 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden pr-0.5`}
                                               >
                                                 {makeModels.map((m, mIdx) => {
+                                                  const isLastOdd =
+                                                    !isSingleModel &&
+                                                    makeModels.length % 2 !==
+                                                      0 &&
+                                                    mIdx ===
+                                                      makeModels.length - 1;
                                                   const yearStr =
                                                     formatYearRanges(
                                                       m.year_ranges,
@@ -1461,7 +1448,11 @@ export default function TyresGuideModal({
                                                   return (
                                                     <div
                                                       key={mIdx}
-                                                      className="flex flex-col items-center justify-center text-center bg-slate-50 px-2 py-1.5 rounded-lg border border-slate-200/80 hover:bg-emerald-50/50 hover:border-emerald-300 transition-colors"
+                                                      className={`flex flex-col items-center justify-center text-center bg-slate-50/80 px-2.5 py-1.5 rounded-lg border border-slate-200/80 hover:bg-emerald-50/60 hover:border-emerald-300 transition-all ${
+                                                        isLastOdd
+                                                          ? "col-span-2"
+                                                          : ""
+                                                      }`}
                                                     >
                                                       <span className="font-bold text-slate-800 text-xs leading-snug break-words text-center w-full">
                                                         {m.model_name}

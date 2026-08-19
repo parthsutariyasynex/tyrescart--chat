@@ -1050,7 +1050,7 @@ export default function CheckSupplierModal({
                           {/* RunFlat */}
                           <td className="py-3 px-3 text-center whitespace-nowrap">
                             {runflatVal === "Runflat" ? (
-                              <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded border border-emerald-200 whitespace-nowrap inline-block">
+                              <span className="px-2.5 py-0.5 text-[11px] font-bold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60 whitespace-nowrap inline-block">
                                 Runflat
                               </span>
                             ) : null}
@@ -1107,8 +1107,17 @@ export default function CheckSupplierModal({
                           {/* Cost / Price */}
                           <td className="py-3 px-3 text-right whitespace-nowrap">
                             {(() => {
-                              const isCompetitor = (r.product_source || r.productType || r.source || "").toLowerCase().includes("competitor");
-                              const displayAmount = isCompetitor ? (Number(r.price) || Number(r.cost) || 0) : (Number(r.cost) || 0);
+                              const isCompetitor = (
+                                r.product_source ||
+                                r.productType ||
+                                r.source ||
+                                ""
+                              )
+                                .toLowerCase()
+                                .includes("competitor");
+                              const displayAmount = isCompetitor
+                                ? Number(r.price) || Number(r.cost) || 0
+                                : Number(r.cost) || 0;
                               if (displayAmount <= 0) return null;
                               return (
                                 <button
@@ -1142,10 +1151,10 @@ export default function CheckSupplierModal({
                                   setFittingHistoryItem(r);
                                 }}
                                 title="View fitting price history"
-                                className="inline-flex items-center justify-center gap-1 text-xs font-medium text-slate-500 font-mono whitespace-nowrap rounded px-1 -mx-1 hover:text-emerald-700 hover:underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors cursor-pointer"
+                                className="inline-flex items-center justify-center gap-1 text-xs font-medium text-slate-500 font-mono whitespace-nowrap rounded px-1 -mx-1 hover:text-emerald-700 hover:underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors cursor-pointer w-full text-center"
                                 dir="ltr"
                               >
-                                <span className="whitespace-nowrap">
+                                <span className="whitespace-nowrap text-center w-full">
                                   {money(Number(r.fitting_price))}
                                 </span>
                               </button>

@@ -316,7 +316,9 @@ function mapSupplierToProduct(p: CachedSupplierProduct): Product {
        still spot RFT/ZP/SSR/MOE markings — 8,514 rows carry "". */
     runflat: (() => {
       if (typeof p.runflat === "boolean") return p.runflat;
-      const raw = String(p.runflat ?? "").trim().toLowerCase();
+      const raw = String(p.runflat ?? "")
+        .trim()
+        .toLowerCase();
       if (raw) {
         return (
           raw === "yes" ||
@@ -1128,9 +1130,7 @@ export default function SupplierProductsPage() {
                 count / page size never changes the card height (no layout shift).
 
                 */}
-            <div
-              className="flex-1 min-h-0 overflow-y-auto no-scrollbar"
-            >
+            <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
               <table className="w-full text-left border-collapse table-fixed">
                 <colgroup>
                   {!hiddenColumns.has("source") && <col className="w-[5.5%]" />}
@@ -1525,7 +1525,7 @@ export default function SupplierProductsPage() {
                               className={`${cellPaddingClass} whitespace-nowrap`}
                             >
                               {item.runflat ? (
-                                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded border border-emerald-200 whitespace-nowrap inline-block">
+                                <span className="px-2.5 py-0.5 text-[11px] font-bold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60 whitespace-nowrap inline-block">
                                   Runflat
                                 </span>
                               ) : null}
@@ -1570,9 +1570,21 @@ export default function SupplierProductsPage() {
                               className={`${cellPaddingClass} text-right whitespace-nowrap`}
                             >
                               {(() => {
-                                const isCompetitor = (item.product_source || item.productType || item.source || "").toLowerCase().includes("competitor");
-                                const displayAmount = isCompetitor ? (item.price && item.price > 0 ? item.price : item.cost) : item.cost;
-                                if (!displayAmount || displayAmount <= 0) return null;
+                                const isCompetitor = (
+                                  item.product_source ||
+                                  item.productType ||
+                                  item.source ||
+                                  ""
+                                )
+                                  .toLowerCase()
+                                  .includes("competitor");
+                                const displayAmount = isCompetitor
+                                  ? item.price && item.price > 0
+                                    ? item.price
+                                    : item.cost
+                                  : item.cost;
+                                if (!displayAmount || displayAmount <= 0)
+                                  return null;
                                 return (
                                   <button
                                     type="button"
@@ -1601,7 +1613,7 @@ export default function SupplierProductsPage() {
 
                           {!hiddenColumns.has("fittingPrice") && (
                             <td
-                              className={`${cellPaddingClass} whitespace-nowrap`}
+                              className={`${cellPaddingClass} text-center whitespace-nowrap`}
                             >
                               {item.fittingPrice && item.fittingPrice > 0 ? (
                                 <button
@@ -1611,10 +1623,10 @@ export default function SupplierProductsPage() {
                                     setFittingHistoryItem(item);
                                   }}
                                   title="View fitting price history"
-                                  className="inline-flex items-center justify-center gap-1 text-xs font-medium text-slate-500 font-mono whitespace-nowrap rounded px-1 -mx-1 hover:text-emerald-700 hover:underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors cursor-pointer"
+                                  className="inline-flex items-center justify-center gap-1 text-xs font-medium text-slate-500 font-mono whitespace-nowrap rounded px-1 -mx-1 hover:text-emerald-700 hover:underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors cursor-pointer w-full text-center"
                                   dir="ltr"
                                 >
-                                  <span className="whitespace-nowrap">
+                                  <span className="whitespace-nowrap text-center w-full">
                                     {item.fittingPrice.toLocaleString("en-US", {
                                       minimumFractionDigits: 2,
                                       maximumFractionDigits: 2,
@@ -1783,7 +1795,9 @@ export default function SupplierProductsPage() {
             cost: costHistoryItem.cost,
             price: costHistoryItem.price,
             productType: costHistoryItem.productType,
-            product_source: (costHistoryItem as { product_source?: string }).product_source || costHistoryItem.productType,
+            product_source:
+              (costHistoryItem as { product_source?: string }).product_source ||
+              costHistoryItem.productType,
             country: costHistoryItem.country,
             year: costHistoryItem.year,
           }}
