@@ -221,9 +221,18 @@ function UrlTemplateLinks({
     );
   }
 
+  // Deduplicate items by name/label + resolved_url so identical links are never rendered twice
+  const seenKeys = new Set<string>();
+  const uniqueItems = items.filter((item) => {
+    const key = `${String(item?.name ?? "").trim()}|${String(item?.resolved_url ?? "").trim()}`;
+    if (seenKeys.has(key)) return false;
+    seenKeys.add(key);
+    return true;
+  });
+
   return (
     <>
-      {items.map((item, i) => {
+      {uniqueItems.map((item, i) => {
         const url = String(item?.resolved_url ?? "").trim();
         const label = String(item?.name ?? "").trim() || "Tyres";
         /* An item without a resolved URL is shown but not clickable, rather
@@ -1173,13 +1182,15 @@ export default function TyresGuideModal({
                           ? `${searchedFront}|${searchedRear}`
                           : searchedFront;
 
-                        // Deduplicate staggered combinations so each unique pair appears only once
+                        // Deduplicate staggered combinations so each unique pair appears only once,
+                        // and exclude searchedKey so it isn't rendered twice (under Selected Size AND Suggested Size)
                         const staggeredFitments = fitmentList.filter(
                           (f, idx, arr) => {
                             const isStag =
                               f.rear && f.rear !== "—" && f.rear !== f.front;
                             if (!isStag) return false;
                             const key = `${f.front}|${f.rear}`;
+                            if (key === searchedKey) return false;
                             return (
                               arr.findIndex(
                                 (item) => `${item.front}|${item.rear}` === key,
