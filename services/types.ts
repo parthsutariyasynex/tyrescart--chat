@@ -569,6 +569,38 @@ export interface KleverVehicleSearchResult {
   data: KleverVehicleItem[] | null;
 }
 
+/**
+ * One row from `kleverVehicleSearch` called with `offset`/`limit` instead of
+ * width/height/rim — the "browse the whole catalogue" mode, not the
+ * "search by exact size" mode `KleverVehicleItem` models. Deliberately a
+ * separate type rather than extending `KleverVehicleItem`: this mode never
+ * returns front_width/front_height/front_rim, and gives front_size/rear_size
+ * instead — a comma-joined list of every size that model uses (a model can
+ * have several factory tyre options across trims/years), not one value.
+ */
+export interface KleverVehicleCatalogueItem {
+  make_name: string | null;
+  model_name: string | null;
+  make_slug?: string | null;
+  model_slug?: string | null;
+  year_ranges: string | null;
+  /** Comma-joined, e.g. "245/50R20, 245/55R19, 245/60R18" — not a single size. */
+  front_size?: string | null;
+  rear_size?: string | null;
+  is_stock: boolean | number | string | null;
+}
+
+/** Response envelope for the offset/limit catalogue-browse mode — distinct
+ *  from `KleverVehicleSearchResult` because only this mode populates
+ *  `message`/`count`/`total` (used for pagination). */
+export interface KleverVehicleCatalogueResult {
+  status: boolean | number | string | null;
+  message?: string | null;
+  count?: number | null;
+  total?: number | null;
+  data: KleverVehicleCatalogueItem[] | null;
+}
+
 /** One configured browse-link, as returned by `urlTemplates`. */
 export interface UrlTemplateItem {
   name: string | null;

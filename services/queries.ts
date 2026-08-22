@@ -715,6 +715,39 @@ export function kleverVehicleSearchQuery(width: number, height: number, rim: num
 }
 
 /**
+ * Paginated browse of the FULL vehicle catalogue — same `kleverVehicleSearch`
+ * field as above, called with `offset`/`limit` instead of width/height/rim.
+ * Verified live: `total` is 1,362 (matching this app's own documented
+ * catalogue size), `limit` is capped by the API at 1000, and every row comes
+ * back with `front_size`/`rear_size` already filled in — no per-row
+ * `kleverVehicleModifications` lookup needed the way the List flow
+ * (`fetchKleverAllVehicles` + `fetchKleverVehicleFitments`) requires today.
+ *
+ * NOT called anywhere yet — this only makes the capability available;
+ * nothing existing was changed to use it.
+ */
+export function kleverVehicleCatalogueQuery(offset: number, limit: number): string {
+  return `query {
+    kleverVehicleSearch(offset: ${offset}, limit: ${limit}) {
+      status
+      message
+      count
+      total
+      data {
+        make_name
+        model_name
+        make_slug
+        model_slug
+        year_ranges
+        front_size
+        rear_size
+        is_stock
+      }
+    }
+  }`;
+}
+
+/**
  * Resolve the configured "browse tyres" links for a tyre size.
  *
  * The URL TEMPLATES LIVE SERVER-SIDE — the host, path and query shape all come

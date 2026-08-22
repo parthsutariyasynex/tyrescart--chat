@@ -19,6 +19,7 @@ import {
   CREATE_KLEVER_QUOTE,
   ADD_QUOTE_HISTORY,
   kleverVehicleSearchQuery,
+  kleverVehicleCatalogueQuery,
   urlTemplatesQuery,
   kleverVehicleMakesQuery,
   kleverVehicleModelsQuery,
@@ -30,6 +31,8 @@ import {
 import type {
   UrlTemplateItem,
   KleverVehicleItem,
+  KleverVehicleCatalogueItem,
+  KleverVehicleCatalogueResult,
   KleverVehicleYear,
   KleverVehicleModification,
   KleverFitmentPair,
@@ -533,6 +536,70 @@ export async function fetchKleverVehicleSearchGraphQL(
   return (
     (data?.kleverVehicleSearch?.data as KleverVehicleItem[] | undefined) ?? []
   );
+}
+
+/**
+ * One page of the full vehicle catalogue, sizes included — see
+ * `kleverVehicleCatalogueQuery` for why this exists alongside
+ * `fetchKleverAllVehicles`/`fetchKleverVehicleFitments`. `total` is returned
+ * so a caller can page through the whole catalogue (`limit` caps at 1000
+ * server-side, so 1,362 vehicles is 2 calls).
+ */
+export async function fetchKleverVehicleCatalogueGraphQL(
+  offset: number,
+  limit: number,
+): Promise<{ vehicles: KleverVehicleCatalogueItem[]; total: number }> {
+  const query = kleverVehicleCatalogueQuery(offset, limit);
+  const data = await executeGraphQLQuery(query);
+  const result = data?.kleverVehicleSearch as
+    | KleverVehicleCatalogueResult
+    | undefined;
+  return {
+    vehicles: (result?.data as KleverVehicleCatalogueItem[] | undefined) ?? [],
+    total: typeof result?.total === "number" ? result.total : 0,
+  };
+}
+
+/**
+ * The WHOLE offset/limit vehicle catalogue — pages through
+ * `fetchKleverVehicleCatalogueGraphQL` at the server's 1000-row cap (1,362
+ * vehicles today = 2 requests) and returns every row, sizes included. This is
+ * the Tyres Guide's catalogue source: unlike `fetchKleverAllVehicles`, every
+ * row already carries `front_size`/`rear_size`, so no per-vehicle
+ * `fetchKleverVehicleFitments` follow-up is needed.
+ *
+ * Memoised for the session, same pattern as `fetchKleverAllVehicles`.
+ */
+let vehicleCatalogueCache: Promise<KleverVehicleCatalogueItem[]> | null = null;
+const VEHICLE_CATALOGUE_PAGE_LIMIT = 1000;
+
+export function fetchKleverVehicleCatalogueAll(): Promise<
+  KleverVehicleCatalogueItem[]
+> {
+  if (vehicleCatalogueCache) return vehicleCatalogueCache;
+
+  const task = (async () => {
+    const all: KleverVehicleCatalogueItem[] = [];
+    let offset = 0;
+    let total = Infinity;
+    while (offset < total) {
+      const page = await fetchKleverVehicleCatalogueGraphQL(
+        offset,
+        VEHICLE_CATALOGUE_PAGE_LIMIT,
+      );
+      total = page.total || page.vehicles.length;
+      if (!page.vehicles.length) break;
+      all.push(...page.vehicles);
+      offset += page.vehicles.length;
+    }
+    return all;
+  })();
+
+  vehicleCatalogueCache = task;
+  task.catch(() => {
+    vehicleCatalogueCache = null;
+  });
+  return task;
 }
 
 /**

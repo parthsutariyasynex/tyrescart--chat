@@ -17,13 +17,11 @@ import {
   ExclamationTriangleIcon,
 } from "@heroicons/react/24/outline";
 import {
-  fetchKleverVehicleSearchGraphQL,
-  fetchKleverVehicleFitments,
-  fetchKleverAllVehicles,
+  fetchKleverVehicleCatalogueAll,
   fetchUrlTemplates,
 } from "../services/graphql";
 import type {
-  KleverVehicleItem,
+  KleverVehicleCatalogueItem,
   UrlTemplateItem,
 } from "../services/types";
 import Pagination from "./Pagination";
@@ -65,6 +63,144 @@ function parseSearchSize(
   }
 
   return null;
+}
+
+/**
+ * Case-insensitive, separators-only stripped: "215/55 R17" / "215/55R17" →
+ * "21555r17". Strips ONLY formatting characters (`/`, `-`, spaces) — NOT
+ * letters — so the tyre's construction code (`R`, `ZR`, ...) survives the
+ * normalization. Stripping letters too (as this used to) made "245/35 R19"
+ * and "245/35ZR19" normalize to the identical "2453519", so a plain-R19
+ * search matched a ZR19-only tyre and vice versa; keeping the construction
+ * letters distinguishes them while still treating "195-15-R15" / "195/15 R15"
+ * / "19515R15" as equivalent, since those differ only by separator.
+ */
+function normalizeTyreSize(value: string): string {
+  return value.toLowerCase().replace(/[\s/-]/g, "");
+}
+
+/**
+ * `front_size`/`rear_size` from `kleverVehicleCatalogueQuery` are COMMA-JOINED
+ * lists ("205/40R18, 205/45R17"), not a single value — a model can have
+ * several factory tyre options across trims/years. Splitting before matching
+ * (rather than normalizing the whole joined string in one shot) avoids a
+ * digit-substring query spuriously matching across the boundary between two
+ * adjacent sizes.
+ */
+function splitSizeValues(raw: string | null | undefined): string[] {
+  return String(raw ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Does ANY individual size in a (possibly multi-value) size field match a
+ * query? `norm` compares via `normalizeTyreSize` (separators stripped,
+ * construction letters like R/ZR preserved), `raw` is a case-insensitive
+ * substring check for free text that doesn't parse as a size.
+ *
+ * A query with NO letters at all (e.g. "2054018") has no construction code to
+ * be wrong about, so it ALSO matches by a plain digits-only comparison — this
+ * restores "195/15 R15" / "19515R15" / "1951515"-style equivalence for a
+ * bare numeric query without reopening the R-vs-ZR bug: a query that DOES
+ * include a letter ("R19", "ZR19") never takes this branch, since
+ * `normIsPureDigits` is false for it, so it still only matches that exact
+ * construction code.
+ */
+function sizeFieldMatches(
+  sizeField: string | null | undefined,
+  norm: string,
+  raw: string,
+): boolean {
+  if (!norm && !raw) return false;
+  const values = splitSizeValues(sizeField);
+  if (!values.length) return false;
+  const normIsPureDigits = norm !== "" && !/[a-z]/i.test(norm);
+  return values.some((val) => {
+    if (norm && normalizeTyreSize(val).includes(norm)) return true;
+    if (normIsPureDigits && val.replace(/[^0-9]/g, "").includes(norm))
+      return true;
+    if (raw && val.toLowerCase().includes(raw.toLowerCase())) return true;
+    return false;
+  });
+}
+
+/**
+ * Display-only spacing fix: "205/40R18" → "205/40 R18", "245/35ZR19" →
+ * "245/35 ZR19". Never touches the underlying API value — this only runs at
+ * render time on a value already read out of `front_size`/`rear_size`.
+ */
+function formatSizeDisplay(raw: string | null | undefined): string {
+  const value = String(raw ?? "").trim();
+  if (!value) return "";
+  return value.replace(/^(\d+\/\d+)\s*([A-Z]{0,2}R\d+.*)$/i, "$1 $2");
+}
+
+interface FitmentPair {
+  front: string;
+  rear: string;
+  isStaggered: boolean;
+}
+
+/**
+ * Extracts individual (front, rear) size pairs from a vehicle record.
+ * Handles single sizes, comma-separated lists, square fitments, and staggered fitments.
+ * Never leaves multiple comma-separated sizes grouped in a single pair.
+ */
+function extractVehicleFitmentPairs(
+  v: KleverVehicleCatalogueItem,
+): FitmentPair[] {
+  const frontList = splitSizeValues(v.front_size);
+  const rearList = splitSizeValues(v.rear_size);
+
+  if (frontList.length === 0 && rearList.length === 0) return [];
+  if (frontList.length === 0) {
+    return rearList.map((r) => ({ front: r, rear: r, isStaggered: false }));
+  }
+  if (rearList.length === 0) {
+    return frontList.map((f) => ({ front: f, rear: f, isStaggered: false }));
+  }
+
+  // 1 front size, multiple rear staggered options (e.g. Acura NSX)
+  if (frontList.length === 1 && rearList.length > 1) {
+    return rearList.map((r) => ({
+      front: frontList[0],
+      rear: r,
+      isStaggered: frontList[0].toLowerCase() !== r.toLowerCase(),
+    }));
+  }
+
+  // 1-to-1 mapping for each front size with corresponding rear size
+  return frontList.map((f, i) => {
+    const r = rearList[i] || rearList[0] || f;
+    return {
+      front: f,
+      rear: r,
+      isStaggered: f.toLowerCase() !== r.toLowerCase(),
+    };
+  });
+}
+
+/**
+ * Does this individual (front, rear) fitment pair match a searched
+ * front/rear tag? Mirrors the matching predicate the tag-matching memo uses
+ * (same digit-normalized substring rule, same front/rear-swap tolerance) —
+ * kept as its own function purely so the per-row "which exact size matched"
+ * lookup below can reuse it without duplicating the memo's inline logic.
+ */
+function pairMatchesQuery(pair: FitmentPair, fNorm: string, rNorm: string) {
+  const pFNorm = normalizeTyreSize(pair.front);
+  const pRNorm = normalizeTyreSize(pair.rear);
+  if (fNorm && rNorm) {
+    return (
+      (pFNorm.includes(fNorm) && pRNorm.includes(rNorm)) ||
+      (pFNorm.includes(rNorm) && pRNorm.includes(fNorm))
+    );
+  }
+  if (fNorm) return pFNorm.includes(fNorm) || pRNorm.includes(fNorm);
+  if (rNorm) return pRNorm.includes(rNorm) || pFNorm.includes(rNorm);
+  return false;
 }
 
 /**
@@ -173,7 +309,8 @@ function UrlTemplateLinks({
     ];
     /* Rear variables only for a genuine staggered fitment — sending them for a
        square one would resolve templates that do not apply. */
-    const r = rear && rear !== "—" && rear !== front ? parseSearchSize(rear) : null;
+    const r =
+      rear && rear !== "—" && rear !== front ? parseSearchSize(rear) : null;
     if (r) {
       values.push(
         { code: "rwidth", value: String(r.width) },
@@ -292,12 +429,11 @@ export default function TyresGuideModal({
   /**
    * The fitment chip the user has highlighted, as `front|rear`.
    *
-   * SELECTION ONLY — it deliberately does not touch `frontTag`/`rearTag` and
-   * does not refetch. Clicking a chip used to call `setFrontTag`/`setRearTag`
-   * plus `handleFetchGuide`, which ran a NEW search and replaced the result
-   * set: picking one combination out of a 4-car result collapsed the table to
-   * whatever that single size returned. The search result is the source of
-   * truth; a chip click only marks which combination is being looked at.
+   * SELECTION ONLY — it deliberately does not touch `frontTag`/`rearTag`.
+   * Clicking a chip used to also set those tags directly, which re-ran the
+   * tag-matching memo against a single size and collapsed the table to just
+   * that combination. The search result is the source of truth; a chip click
+   * only marks which combination is being looked at.
    */
   const [selectedFitmentKey, setSelectedFitmentKey] = useState<string | null>(
     null,
@@ -306,18 +442,10 @@ export default function TyresGuideModal({
   const [pageSize, setPageSize] = useState(15);
 
   /* Data & Loading states */
-  const [vehicles, setVehicles] = useState<KleverVehicleItem[]>([]);
+  const [vehicles, setVehicles] = useState<KleverVehicleCatalogueItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
-
-  /* Dynamic page-level size resolution states */
-  const [resolvedSizesMap, setResolvedSizesMap] = useState<
-    Record<string, { front: string; rear: string; isStock: boolean }>
-  >({});
-  const [resolvingKeys, setResolvingKeys] = useState<Record<string, boolean>>(
-    {},
-  );
 
   const [expandedMake, setExpandedMake] = useState<string | null>(null);
 
@@ -329,55 +457,29 @@ export default function TyresGuideModal({
   const fetchRequestIdRef = useRef<number>(0);
 
   /**
-   * Load vehicles for a tyre size.
+   * Load the whole vehicle catalogue (make/model/year/front_size/rear_size)
+   * via `fetchKleverVehicleCatalogueAll`, paginated at the server's 1000-row
+   * cap.
    *
-   * `override` exists because the Search button commits the typed text to
-   * `frontTag` in the same tick it fetches — React has not re-rendered yet, so
-   * reading state here would use the PREVIOUS size. The caller passes the size
-   * it just committed; everything else falls back to current state.
+   * This replaces the old dual-mode flow (`fetchKleverVehicleSearchGraphQL`
+   * for an exact size + `fetchKleverAllVehicles`'s 114-request make/model walk
+   * as a fallback, plus a per-row `fetchKleverVehicleFitments` resolver for
+   * whichever rows were on screen). The new API returns sizes for every
+   * vehicle up front, so there is nothing left to search for server-side —
+   * `vehicles` is loaded ONCE and every filter (tag-based or free-text) below
+   * runs entirely client-side against it.
    */
-  const handleFetchGuide = async (
-    override?: { width: number; height: number; rim: number } | null,
-    isUserSearch: boolean = false,
-  ) => {
+  const loadCatalogue = async () => {
     const requestId = ++fetchRequestIdRef.current;
     setLoading(true);
     setError(null);
-    if (isUserSearch) {
-      setHasSearched(true);
-    }
-
-    const size =
-      override !== undefined
-        ? override
-        : (parseSearchSize(frontTag) ??
-          parseSearchSize(rearTag) ??
-          parseSearchSize(searchQuery));
-
     try {
-      if (size) {
-        const data = await fetchKleverVehicleSearchGraphQL(
-          size.width,
-          size.height,
-          size.rim,
-        );
-        if (requestId !== fetchRequestIdRef.current) return;
-        if (data && data.length > 0) {
-          setVehicles(data);
-        } else {
-          const allData = await fetchKleverAllVehicles();
-          if (requestId !== fetchRequestIdRef.current) return;
-          setVehicles(allData);
-        }
-      } else {
-        const data = await fetchKleverAllVehicles();
-        if (requestId !== fetchRequestIdRef.current) return;
-        catalogueRef.current = data;
-        setVehicles(data);
-      }
+      const data = await fetchKleverVehicleCatalogueAll();
+      if (requestId !== fetchRequestIdRef.current) return;
+      setVehicles(data);
     } catch (err) {
       if (requestId !== fetchRequestIdRef.current) return;
-      console.error("[TyresGuideModal] Vehicle search error:", err);
+      console.error("[TyresGuideModal] Vehicle catalogue load error:", err);
       setError("Failed to load vehicle fitment guide. Please try again.");
       setVehicles([]);
     } finally {
@@ -388,7 +490,6 @@ export default function TyresGuideModal({
   };
 
   const resetFormState = () => {
-    fetchRequestIdRef.current += 1;
     setSearchQuery("");
     setHeaderQuery("");
     setFrontTag("");
@@ -398,9 +499,6 @@ export default function TyresGuideModal({
     setCurrentPage(1);
     setError(null);
     setHasSearched(false);
-    setResolvedSizesMap({});
-    setResolvingKeys({});
-    requestedSizeKeysRef.current.clear();
   };
 
   /* Auto-fetch on initial modal open */
@@ -413,8 +511,12 @@ export default function TyresGuideModal({
           setIsAnimatedOpen(true);
         });
       });
-      if (!hasSearched) {
-        handleFetchGuide();
+      // The catalogue loads once and is never replaced afterwards — a search
+      // is a client-side filter, not a new fetch — so this only fires when
+      // nothing has been loaded yet (first open; the module-level cache in
+      // `fetchKleverVehicleCatalogueAll` makes a re-open free either way).
+      if (vehicles.length === 0 && !loading) {
+        void loadCatalogue();
       }
     } else {
       raf1 = requestAnimationFrame(() => {
@@ -469,9 +571,6 @@ export default function TyresGuideModal({
     setSelectedFitmentKey(null);
   }, [searchQuery, headerQuery, frontTag, rearTag, pageSize]);
 
-  const normalizeTyreSize = (value: string) =>
-    value.toLowerCase().replace(/[^0-9]/g, "");
-
   const { filteredVehicles, fitmentList } = useMemo(() => {
     // Only search on committed tags (frontTag & rearTag) to disable live auto-search while typing
     const fTagRaw = frontTag.trim();
@@ -480,123 +579,14 @@ export default function TyresGuideModal({
     const fNorm = fTagRaw ? normalizeTyreSize(fTagRaw) : "";
     const rNorm = rTagRaw ? normalizeTyreSize(rTagRaw) : "";
 
-    const exactMatches: KleverVehicleItem[] = [];
-    const relatedSizeMap = new Map<
-      string,
-      { size: string; type: "Front" | "Rear"; count: number }
-    >();
-
-    // Helper check for partial match
-    const matchesTag = (
-      sizeNorm: string,
-      sizeRaw: string,
-      tagNorm: string,
-      tagRaw: string,
-    ) => {
-      if (!tagNorm && !tagRaw) return false;
-      if (!sizeNorm && !sizeRaw) return false;
-      if (tagNorm && sizeNorm.includes(tagNorm)) return true;
-      if (tagRaw && sizeRaw.toLowerCase().includes(tagRaw.toLowerCase()))
-        return true;
-      return false;
-    };
-
     if (!fNorm && !rNorm) {
       return {
-        filteredVehicles: [],
+        filteredVehicles: [] as KleverVehicleCatalogueItem[],
         fitmentList: [],
       };
     }
 
-    vehicles.forEach((v) => {
-      const rowKey =
-        `${v.make_slug || v.make_name}|${v.model_slug || v.model_name}`.toLowerCase();
-      const resolved = resolvedSizesMap[rowKey];
-
-      const fSizeRaw =
-        v.front_width && v.front_height && v.front_rim
-          ? `${v.front_width}/${v.front_height} R${v.front_rim}`
-          : resolved?.front && resolved.front !== "—"
-            ? resolved.front
-            : "";
-      const rSizeRaw =
-        v.rear_width && v.rear_height && v.rear_rim
-          ? `${v.rear_width}/${v.rear_height} R${v.rear_rim}`
-          : resolved?.rear && resolved.rear !== "—"
-            ? resolved.rear
-            : "";
-
-      const fSizeNorm = fSizeRaw ? normalizeTyreSize(fSizeRaw) : "";
-      const rSizeNorm = rSizeRaw ? normalizeTyreSize(rSizeRaw) : "";
-
-      const targetNorm = fNorm || rNorm;
-      const targetRaw = fTagRaw || rTagRaw;
-
-      // 1. Both Front Tag & Rear Tag are active
-      if (fNorm && rNorm) {
-        const isMatch =
-          (matchesTag(fSizeNorm, fSizeRaw, fNorm, fTagRaw) &&
-            matchesTag(rSizeNorm, rSizeRaw, rNorm, rTagRaw)) ||
-          (matchesTag(fSizeNorm, fSizeRaw, rNorm, rTagRaw) &&
-            matchesTag(rSizeNorm, rSizeRaw, fNorm, fTagRaw));
-        if (isMatch) exactMatches.push(v);
-        return;
-      }
-
-      // 2. Either Front Tag or Rear Tag is active
-      if (targetNorm || targetRaw) {
-        const isFrontMatch = matchesTag(
-          fSizeNorm,
-          fSizeRaw,
-          targetNorm,
-          targetRaw,
-        );
-        const isRearMatch = matchesTag(
-          rSizeNorm,
-          rSizeRaw,
-          targetNorm,
-          targetRaw,
-        );
-        if (isFrontMatch || isRearMatch) {
-          exactMatches.push(v);
-
-          const isStaggered = Boolean(
-            fSizeNorm && rSizeNorm && fSizeNorm !== rSizeNorm,
-          );
-
-          if (
-            isFrontMatch &&
-            isStaggered &&
-            rSizeRaw &&
-            rSizeNorm !== targetNorm
-          ) {
-            const existing = relatedSizeMap.get(rSizeRaw) || {
-              size: rSizeRaw,
-              type: "Rear" as const,
-              count: 0,
-            };
-            existing.count += 1;
-            relatedSizeMap.set(rSizeRaw, existing);
-          }
-
-          if (
-            isRearMatch &&
-            isStaggered &&
-            fSizeRaw &&
-            fSizeNorm !== targetNorm
-          ) {
-            const existing = relatedSizeMap.get(fSizeRaw) || {
-              size: fSizeRaw,
-              type: "Front" as const,
-              count: 0,
-            };
-            existing.count += 1;
-            relatedSizeMap.set(fSizeRaw, existing);
-          }
-        }
-      }
-    });
-
+    const exactMatches: KleverVehicleCatalogueItem[] = [];
     const fitmentMap = new Map<
       string,
       {
@@ -604,54 +594,54 @@ export default function TyresGuideModal({
         rear: string;
         count: number;
         isStock: boolean;
-        vehicles: KleverVehicleItem[];
+        vehicles: KleverVehicleCatalogueItem[];
       }
     >();
 
-    const fallbackSize =
-      frontTag ||
-      (parseSearchSize(searchQuery)
-        ? `${parseSearchSize(searchQuery)?.width}/${parseSearchSize(searchQuery)?.height} R${parseSearchSize(searchQuery)?.rim}`
-        : searchQuery);
+    vehicles.forEach((v) => {
+      const pairs = extractVehicleFitmentPairs(v);
+      let matchedVehicle = false;
 
-    exactMatches.forEach((v) => {
-      const rowKey =
-        `${v.make_slug || v.make_name}|${v.model_slug || v.model_name}`.toLowerCase();
-      const resolved = resolvedSizesMap[rowKey];
+      pairs.forEach((pair) => {
+        const pFNorm = normalizeTyreSize(pair.front);
+        const pRNorm = normalizeTyreSize(pair.rear);
 
-      const front =
-        v.front_width && v.front_height && v.front_rim
-          ? `${v.front_width}/${v.front_height} R${v.front_rim}`
-          : resolved?.front && resolved.front !== "—"
-            ? resolved.front
-            : fallbackSize || "";
-
-      const rear =
-        v.rear_width && v.rear_height && v.rear_rim
-          ? `${v.rear_width}/${v.rear_height} R${v.rear_rim}`
-          : resolved?.rear && resolved.rear !== "—"
-            ? resolved.rear
-            : front;
-
-      if (front || rear) {
-        const key = `${front || "—"} / ${rear || front || "—"}`;
-        const existing = fitmentMap.get(key) || {
-          front: front || "—",
-          rear: rear || front || "—",
-          count: 0,
-          isStock: Boolean(v.is_stock),
-          vehicles: [],
-        };
-        existing.count += 1;
-        if (
-          !existing.vehicles.some(
-            (ex) =>
-              ex.make_name === v.make_name && ex.model_name === v.model_name,
-          )
-        ) {
-          existing.vehicles.push(v);
+        let matches = false;
+        if (fNorm && rNorm) {
+          matches =
+            (pFNorm.includes(fNorm) && pRNorm.includes(rNorm)) ||
+            (pFNorm.includes(rNorm) && pRNorm.includes(fNorm));
+        } else if (fNorm) {
+          matches = pFNorm.includes(fNorm) || pRNorm.includes(fNorm);
+        } else if (rNorm) {
+          matches = pRNorm.includes(rNorm) || pFNorm.includes(rNorm);
         }
-        fitmentMap.set(key, existing);
+
+        if (matches) {
+          matchedVehicle = true;
+          const key = `${pair.front}|${pair.rear}`;
+          const existing = fitmentMap.get(key) || {
+            front: pair.front,
+            rear: pair.rear,
+            count: 0,
+            isStock: Boolean(v.is_stock),
+            vehicles: [],
+          };
+          existing.count += 1;
+          if (
+            !existing.vehicles.some(
+              (ex) =>
+                ex.make_name === v.make_name && ex.model_name === v.model_name,
+            )
+          ) {
+            existing.vehicles.push(v);
+          }
+          fitmentMap.set(key, existing);
+        }
+      });
+
+      if (matchedVehicle) {
+        exactMatches.push(v);
       }
     });
 
@@ -663,7 +653,7 @@ export default function TyresGuideModal({
       filteredVehicles: exactMatches,
       fitmentList,
     };
-  }, [vehicles, searchQuery, frontTag, rearTag, resolvedSizesMap]);
+  }, [vehicles, frontTag, rearTag]);
 
   /* Right Panel Table vehicles: paginated list of filteredVehicles or vehicles */
   /**
@@ -691,7 +681,7 @@ export default function TyresGuideModal({
     const sameFront = fitmentList.filter((f) => f.front === selectedFitmentKey);
     if (!sameFront.length) return undefined;
 
-    const merged: KleverVehicleItem[] = [];
+    const merged: KleverVehicleCatalogueItem[] = [];
     for (const f of sameFront) {
       for (const v of f.vehicles) {
         if (
@@ -709,63 +699,32 @@ export default function TyresGuideModal({
 
   const matchingVehicles = selectedFitment?.vehicles ?? filteredVehicles;
 
-  const tableVehicles = useMemo(() => {
-    /* Only a live size filter narrows the table. `hasSearched` used to be part
-       of this condition, which meant CLEARING a search left the table on
-       `filteredVehicles` — and that memo returns [] when no tag is set, so the
-       table went blank instead of falling back to the catalogue. */
-    /* A filter that matches nothing keeps the catalogue on screen rather than
-       emptying the table. The left panel already reports the miss ("This size
-       is not found in list — showing complete vehicle catalogue on the right"),
-       so blanking the table as well removed the list the user was reading and
-       replaced it with a second, redundant not-found message. */
+  const tableVehicles = useMemo<KleverVehicleCatalogueItem[]>(() => {
     const fallback = vehicles;
+
+    if (selectedFitmentKey && selectedFitment) {
+      return selectedFitment.vehicles;
+    }
+
     if (frontTag || rearTag) {
       return filteredVehicles.length > 0 ? filteredVehicles : fallback;
     }
-    /* headerQuery filters the right-panel table by make / model / size.
-       searchQuery is the left-panel tyre-size input (committed via Search) and
-       does NOT drive the table on its own — only frontTag/rearTag do that after
-       the user hits Search. This keeps the two inputs independent. */
+
+    /* headerQuery filters the right-panel table by make / model / size. */
     if (headerQuery.trim()) {
       const q = headerQuery.trim().toLowerCase();
-      /* Digits-only comparison (same helper the tag-matching engine above
-         uses) so a full size like "215/55 R17" matches regardless of
-         separators — the raw substring check alone would miss it, since the
-         rim was never included in the plain "width/height" string this
-         used to build. Guarded to 3+ digits so a lone digit doesn't
-         spuriously match half the catalogue. */
-      const qDigits = normalizeTyreSize(q);
-      const matches = vehicles.filter((v) => {
-        const rowKey =
-          `${v.make_slug || v.make_name}|${v.model_slug || v.model_name}`.toLowerCase();
-        const resolved = resolvedSizesMap[rowKey];
+      const qDigitsRaw = normalizeTyreSize(q);
+      const qDigits = qDigitsRaw.length >= 3 ? qDigitsRaw : "";
+      const matches = fallback.filter((v) => {
         const make = (v.make_name || "").toLowerCase();
         const model = (v.model_name || "").toLowerCase();
-        const fSizeRaw =
-          v.front_width && v.front_height && v.front_rim
-            ? `${v.front_width}/${v.front_height} R${v.front_rim}`
-            : resolved?.front && resolved.front !== "—"
-              ? resolved.front
-              : "";
-        const rSizeRaw =
-          v.rear_width && v.rear_height && v.rear_rim
-            ? `${v.rear_width}/${v.rear_height} R${v.rear_rim}`
-            : resolved?.rear && resolved.rear !== "—"
-              ? resolved.rear
-              : "";
-        const fSizeDigits = fSizeRaw ? normalizeTyreSize(fSizeRaw) : "";
-        const rSizeDigits = rSizeRaw ? normalizeTyreSize(rSizeRaw) : "";
         return (
           make.includes(q) ||
           model.includes(q) ||
-          fSizeRaw.toLowerCase().includes(q) ||
-          rSizeRaw.toLowerCase().includes(q) ||
-          (qDigits.length >= 3 &&
-            (fSizeDigits.includes(qDigits) || rSizeDigits.includes(qDigits)))
+          sizeFieldMatches(v.front_size, qDigits, q) ||
+          sizeFieldMatches(v.rear_size, qDigits, q)
         );
       });
-      // Same rule for the free-text filter: no match keeps the full list.
       return matches.length > 0 ? matches : fallback;
     }
     return fallback;
@@ -775,7 +734,8 @@ export default function TyresGuideModal({
     frontTag,
     rearTag,
     headerQuery,
-    resolvedSizesMap,
+    selectedFitmentKey,
+    selectedFitment,
   ]);
 
   /* Pagination slices */
@@ -789,115 +749,14 @@ export default function TyresGuideModal({
   }, [tableVehicles, validCurrentPage, pageSize]);
 
   /**
-   * Page-level size resolution for the visible table rows.
-   *
-   * Only rows that have NO size of their own are resolved — a
-   * `kleverVehicleSearch` row already carries front/rear width/height/rim, so
-   * the search flow resolves nothing and issues no `kleverVehicleModifications`
-   * request at all. This is the List flow's mechanism only.
-   *
-   * DEDUPE LIVES IN A REF, NOT IN STATE. Both `resolvedSizesMap` and
-   * `resolvingKeys` are written by this effect, so having them in the dependency
-   * array made it re-enter on its own writes: every resolution re-ran the whole
-   * effect, which is how one search produced ~105 modification calls. The ref is
-   * mutated synchronously before any request starts, so a re-render cannot
-   * queue the same vehicle twice, and the effect now depends only on the page.
-   *
-   * Requests are issued ONE VEHICLE AT A TIME. Each `fetchKleverVehicleFitments`
-   * internally fans out over that vehicle's years at concurrency 8, so firing
-   * all 15 rows at once meant ~120 in-flight requests; sequential keeps the page
-   * responsive and lets the cancellation below actually take effect.
+   * Front/rear sizes now come straight from `fetchKleverVehicleCatalogueAll`
+   * on every row — the per-vehicle/year size resolution that used to run here
+   * (`fetchKleverVehicleFitments`, fanning out over years/modifications for
+   * whichever rows were paginated into view) is gone; there is nothing left
+   * to resolve.
    */
   /** The size input, focused when the modal opens so typing works immediately. */
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-
-  const requestedSizeKeysRef = useRef<Set<string>>(new Set());
-
-  /**
-   * The last full vehicle catalogue that was loaded.
-   *
-   * A size search REPLACES `vehicles` with its own results, so a search that
-   * matches nothing leaves `vehicles` empty and there is no list left to fall
-   * back to. Held in a ref (not state) because it is only ever read as a
-   * fallback during render — storing it in state would re-render on every
-   * catalogue load for no visual change. Never refetched: it is filled from the
-   * memoised `fetchKleverAllVehicles` result the list flow already produced.
-   */
-  const catalogueRef = useRef<KleverVehicleItem[]>([]);
-
-  useEffect(() => {
-    if (!paginatedVehicles.length) return;
-    /* Never resolve sizes while the vehicle list itself is still loading. The
-       rows on screen belong to the OUTGOING list, so anything resolved for them
-       is thrown away the moment the new list lands — and it competes with the
-       114 in-flight list requests for the browser's connection pool, slowing
-       the thing the user is actually waiting for. */
-    if (loading) return;
-
-    const rowKeyOf = (v: KleverVehicleItem) =>
-      `${v.make_slug || v.make_name}|${v.model_slug || v.model_name}`.toLowerCase();
-
-    const toResolve = paginatedVehicles.filter((v) => {
-      // Search rows already have their sizes — never re-fetch them.
-      if (v.front_width && v.front_height && v.front_rim) return false;
-      return !requestedSizeKeysRef.current.has(rowKeyOf(v));
-    });
-
-    if (!toResolve.length) return;
-
-    // Claimed up front so a re-render mid-flight cannot re-queue the same rows.
-    toResolve.forEach((v) => requestedSizeKeysRef.current.add(rowKeyOf(v)));
-    setResolvingKeys((prev) => {
-      const next = { ...prev };
-      toResolve.forEach((v) => {
-        next[rowKeyOf(v)] = true;
-      });
-      return next;
-    });
-
-    /* Stops the queue when the page changes or the list is replaced by a
-       search, instead of letting a previous page's resolutions run on. */
-    let alive = true;
-
-    void (async () => {
-      for (const v of toResolve) {
-        if (!alive) return;
-        const make = String(v.make_slug || v.make_name || "").trim();
-        const model = String(v.model_slug || v.model_name || "").trim();
-        const key = `${make}|${model}`.toLowerCase();
-        /* `isStock` defaults false so an unresolvable vehicle keeps the
-           existing "Not Available" reading rather than claiming stock. */
-        let resolvedPair = { front: "—", rear: "—", isStock: false };
-        try {
-          const fitments = await fetchKleverVehicleFitments(make, model);
-          /* Prefer the factory-stock fitment; `rear` is already the front size
-             for a square car — `fetchKleverVehicleFitments` resolves a null
-             `rear_wheel.tire_full` to the front size at source. */
-          const stockFitment = fitments.find((f) => f.isStock) || fitments[0];
-          if (stockFitment) {
-            resolvedPair = {
-              front: stockFitment.front,
-              rear: stockFitment.rear,
-              isStock: stockFitment.isStock,
-            };
-          }
-        } catch {
-          // Leave the em-dash placeholder for this vehicle.
-        }
-        if (!alive) return;
-        setResolvedSizesMap((prev) => ({ ...prev, [key]: resolvedPair }));
-        setResolvingKeys((prev) => {
-          const copy = { ...prev };
-          delete copy[key];
-          return copy;
-        });
-      }
-    })();
-
-    return () => {
-      alive = false;
-    };
-  }, [paginatedVehicles, loading]);
 
   const startRecord =
     totalItems === 0 ? 0 : (validCurrentPage - 1) * pageSize + 1;
@@ -982,7 +841,7 @@ export default function TyresGuideModal({
               <span>{error}</span>
               <button
                 type="button"
-                onClick={() => handleFetchGuide()}
+                onClick={() => void loadCatalogue()}
                 className="px-2.5 py-1 bg-rose-600 text-white rounded-lg text-[11px] font-bold hover:bg-rose-700 transition-colors"
               >
                 Retry
@@ -1003,11 +862,7 @@ export default function TyresGuideModal({
                       Front: {frontTag}
                       <button
                         type="button"
-                        onClick={() => {
-                          setFrontTag("");
-                          const remaining = parseSearchSize(rearTag);
-                          void handleFetchGuide(remaining || null);
-                        }}
+                        onClick={() => setFrontTag("")}
                         className="hover:text-emerald-200 transition-colors cursor-pointer"
                         title="Remove Front size filter"
                       >
@@ -1022,11 +877,7 @@ export default function TyresGuideModal({
                       Rear: {rearTag}
                       <button
                         type="button"
-                        onClick={() => {
-                          setRearTag("");
-                          const remaining = parseSearchSize(frontTag);
-                          void handleFetchGuide(remaining || null);
-                        }}
+                        onClick={() => setRearTag("")}
                         className="hover:text-emerald-200 transition-colors cursor-pointer"
                         title="Remove Rear size filter"
                       >
@@ -1055,14 +906,17 @@ export default function TyresGuideModal({
                           const tagVal = parsed
                             ? `${parsed.width}/${parsed.height} R${parsed.rim}`
                             : typed;
+                          // The whole catalogue is already loaded — committing
+                          // a tag only sets state; the tag-matching memo does
+                          // the (client-side) filtering. No fetch here.
                           if (!frontTag) {
                             setFrontTag(tagVal);
                             setSearchQuery("");
-                            void handleFetchGuide(parsed, true);
+                            setHasSearched(true);
                           } else if (!rearTag) {
                             setRearTag(tagVal);
                             setSearchQuery("");
-                            void handleFetchGuide(parsed, true);
+                            setHasSearched(true);
                           }
                         }
                       }}
@@ -1084,13 +938,11 @@ export default function TyresGuideModal({
                            restored underneath — clearing a search should show
                            that list, not the pre-search state.
 
-                           `handleFetchGuide(null)` routes to
-                           `fetchKleverAllVehicles`, which is memoised for the
-                           session, so restoring the list costs NO new requests;
-                           it just puts the cached catalogue back into `vehicles`
-                           after the search response replaced it. */
+                           `vehicles` is never replaced by a search anymore —
+                           it is the whole catalogue, loaded once — so clearing
+                           the tags/query is enough for the table to fall back
+                           to it; no fetch needed. */
                         setCurrentPage(1);
-                        void handleFetchGuide(null, false);
                         /* Re-focus the search input so the user can immediately
                            type another size without clicking. Deferred because
                            the input is conditionally rendered — it needs a tick
@@ -1110,7 +962,6 @@ export default function TyresGuideModal({
                     type="button"
                     onClick={() => {
                       const typed = searchQuery.trim();
-                      let nextFront = frontTag;
                       const parsed =
                         parseSearchSize(typed) || parseSearchSize(frontTag);
                       if (typed) {
@@ -1118,7 +969,6 @@ export default function TyresGuideModal({
                           ? `${parsed.width}/${parsed.height} R${parsed.rim}`
                           : typed;
                         if (!frontTag) {
-                          nextFront = tagVal;
                           setFrontTag(tagVal);
                           setSearchQuery("");
                         } else if (!rearTag) {
@@ -1126,11 +976,10 @@ export default function TyresGuideModal({
                           setSearchQuery("");
                         }
                       }
+                      // Committing a tag only sets state — the whole catalogue
+                      // is already loaded, so this is a client-side filter,
+                      // never an independent search/fetch.
                       setHasSearched(true);
-                      void handleFetchGuide(
-                        parsed || parseSearchSize(nextFront),
-                        true,
-                      );
                     }}
                     className={`${frontTag || rearTag || searchQuery.trim() ? "ml-1.5" : "ml-auto"} inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition-colors cursor-pointer shrink-0 shadow-2xs`}
                   >
@@ -1165,7 +1014,10 @@ export default function TyresGuideModal({
                   )} */}
                 </div>
 
-                {!hasSearched && !frontTag && !rearTag && !searchQuery.trim() ? (
+                {!hasSearched &&
+                !frontTag &&
+                !rearTag &&
+                !searchQuery.trim() ? (
                   /* Initial state before search */
                   <div className="flex-1 flex flex-col items-center justify-center text-center text-slate-400 gap-2 p-6">
                     <div>
@@ -1211,8 +1063,8 @@ export default function TyresGuideModal({
                           Please enter full tyre size
                         </p>
                         <p className="text-[11px] text-slate-500 max-w-xs leading-relaxed">
-                          Enter the complete size including width, height and rim
-                          &mdash; e.g.{" "}
+                          Enter the complete size including width, height and
+                          rim &mdash; e.g.{" "}
                           <span className="font-bold text-emerald-700">
                             {frontTag || rearTag}/65 R15
                           </span>
@@ -1348,7 +1200,10 @@ export default function TyresGuideModal({
                                         selectedFitmentKey === fitmentKey;
 
                                       return (
-                                        <div key={fIdx} className="relative w-full">
+                                        <div
+                                          key={fIdx}
+                                          className="relative w-full"
+                                        >
                                           <button
                                             type="button"
                                             onClick={() => {
@@ -1617,22 +1472,87 @@ export default function TyresGuideModal({
                         <tbody className="divide-y divide-slate-150 text-slate-800">
                           {paginatedVehicles.map((v, idx) => {
                             const itemIndex = startRecord + idx;
-                            const rowKey =
-                              `${v.make_slug || v.make_name}|${v.model_slug || v.model_name}`.toLowerCase();
-                            const resolved = resolvedSizesMap[rowKey];
-                            const isResolving = resolvingKeys[rowKey];
-
-                            const frontRaw =
-                              v.front_width && v.front_height && v.front_rim
-                                ? `${v.front_width}/${v.front_height} R${v.front_rim}`
-                                : resolved?.front;
-
-                            const rearRaw =
-                              v.rear_width && v.rear_height && v.rear_rim
-                                ? `${v.rear_width}/${v.rear_height} R${v.rear_rim}`
-                                : resolved?.rear;
-
                             const yearRanges = formatYearRanges(v.year_ranges);
+
+                            const fNorm = frontTag
+                              ? normalizeTyreSize(frontTag)
+                              : "";
+                            const rNorm = rearTag
+                              ? normalizeTyreSize(rearTag)
+                              : "";
+
+                            // Exactly one Front/Rear value per row, in priority order:
+                            let displayFront = "";
+                            let displayRear = "";
+
+                            // 1) A selected fitment/related-size chip wins outright —
+                            //    show exactly that pair.
+                            if (selectedFitmentKey) {
+                              const exact = fitmentList.find(
+                                (f) =>
+                                  `${f.front}|${f.rear}` === selectedFitmentKey,
+                              );
+                              if (exact) {
+                                displayFront = exact.front;
+                                displayRear = exact.rear;
+                              }
+                            }
+
+                            // 2) Otherwise, a specific size search (the Front/Rear
+                            //    tag input) shows the exact pair that matched
+                            //    THIS vehicle — not the catalogue's
+                            //    first/primary size.
+                            if (
+                              !displayFront &&
+                              !displayRear &&
+                              (fNorm || rNorm)
+                            ) {
+                              const matched = extractVehicleFitmentPairs(
+                                v,
+                              ).find((p) => pairMatchesQuery(p, fNorm, rNorm));
+                              if (matched) {
+                                displayFront = matched.front;
+                                displayRear = matched.rear;
+                              }
+                            }
+
+                            // 2b) A size-shaped header search (e.g. "245/35 R19")
+                            //     narrows the table the same way — show the exact
+                            //     pair that matched here too, not the default.
+                            if (
+                              !displayFront &&
+                              !displayRear &&
+                              headerQuery.trim()
+                            ) {
+                              const hqRaw = headerQuery.trim();
+                              const hqDigits = normalizeTyreSize(hqRaw);
+                              const hqNorm =
+                                hqDigits.length >= 3 ? hqDigits : "";
+                              if (hqNorm || hqRaw) {
+                                const matched = extractVehicleFitmentPairs(
+                                  v,
+                                ).find(
+                                  (p) =>
+                                    sizeFieldMatches(p.front, hqNorm, hqRaw) ||
+                                    sizeFieldMatches(p.rear, hqNorm, hqRaw),
+                                );
+                                if (matched) {
+                                  displayFront = matched.front;
+                                  displayRear = matched.rear;
+                                }
+                              }
+                            }
+
+                            // 3) Default catalogue view: only the first/primary
+                            //    size from each (possibly comma-joined) field.
+                            if (!displayFront) {
+                              displayFront =
+                                splitSizeValues(v.front_size)[0] || "";
+                            }
+                            if (!displayRear) {
+                              displayRear =
+                                splitSizeValues(v.rear_size)[0] || "";
+                            }
 
                             return (
                               <tr
@@ -1662,12 +1582,10 @@ export default function TyresGuideModal({
                                   )}
                                 </td>
                                 <td className="py-2 px-3.5 font-bold text-slate-900">
-                                  {frontRaw && frontRaw !== "—" ? (
-                                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200 text-slate-800 text-xs">
-                                      {frontRaw}
+                                  {displayFront ? (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200 text-slate-800 text-xs font-mono font-bold">
+                                      {formatSizeDisplay(displayFront)}
                                     </span>
-                                  ) : isResolving ? (
-                                    <Skeleton className="inline-block w-16 h-4 rounded align-middle" />
                                   ) : (
                                     <span className="text-slate-400 font-normal">
                                       —
@@ -1675,12 +1593,10 @@ export default function TyresGuideModal({
                                   )}
                                 </td>
                                 <td className="py-2 px-3.5 font-bold text-slate-900">
-                                  {rearRaw && rearRaw !== "—" ? (
-                                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200 text-slate-800 text-xs">
-                                      {rearRaw}
+                                  {displayRear ? (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200 text-slate-800 text-xs font-mono font-bold">
+                                      {formatSizeDisplay(displayRear)}
                                     </span>
-                                  ) : isResolving ? (
-                                    <Skeleton className="inline-block w-16 h-4 rounded align-middle" />
                                   ) : (
                                     <span className="text-slate-400 font-normal">
                                       —
