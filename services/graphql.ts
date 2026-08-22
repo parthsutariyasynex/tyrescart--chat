@@ -119,7 +119,7 @@ export async function executeGraphQLQuery(
 ) {
   const isServer = typeof window === "undefined";
   const targetUrl = isServer
-    ? (process.env.GRAPHQL_ENDPOINT || "https://qa.tyrescart.ae/graphql")
+    ? process.env.GRAPHQL_ENDPOINT || "https://qa.tyrescart.ae/graphql"
     : "/api/graphql";
 
   try {
@@ -637,7 +637,11 @@ export function fetchKleverAllVehicles(): Promise<KleverVehicleItem[]> {
         const data = await executeGraphQLQuery(kleverVehicleModelsQuery(slug));
         const models =
           (data?.kleverVehicleModels?.data as
-            | { name: string | null; slug: string | null; year_ranges: unknown }[]
+            | {
+                name: string | null;
+                slug: string | null;
+                year_ranges: unknown;
+              }[]
             | undefined) ?? [];
         return models.map((m) => ({
           make_name: mk.name ?? null,
@@ -701,11 +705,10 @@ export function fetchUrlTemplates(
   const hit = urlTemplateCache.get(key);
   if (hit) return hit;
 
-  const task = executeGraphQLQuery(urlTemplatesQuery(clean))
-    .then(
-      (data) =>
-        (data?.urlTemplates?.items as UrlTemplateItem[] | undefined) ?? [],
-    );
+  const task = executeGraphQLQuery(urlTemplatesQuery(clean)).then(
+    (data) =>
+      (data?.urlTemplates?.items as UrlTemplateItem[] | undefined) ?? [],
+  );
   urlTemplateCache.set(key, task);
   // A failed lookup must not be cached, or the size can never be retried.
   task.catch(() => urlTemplateCache.delete(key));
@@ -815,8 +818,8 @@ export function fetchKleverVehicleFitments(
       const prev = byPair.get(pairKey);
       const isStock = Boolean(
         mod?.is_stock === true ||
-          mod?.is_stock === 1 ||
-          String(mod?.is_stock) === "1",
+        mod?.is_stock === 1 ||
+        String(mod?.is_stock) === "1",
       );
       if (prev) {
         // One stock variant is enough to mark the pair as a factory fitment.

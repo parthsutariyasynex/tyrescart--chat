@@ -17,7 +17,7 @@ import {
   ExclamationTriangleIcon,
 } from "@heroicons/react/24/outline";
 import {
-  fetchKleverVehicleCatalogueAll,
+  fetchKleverVehicleCatalogueGraphQL,
   fetchUrlTemplates,
 } from "../services/graphql";
 import type {
@@ -457,26 +457,27 @@ export default function TyresGuideModal({
   const fetchRequestIdRef = useRef<number>(0);
 
   /**
-   * Load the whole vehicle catalogue (make/model/year/front_size/rear_size)
-   * via `fetchKleverVehicleCatalogueAll`, paginated at the server's 1000-row
-   * cap.
-   *
-   * This replaces the old dual-mode flow (`fetchKleverVehicleSearchGraphQL`
-   * for an exact size + `fetchKleverAllVehicles`'s 114-request make/model walk
-   * as a fallback, plus a per-row `fetchKleverVehicleFitments` resolver for
-   * whichever rows were on screen). The new API returns sizes for every
-   * vehicle up front, so there is nothing left to search for server-side —
-   * `vehicles` is loaded ONCE and every filter (tag-based or free-text) below
-   * runs entirely client-side against it.
+   * Loads the 1,362 vehicle catalogue using fetchKleverVehicleCatalogueGraphQL
+   * in 2 requests (offset 0, limit 1000 & offset 1000, limit 1000) so header
+   * search for 'Audi', 'BMW', etc. searches the entire database.
    */
   const loadCatalogue = async () => {
     const requestId = ++fetchRequestIdRef.current;
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchKleverVehicleCatalogueAll();
+      const all: KleverVehicleCatalogueItem[] = [];
+      let offset = 0;
+      let total = Infinity;
+      while (offset < total) {
+        const page = await fetchKleverVehicleCatalogueGraphQL(offset, 1000);
+        total = page.total || page.vehicles.length;
+        if (!page.vehicles.length) break;
+        all.push(...page.vehicles);
+        offset += page.vehicles.length;
+      }
       if (requestId !== fetchRequestIdRef.current) return;
-      setVehicles(data);
+      setVehicles(all);
     } catch (err) {
       if (requestId !== fetchRequestIdRef.current) return;
       console.error("[TyresGuideModal] Vehicle catalogue load error:", err);
@@ -511,10 +512,6 @@ export default function TyresGuideModal({
           setIsAnimatedOpen(true);
         });
       });
-      // The catalogue loads once and is never replaced afterwards — a search
-      // is a client-side filter, not a new fetch — so this only fires when
-      // nothing has been loaded yet (first open; the module-level cache in
-      // `fetchKleverVehicleCatalogueAll` makes a re-open free either way).
       if (vehicles.length === 0 && !loading) {
         void loadCatalogue();
       }
@@ -715,7 +712,7 @@ export default function TyresGuideModal({
       const q = headerQuery.trim().toLowerCase();
       const qDigitsRaw = normalizeTyreSize(q);
       const qDigits = qDigitsRaw.length >= 3 ? qDigitsRaw : "";
-      const matches = fallback.filter((v) => {
+      return fallback.filter((v) => {
         const make = (v.make_name || "").toLowerCase();
         const model = (v.model_name || "").toLowerCase();
         return (
@@ -725,7 +722,6 @@ export default function TyresGuideModal({
           sizeFieldMatches(v.rear_size, qDigits, q)
         );
       });
-      return matches.length > 0 ? matches : fallback;
     }
     return fallback;
   }, [
@@ -748,13 +744,6 @@ export default function TyresGuideModal({
     return tableVehicles.slice(startIdx, startIdx + pageSize);
   }, [tableVehicles, validCurrentPage, pageSize]);
 
-  /**
-   * Front/rear sizes now come straight from `fetchKleverVehicleCatalogueAll`
-   * on every row — the per-vehicle/year size resolution that used to run here
-   * (`fetchKleverVehicleFitments`, fanning out over years/modifications for
-   * whichever rows were paginated into view) is gone; there is nothing left
-   * to resolve.
-   */
   /** The size input, focused when the modal opens so typing works immediately. */
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 

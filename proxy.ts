@@ -36,11 +36,16 @@ export default function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const isAuthenticated = verifySessionToken(
-    request.cookies.get(SESSION_COOKIE_NAME)?.value,
-  );
-  if (!isAuthenticated) {
-    return NextResponse.redirect(new URL("/login", request.url));
+  // If NEXT_PUBLIC_ENABLE_LOGIN is 'false', bypass login requirement (e.g. on Live/Production)
+  const isLoginEnabled = process.env.NEXT_PUBLIC_ENABLE_LOGIN !== "false";
+
+  if (isLoginEnabled) {
+    const isAuthenticated = verifySessionToken(
+      request.cookies.get(SESSION_COOKIE_NAME)?.value,
+    );
+    if (!isAuthenticated) {
+      return NextResponse.redirect(new URL("/login", request.url));
+    }
   }
 
   const flagKey = featureKeyForPath(pathname);

@@ -14,6 +14,7 @@ import {
   PencilSquareIcon,
   PencilIcon,
   EyeIcon,
+  PlusIcon,
   PlusCircleIcon,
   ArrowPathIcon,
   CalendarDaysIcon,
@@ -486,6 +487,26 @@ export default function BookInquiryModal({
         })
         .catch(() => null);
     }
+  };
+
+  // Pre-fill customer details for a NEW inquiry
+  const handleNewInquiryForCustomer = (inquiry: Inquiry) => {
+    setEditingId(null);
+    setCustomerEditMode(false);
+    setPhoneCheck(undefined);
+    setName(inquiry.name || "");
+    setPhone(inquiry.phone || "");
+    setEmail(inquiry.email || "");
+    setCity(inquiry.city || "");
+    setTireSize1(initialProduct?.size || "");
+    setTireSize2("");
+    setVehiclePlateNumber(inquiry.vehiclePlateNumber || "");
+    setMake(inquiry.make || "");
+    setModel(inquiry.model || "");
+    setYear(inquiry.year || "");
+    setNote("");
+    setStatus("Pending");
+    setErrors({});
   };
 
   // Open separate Edit Customer Details modal
@@ -1099,8 +1120,12 @@ export default function BookInquiryModal({
             <div>
               <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-3">
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <PlusCircleIcon className="w-4 h-4 text-emerald-600" />
-                  New Inquiry
+                  {editingId ? (
+                    <PencilSquareIcon className="w-4 h-4 text-emerald-600" />
+                  ) : (
+                    <PlusCircleIcon className="w-4 h-4 text-emerald-600" />
+                  )}
+                  {editingId ? "Edit Inquiry" : "New Inquiry"}
                 </h3>
               </div>
 
@@ -1555,7 +1580,11 @@ export default function BookInquiryModal({
                     ) : (
                       <CheckCircleIcon className="w-4 h-4" />
                     )}
-                    {submitting ? "Saving to CRM…" : "Create Inquiry"}
+                    {submitting
+                      ? "Saving to CRM…"
+                      : editingId
+                        ? "Update Inquiry"
+                        : "Create Inquiry"}
                   </button>
 
                   <button
@@ -1816,19 +1845,30 @@ export default function BookInquiryModal({
                           <td className="px-3 py-0.5 text-center whitespace-nowrap">
                             <div className="flex items-center justify-center gap-1">
                               <button
+                                type="button"
                                 onClick={() => handleOpenViewingInquiry(item)}
-                                className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded transition-colors"
+                                className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded transition-colors cursor-pointer"
                                 title="View Details"
                               >
                                 <EyeIcon className="w-4 h-4" />
                               </button>
 
                               <button
+                                type="button"
                                 onClick={() => handleEdit(item)}
-                                className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
+                                className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors cursor-pointer"
                                 title="Auto-Fill Details"
                               >
                                 <PencilIcon className="w-4 h-4" />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleNewInquiryForCustomer(item)}
+                                className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors cursor-pointer"
+                                title="New Inquiry for this Customer"
+                              >
+                                <PlusIcon className="w-4 h-4" />
                               </button>
                             </div>
                           </td>
