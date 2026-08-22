@@ -283,6 +283,9 @@ export default function TyresGuideModal({
 
   /* Search Query & Tag States */
   const [searchQuery, setSearchQuery] = useState("");
+  /** Separate state for the header bar ("Make, model or size…") so it does
+   *  NOT bleed into the left-panel tyre-size input. */
+  const [headerQuery, setHeaderQuery] = useState("");
   const [frontTag, setFrontTag] = useState("");
   const [rearTag, setRearTag] = useState("");
 
@@ -387,6 +390,7 @@ export default function TyresGuideModal({
   const resetFormState = () => {
     fetchRequestIdRef.current += 1;
     setSearchQuery("");
+    setHeaderQuery("");
     setFrontTag("");
     setRearTag("");
     setSelectedFitmentKey(null);
@@ -463,7 +467,7 @@ export default function TyresGuideModal({
     setCurrentPage(1);
     // A new search invalidates whichever chip was highlighted.
     setSelectedFitmentKey(null);
-  }, [searchQuery, frontTag, rearTag, pageSize]);
+  }, [searchQuery, headerQuery, frontTag, rearTag, pageSize]);
 
   const normalizeTyreSize = (value: string) =>
     value.toLowerCase().replace(/[^0-9]/g, "");
@@ -719,31 +723,60 @@ export default function TyresGuideModal({
     if (frontTag || rearTag) {
       return filteredVehicles.length > 0 ? filteredVehicles : fallback;
     }
-    if (searchQuery.trim()) {
-      const q = searchQuery.trim().toLowerCase();
+    /* headerQuery filters the right-panel table by make / model / size.
+       searchQuery is the left-panel tyre-size input (committed via Search) and
+       does NOT drive the table on its own — only frontTag/rearTag do that after
+       the user hits Search. This keeps the two inputs independent. */
+    if (headerQuery.trim()) {
+      const q = headerQuery.trim().toLowerCase();
+      /* Digits-only comparison (same helper the tag-matching engine above
+         uses) so a full size like "215/55 R17" matches regardless of
+         separators — the raw substring check alone would miss it, since the
+         rim was never included in the plain "width/height" string this
+         used to build. Guarded to 3+ digits so a lone digit doesn't
+         spuriously match half the catalogue. */
+      const qDigits = normalizeTyreSize(q);
       const matches = vehicles.filter((v) => {
+        const rowKey =
+          `${v.make_slug || v.make_name}|${v.model_slug || v.model_name}`.toLowerCase();
+        const resolved = resolvedSizesMap[rowKey];
         const make = (v.make_name || "").toLowerCase();
         const model = (v.model_name || "").toLowerCase();
-        const fSize =
+        const fSizeRaw =
           v.front_width && v.front_height && v.front_rim
-            ? `${v.front_width}/${v.front_height}`
-            : "";
-        const rSize =
+            ? `${v.front_width}/${v.front_height} R${v.front_rim}`
+            : resolved?.front && resolved.front !== "—"
+              ? resolved.front
+              : "";
+        const rSizeRaw =
           v.rear_width && v.rear_height && v.rear_rim
-            ? `${v.rear_width}/${v.rear_height}`
-            : "";
+            ? `${v.rear_width}/${v.rear_height} R${v.rear_rim}`
+            : resolved?.rear && resolved.rear !== "—"
+              ? resolved.rear
+              : "";
+        const fSizeDigits = fSizeRaw ? normalizeTyreSize(fSizeRaw) : "";
+        const rSizeDigits = rSizeRaw ? normalizeTyreSize(rSizeRaw) : "";
         return (
           make.includes(q) ||
           model.includes(q) ||
-          fSize.includes(q) ||
-          rSize.includes(q)
+          fSizeRaw.toLowerCase().includes(q) ||
+          rSizeRaw.toLowerCase().includes(q) ||
+          (qDigits.length >= 3 &&
+            (fSizeDigits.includes(qDigits) || rSizeDigits.includes(qDigits)))
         );
       });
       // Same rule for the free-text filter: no match keeps the full list.
       return matches.length > 0 ? matches : fallback;
     }
     return fallback;
-  }, [filteredVehicles, vehicles, frontTag, rearTag, searchQuery]);
+  }, [
+    filteredVehicles,
+    vehicles,
+    frontTag,
+    rearTag,
+    headerQuery,
+    resolvedSizesMap,
+  ]);
 
   /* Pagination slices */
   const totalItems = tableVehicles.length;
@@ -911,6 +944,21 @@ export default function TyresGuideModal({
                   Vehicle Search
                 </span>
               </div>
+            </div>
+          </div>
+
+          <div className="flex-1 min-w-0 max-w-[240px] sm:max-w-xs">
+            <div className="flex items-center gap-1.5 h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg focus-within:ring-2 focus-within:ring-emerald-500/30 focus-within:border-emerald-500">
+              <MagnifyingGlassIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <input
+                type="text"
+                autoComplete="off"
+                placeholder="Make, model or size…"
+                value={headerQuery}
+                onChange={(e) => setHeaderQuery(e.target.value)}
+                aria-label="Filter the list by make, model, or front/rear tyre size"
+                className="flex-1 min-w-0 bg-transparent text-xs font-semibold text-slate-800 focus:outline-none placeholder:text-slate-400 placeholder:font-medium"
+              />
             </div>
           </div>
 
@@ -1117,7 +1165,7 @@ export default function TyresGuideModal({
                   )} */}
                 </div>
 
-                {!hasSearched && !frontTag && !rearTag ? (
+                {!hasSearched && !frontTag && !rearTag && !searchQuery.trim() ? (
                   /* Initial state before search */
                   <div className="flex-1 flex flex-col items-center justify-center text-center text-slate-400 gap-2 p-6">
                     <div>
@@ -1150,18 +1198,38 @@ export default function TyresGuideModal({
                 ) : !loading &&
                   filteredVehicles.length === 0 &&
                   fitmentList.length === 0 ? (
-                  /* Empty search results with Warning */
+                  /* Non-parseable input (partial width like "195") or
+                     full size with no matches — show appropriate message */
                   <div className="flex-1 flex flex-col items-center justify-center text-center p-4 gap-2.5">
                     <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center shadow-2xs">
                       <ExclamationTriangleIcon className="w-5 h-5" />
                     </div>
-                    <p className="text-xs font-extrabold text-amber-900">
-                      This size is not found in list
-                    </p>
-                    <p className="text-[11px] text-slate-500 max-w-xs leading-relaxed">
-                      No vehicle fitments matched your searched tyre size.
-                      Showing complete vehicle catalogue on the right.
-                    </p>
+                    {!parseSearchSize(frontTag) && !parseSearchSize(rearTag) ? (
+                      /* Partial / non-parseable size like "195" */
+                      <>
+                        <p className="text-xs font-extrabold text-amber-900">
+                          Please enter full tyre size
+                        </p>
+                        <p className="text-[11px] text-slate-500 max-w-xs leading-relaxed">
+                          Enter the complete size including width, height and rim
+                          &mdash; e.g.{" "}
+                          <span className="font-bold text-emerald-700">
+                            {frontTag || rearTag}/65 R15
+                          </span>
+                        </p>
+                      </>
+                    ) : (
+                      /* Full size but no matches */
+                      <>
+                        <p className="text-xs font-extrabold text-amber-900">
+                          This size is not found in list
+                        </p>
+                        <p className="text-[11px] text-slate-500 max-w-xs leading-relaxed">
+                          No vehicle fitments matched your searched tyre size.
+                          Showing complete vehicle catalogue on the right.
+                        </p>
+                      </>
+                    )}
                   </div>
                 ) : (
                   /* Matching Fitment Sizes List + Separate Matching Vehicles Section Side-by-Side */
@@ -1575,49 +1643,9 @@ export default function TyresGuideModal({
                                   {itemIndex}
                                 </td>
                                 <td className="py-2 px-3.5">
-                                  <div className="flex items-center gap-2">
-                                    <div className="w-8 h-6 rounded-md bg-slate-50 border border-slate-200/80 flex items-center justify-center shrink-0 overflow-hidden p-0.5 group-hover:bg-white transition-colors">
-                                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                                      <img
-                                        src={`https://cdn.imagin.studio/getImage?customer=img&make=${(
-                                          v.make_slug ||
-                                          v.make_name ||
-                                          ""
-                                        )
-                                          .toLowerCase()
-                                          .trim()}&modelFamily=${(
-                                          v.model_slug ||
-                                          v.model_name ||
-                                          ""
-                                        )
-                                          .toLowerCase()
-                                          .split(" ")[0]
-                                          .replace(
-                                            /[^a-z0-9]/g,
-                                            "",
-                                          )}&zoomType=fullscreen&angle=01`}
-                                        alt={`${v.make_name} ${v.model_name}`}
-                                        className="w-full h-full object-contain"
-                                        onError={(e) => {
-                                          e.currentTarget.onerror = null;
-                                          e.currentTarget.style.display =
-                                            "none";
-                                          if (
-                                            e.currentTarget.nextElementSibling
-                                          ) {
-                                            (
-                                              e.currentTarget
-                                                .nextElementSibling as HTMLElement
-                                            ).style.display = "block";
-                                          }
-                                        }}
-                                      />
-                                      <TruckIcon className="w-3.5 h-3.5 text-emerald-600 hidden" />
-                                    </div>
-                                    <span className="font-extrabold text-slate-900 text-xs sm:text-xs">
-                                      {v.make_name}
-                                    </span>
-                                  </div>
+                                  <span className="font-extrabold text-slate-900 text-xs sm:text-xs">
+                                    {v.make_name}
+                                  </span>
                                 </td>
                                 <td className="py-2 px-3.5">
                                   <span className="font-extrabold text-slate-900 text-xs sm:text-xs">

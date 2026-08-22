@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   HomeIcon,
   ShoppingBagIcon,
@@ -42,6 +42,12 @@ const ORANGE_ROUTES = ["/dashboard", "/products"];
 
 export default function Sidebar({ theme }: SidebarProps = {}) {
   const pathname = usePathname();
+  const router = useRouter();
+
+  const handleLogout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/login");
+  };
 
   const resolvedTheme =
     theme ??
@@ -119,11 +125,16 @@ export default function Sidebar({ theme }: SidebarProps = {}) {
         </nav>
       </div>
 
-      {/* User Profile Avatar at Bottom Left */}
+      {/* User Profile Avatar at Bottom Left — doubles as the sign-out control */}
       <div className="flex flex-col items-center gap-2 pt-2 border-t border-slate-100 w-full">
-        <div className="w-9 h-9 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center text-indigo-700 font-semibold text-xs shadow-inner">
+        <button
+          type="button"
+          onClick={handleLogout}
+          title="Sign out"
+          className="w-9 h-9 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center text-indigo-700 font-semibold text-xs shadow-inner hover:bg-indigo-200 transition-colors cursor-pointer"
+        >
           KL
-        </div>
+        </button>
         <span className="text-[9px] text-slate-500 font-medium truncate max-w-[60px]">
           Klever
         </span>

@@ -20,6 +20,32 @@
   animation: shrinkProgress 5s linear forwards;
 }
 
+/* float-a / float-b / drift / pipeline-move: used only by app/login/page.tsx's
+   decorative right panel, referenced there via Tailwind arbitrary values
+   (e.g. animate-[float-a_6s_ease-in-out_infinite]). Defined here because
+   Tailwind's JIT can't scope a raw @keyframes to one component. */
+@keyframes float-a {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-9px); }
+}
+
+@keyframes float-b {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(10px); }
+}
+
+@keyframes drift {
+  0%, 100% { transform: translate(0, 0); opacity: 0.3; }
+  50% { transform: translate(8px, -16px); opacity: 0.9; }
+}
+
+@keyframes pipeline-move {
+  0% { left: 0%; opacity: 0; }
+  8% { opacity: 1; }
+  92% { opacity: 1; }
+  100% { left: 100%; opacity: 0; }
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    THEME — SINGLE SOURCE OF TRUTH
    Manage ALL colours + fonts here. Nothing else in the codebase holds
