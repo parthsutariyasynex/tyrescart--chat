@@ -438,6 +438,49 @@ export interface CrmCustomerUpdateResult {
     phone?: string | null;
     email?: string | null;
     area?: string | null;
+    emirates?: string | null;
+  } | null;
+}
+
+/** Payload for `updateCrmBooking`. `entity_id` is the booking ID to update. */
+export interface CrmBookingUpdateInput {
+  entity_id: number;
+  tire_size_1?: string;
+  tire_size_2?: string;
+  plant_number?: string;
+  make?: string;
+  model?: string;
+  year?: string;
+  status?: number;
+  priority?: number;
+  quantity?: number;
+  quoted_price?: number;
+  brand_preference?: string;
+  follow_up_date?: string;
+  note?: string;
+}
+
+/** Result from `updateCrmBooking` mutation. */
+export interface CrmBookingUpdateResult {
+  success: boolean;
+  message: string | null;
+  booking?: {
+    entity_id?: number | string | null;
+    detail?: string | null;
+    tire_size_1?: string | null;
+    tire_size_2?: string | null;
+    status?: number | string | null;
+    priority?: number | string | null;
+    quantity?: number | string | null;
+    quoted_price?: number | string | null;
+    brand_preference?: string | null;
+    follow_up_date?: string | null;
+    vehicle?: {
+      plant_number?: string | null;
+      make?: string | null;
+      model?: string | null;
+      year?: string | null;
+    } | null;
   } | null;
 }
 

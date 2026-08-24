@@ -1,4 +1,8 @@
-import type { CrmBookingInput, CrmCustomerUpdateInput } from "./types";
+import type {
+  CrmBookingInput,
+  CrmCustomerUpdateInput,
+  CrmBookingUpdateInput,
+} from "./types";
 /**
  * GraphQL Queries for the TyresCart Magento endpoint.
  *
@@ -521,6 +525,85 @@ export function updateCrmCustomerMutation(input: CrmCustomerUpdateInput): string
         phone
         email
         area
+        emirates
+      }
+    }
+  }`;
+}
+
+/**
+ * Update an existing CRM booking enquiry.
+ */
+export function updateCrmBookingMutation(input: CrmBookingUpdateInput): string {
+  const esc = (v: string) =>
+    String(v ?? "")
+      .replace(/[\u2013\u2014]/g, "-")
+      .replace(/\\/g, "\\\\")
+      .replace(/"/g, '\\"');
+
+  const fields: string[] = [`entity_id: ${Number(input.entity_id)}`];
+
+  if (input.tire_size_1 !== undefined && input.tire_size_1 !== "") {
+    fields.push(`tire_size_1: "${esc(input.tire_size_1)}"`);
+  }
+  if (input.tire_size_2 !== undefined && input.tire_size_2 !== "") {
+    fields.push(`tire_size_2: "${esc(input.tire_size_2)}"`);
+  }
+  if (input.plant_number !== undefined && input.plant_number !== "") {
+    fields.push(`plant_number: "${esc(input.plant_number)}"`);
+  }
+  if (input.make !== undefined && input.make !== "") {
+    fields.push(`make: "${esc(input.make)}"`);
+  }
+  if (input.model !== undefined && input.model !== "") {
+    fields.push(`model: "${esc(input.model)}"`);
+  }
+  if (input.year !== undefined && input.year !== "") {
+    fields.push(`year: "${esc(input.year)}"`);
+  }
+  if (input.status !== undefined && input.status !== null) {
+    fields.push(`status: ${Number(input.status)}`);
+  }
+  if (input.priority !== undefined && input.priority !== null) {
+    fields.push(`priority: ${Number(input.priority)}`);
+  }
+  if (input.quantity !== undefined && input.quantity !== null) {
+    fields.push(`quantity: ${Number(input.quantity)}`);
+  }
+  if (input.quoted_price !== undefined && input.quoted_price !== null) {
+    fields.push(`quoted_price: ${Number(input.quoted_price)}`);
+  }
+  if (input.brand_preference) {
+    fields.push(`brand_preference: "${esc(input.brand_preference)}"`);
+  }
+  if (input.follow_up_date) {
+    fields.push(`follow_up_date: "${esc(input.follow_up_date)}"`);
+  }
+  if (input.note !== undefined && input.note !== "") {
+    fields.push(`note: "${esc(input.note)}"`);
+  }
+
+  return `mutation {
+    updateCrmBooking(input: { ${fields.join(", ")} }) {
+      success
+      message
+      booking {
+        entity_id
+        detail
+        status
+        priority
+        quantity
+        quoted_price
+        brand_preference
+        follow_up_date
+        tire_size_1
+        tire_size_2
+        vehicle {
+          plant_number
+          make
+          model
+          year
+        }
       }
     }
   }`;

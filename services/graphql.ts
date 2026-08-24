@@ -27,6 +27,7 @@ import {
   kleverVehicleModificationsQuery,
   type TcProductsQueryVars,
   updateCrmCustomerMutation,
+  updateCrmBookingMutation,
 } from "./queries";
 import type {
   UrlTemplateItem,
@@ -43,6 +44,8 @@ import type {
   CrmCustomer,
   CrmBookingInput,
   CrmBookingResult,
+  CrmBookingUpdateInput,
+  CrmBookingUpdateResult,
   SupplierPriceHistoryPoint,
   TcQuickViewProduct,
   TcAttributeLabels,
@@ -418,6 +421,17 @@ export async function updateCrmCustomerGraphQL(
 ): Promise<CrmCustomerUpdateResult> {
   const data = await executeGraphQLQuery(updateCrmCustomerMutation(input));
   const res = data?.updateCrmCustomer as CrmCustomerUpdateResult | undefined;
+  return res ?? { success: false, message: "No response from the CRM." };
+}
+
+/**
+ * Edit an existing CRM booking enquiry.
+ */
+export async function updateCrmBookingGraphQL(
+  input: CrmBookingUpdateInput,
+): Promise<CrmBookingUpdateResult> {
+  const data = await executeGraphQLQuery(updateCrmBookingMutation(input));
+  const res = data?.updateCrmBooking as CrmBookingUpdateResult | undefined;
   return res ?? { success: false, message: "No response from the CRM." };
 }
 

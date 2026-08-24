@@ -33,6 +33,7 @@ import {
   fetchCrmCustomerByPhoneGraphQL,
   fetchCrmRecentBookingsGraphQL,
   updateCrmCustomerGraphQL,
+  updateCrmBookingGraphQL,
   fetchCrmCustomersByPhoneGraphQL,
 } from "@/services/graphql";
 import type { CrmCustomer, CrmRecentBooking } from "@/services/types";
@@ -69,6 +70,7 @@ export default function BookInquiryModal({
     CrmRecentBooking[] | null
   >(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingInquiry, setEditingInquiry] = useState<Inquiry | null>(null);
   /** True only when the CUSTOMER column's edit icon opened the form.
    *  The Actions "Edit Inquiry" icon leaves it false, so that flow keeps
    *  the exact read-only behaviour it has today. */
@@ -451,6 +453,7 @@ export default function BookInquiryModal({
     setNote("");
     setStatus("Pending");
     setEditingId(null);
+    setEditingInquiry(null);
     setCustomerEditMode(false);
     setSearchQuery("");
     setErrors({});
@@ -460,6 +463,7 @@ export default function BookInquiryModal({
   // Populate form for editing
   const handleEdit = (inquiry: Inquiry, customerMode = false) => {
     setEditingId(inquiry.id);
+    setEditingInquiry(inquiry);
     setCustomerEditMode(customerMode);
     setPhoneCheck(undefined);
     setName(inquiry.name || "");
@@ -480,7 +484,8 @@ export default function BookInquiryModal({
       fetchCrmCustomerByPhoneGraphQL(inquiry.phone)
         .then((found) => {
           if (found) {
-            if (found.area) setCity(found.area);
+            const resolvedCity = found.emirates || found.area || "";
+            if (resolvedCity) setCity(resolvedCity);
             if (found.email && !inquiry.email) setEmail(found.email);
             if (found.name && !inquiry.name) setName(found.name);
           }
@@ -492,6 +497,7 @@ export default function BookInquiryModal({
   // Pre-fill customer details for a NEW inquiry
   const handleNewInquiryForCustomer = (inquiry: Inquiry) => {
     setEditingId(null);
+    setEditingInquiry(null);
     setCustomerEditMode(false);
     setPhoneCheck(undefined);
     setName(inquiry.name || "");
@@ -526,7 +532,8 @@ export default function BookInquiryModal({
         .then((found) => {
           if (found) {
             if (found.entity_id) setCustEntityId(String(found.entity_id));
-            if (found.area) setCustCity(found.area);
+            const resolvedCity = found.emirates || found.area || "";
+            if (resolvedCity) setCustCity(resolvedCity);
             if (found.email && !item.email) setCustEmail(found.email);
             if (found.name && !item.name) setCustName(found.name);
           }
@@ -599,6 +606,14 @@ export default function BookInquiryModal({
         return;
       }
 
+      // If the form on screen is currently in Edit mode, sync the updated customer details immediately
+      if (editingId) {
+        setCity(custCity.trim());
+        setName(custName.trim());
+        setPhone(custPhone.trim());
+        setEmail(custEmail.trim());
+      }
+
       // Re-read from the backend so the list shows the stored values.
       const rows = await fetchCrmRecentBookingsGraphQL().catch(() => null);
       if (rows) setRecentBookings(rows);
@@ -635,17 +650,73 @@ export default function BookInquiryModal({
       return;
     }
 
-    {
-      /* ALWAYS a create — `createCrmBooking` — whether the form was opened blank
-         or pre-filled from an existing row via the pencil.
-         
-         The pencil only copies a row's values into the form as a starting
-         point; submitting files a NEW enquiry and leaves the original row
-         untouched. No update mutation is called from here.
+    if (editingId) {
+      // UPDATE FLOW: call updateCrmBookingGraphQL
+      setSubmitting(true);
+      try {
+        const bookingEntityId = Number(
+          editingInquiry?.crmBookingId ||
+          (editingInquiry?.id ? editingInquiry.id.replace(/\D/g, "") : 0) ||
+          (editingId ? editingId.replace(/\D/g, "") : 0)
+        );
 
-         Blank fields are omitted by the mutation builder rather than sent as
-         empty strings, which would blank out data already on the customer's
-         record. */
+        if (!bookingEntityId) {
+          setToastMessage("Could not identify booking record ID to update.");
+          setSubmitting(false);
+          return;
+        }
+
+        const statusNum =
+          status === "Contacted" ? 2 : status === "Closed" ? 5 : 1;
+
+        const res = await updateCrmBookingGraphQL({
+          entity_id: bookingEntityId,
+          tire_size_1: tireSize1.trim(),
+          tire_size_2: tireSize2.trim(),
+          plant_number: vehiclePlateNumber.trim(),
+          make: make.trim(),
+          model: model.trim(),
+          year: year.trim(),
+          status: statusNum,
+          note: note.trim(),
+        });
+
+        if (!res.success) {
+          setToastMessage(res.message || "The CRM rejected this update.");
+          setSubmitting(false);
+          return;
+        }
+
+        const submittedPhone = phone.trim();
+        const refreshed = await fetchCrmCustomersByPhoneGraphQL(
+          submittedPhone,
+        ).catch(() => []);
+        if (refreshed.length) {
+          setCrmCustomers(refreshed);
+          setSearchQuery(submittedPhone);
+          setCurrentPage(1);
+        }
+
+        // Refresh recent CRM bookings list so the updated booking appears in the table
+        void fetchCrmRecentBookingsGraphQL()
+          .then((rows) => setRecentBookings(rows))
+          .catch(() => null);
+
+        setToastMessage(
+          res.message || `Inquiry #${bookingEntityId} updated successfully.`,
+        );
+      } catch (err) {
+        setToastMessage(
+          err instanceof Error
+            ? err.message
+            : "Could not update inquiry in CRM. Please try again.",
+        );
+        setSubmitting(false);
+        return;
+      }
+      setSubmitting(false);
+    } else {
+      // CREATE FLOW: call createCrmBookingGraphQL
       setSubmitting(true);
       try {
         const res = await createCrmBookingGraphQL({
@@ -668,10 +739,6 @@ export default function BookInquiryModal({
         }
 
         const submittedPhone = phone.trim();
-        /* Nothing is mirrored to localStorage. The CRM holds the enquiry, and
-           the two refreshes below re-read it from there, so the row appears in
-           the list from the backend rather than from a local copy. */
-
         const refreshed = await fetchCrmCustomersByPhoneGraphQL(
           submittedPhone,
         ).catch(() => []);
@@ -891,9 +958,8 @@ export default function BookInquiryModal({
         name: customer.name ?? "",
         phone: customer.phone ?? "",
         email: customer.email ?? "",
-        /* The CRM stores the city under `area` — `updateCrmCustomer` accepts a
-           `city` input but reads it back as `area`. */
-        city: customer.area ?? "",
+        /* The CRM stores the updated city under `emirates` */
+        city: customer.emirates || customer.area || "",
         crmCustomerId: customer.entity_id ?? undefined,
         crmCustomer: customer,
         status: "Pending" as Inquiry["status"],
@@ -935,7 +1001,7 @@ export default function BookInquiryModal({
           make: customer.vehicles?.[0]?.make ?? "",
           model: customer.vehicles?.[0]?.model ?? "",
           year: customer.vehicles?.[0]?.year ?? "",
-          note: customer.area ? `City: ${customer.area}` : "",
+          note: (customer.emirates || customer.area) ? `City: ${customer.emirates || customer.area}` : "",
           createdAt: "",
           crmBookingId: undefined,
           crmStatus: null,
