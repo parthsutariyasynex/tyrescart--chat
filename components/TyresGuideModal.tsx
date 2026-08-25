@@ -44,7 +44,7 @@ function parseSearchSize(
   if (!value) return null;
   const str = String(value).trim();
 
-  // 1. Digits-only check for 7-digit inputs (e.g. "2056016", "2155517")
+  // 1. Digits-only check for 7-digit inputs (e.g. "2056016", "2155517", "3053020")
   const digits = str.replace(/[^0-9]/g, "");
   if (digits.length === 7) {
     const w = Number(digits.slice(0, 3));
@@ -53,8 +53,10 @@ function parseSearchSize(
     if (w >= 100 && h >= 20 && r >= 10) return { width: w, height: h, rim: r };
   }
 
-  // 2. Flexible separator check (e.g. "205/60 R16", "205/60/16", "205 60 16", "205-60-16")
-  const match = str.match(/(\d{3})[/\s\-]+(\d{2})[/\s\-R]+(\d{2})/i);
+  // 2. Flexible separator check (e.g. "205/60 R16", "205/60/16", "205 60 16", "205-60-16", "305/30ZR20")
+  const match =
+    str.match(/^(\d{3})[/\s\-]+(\d{2})[/\s\-a-zA-Z]*(\d{2})$/i) ||
+    str.match(/(\d{3})[/\s\-]+(\d{2})[/\s\-a-zA-Z]+(\d{2})/i);
   if (match) {
     const w = Number(match[1]);
     const h = Number(match[2]);
@@ -280,11 +282,9 @@ function formatYearRanges(raw: string | null | undefined): string {
 function UrlTemplateLinks({
   front,
   rear,
-  onNavigate,
 }: {
   front: string;
   rear?: string;
-  onNavigate?: () => void;
 }) {
   const [items, setItems] = useState<UrlTemplateItem[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -392,7 +392,6 @@ function UrlTemplateLinks({
             href={url}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={onNavigate}
             className="flex items-center justify-between p-2.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-950 font-bold transition-all cursor-pointer group"
           >
             <span className="underline decoration-emerald-400 decoration-2">
@@ -887,7 +886,24 @@ export default function TyresGuideModal({
                           : "Add rear size (optional)"
                       }
                       value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const parsed = parseSearchSize(val);
+                        if (parsed) {
+                          const tagVal = `${parsed.width}/${parsed.height} R${parsed.rim}`;
+                          if (!frontTag) {
+                            setFrontTag(tagVal);
+                            setSearchQuery("");
+                            setHasSearched(true);
+                          } else if (!rearTag) {
+                            setRearTag(tagVal);
+                            setSearchQuery("");
+                            setHasSearched(true);
+                          }
+                        } else {
+                          setSearchQuery(val);
+                        }
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && searchQuery.trim()) {
                           const typed = searchQuery.trim();
@@ -1168,7 +1184,6 @@ export default function TyresGuideModal({
                                           <UrlTemplateLinks
                                             front={searchedFront}
                                             rear={searchedRear}
-                                            onNavigate={onClose}
                                           />
                                         </div>
                                       )}
@@ -1225,7 +1240,6 @@ export default function TyresGuideModal({
                                               <UrlTemplateLinks
                                                 front={fitment.front}
                                                 rear={fitment.rear}
-                                                onNavigate={onClose}
                                               />
                                             </div>
                                           )}

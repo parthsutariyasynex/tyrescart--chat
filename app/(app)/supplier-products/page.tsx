@@ -14,6 +14,7 @@ import {
   stripLoadIndex,
   buildRawRowString,
   buildRawBulkCopyString,
+  cleanPatternName,
 } from "@/services/productFormatter";
 import Header from "@/components/Header";
 import HeaderActions from "@/components/HeaderActions";
@@ -306,7 +307,7 @@ function mapSupplierToProduct(p: CachedSupplierProduct): Product {
     productType: intern(productTypeLabel(p.product_source)),
     category: intern(normalizeCategory(p.brand_category)),
     brand: intern(p.brand ?? ""),
-    pattern: p.product_name ?? "",
+    pattern: cleanPatternName(p.product_name ?? ""),
     size: intern(stripLoadIndex(fullSize)),
     sizeFull: intern(fullSize),
     /* The feed sends the WORD, not a flag: measured across 27,147 current rows

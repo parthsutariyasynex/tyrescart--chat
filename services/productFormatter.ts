@@ -267,3 +267,53 @@ export function buildRawRowString(item: FormattableProduct): string {
 export function buildRawBulkCopyString(items: readonly FormattableProduct[]): string {
   return items.map(buildRawRowString).join('\n');
 }
+
+/**
+ * Cleans and deduplicates tyre pattern / product names.
+ * Removes redundant newlines or repeated brand/size prefixes that backend/supplier feeds sometimes concatenate.
+ */
+export function cleanPatternName(raw: string | null | undefined): string {
+  if (!raw) return "";
+  let str = String(raw).trim();
+
+  // 1. If string has multiple lines (separated by \n, \r, or <br>)
+  if (/[\r\n]|<br\s*\/?>/i.test(str)) {
+    const lines = str
+      .split(/[\r\n]|<br\s*\/?>/i)
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    if (lines.length > 1) {
+      // Find the most detailed line (if one line is a prefix/subset of another line, keep the richer one)
+      const uniqueLines: string[] = [];
+      for (const line of lines) {
+        if (uniqueLines.some((u) => u.toLowerCase().includes(line.toLowerCase()))) {
+          continue;
+        }
+        const existingIdx = uniqueLines.findIndex((u) => line.toLowerCase().includes(u.toLowerCase()));
+        if (existingIdx >= 0) {
+          uniqueLines[existingIdx] = line;
+        } else {
+          uniqueLines.push(line);
+        }
+      }
+      str = uniqueLines.join(" ");
+    }
+  }
+
+  // 2. Check for repeated adjacent identical/near-identical prefix phrases in a single line
+  // e.g. "Yokohama 235/60 R19 103V Yokohama 235/60 R19 103V Advan V61 2026"
+  const words = str.split(/\s+/);
+  if (words.length >= 6) {
+    for (let len = Math.floor(words.length / 2); len >= 3; len--) {
+      const phrase1 = words.slice(0, len).join(" ").toLowerCase();
+      const phrase2 = words.slice(len, len * 2).join(" ").toLowerCase();
+      if (phrase1 === phrase2) {
+        str = words.slice(len).join(" ");
+        break;
+      }
+    }
+  }
+
+  return str.replace(/\s+/g, " ").trim();
+}

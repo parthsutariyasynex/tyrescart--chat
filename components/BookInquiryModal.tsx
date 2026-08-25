@@ -1325,14 +1325,6 @@ export default function BookInquiryModal({
                       )} */}
                     </div>
 
-                    {/* Existing number */}
-                    {!(!!editingId && !customerEditMode) && phoneCheck?.customer && (
-                      <p className="text-[11px] text-red-500 mt-1 font-medium flex items-center gap-1">
-                        <ExclamationCircleIcon className="w-3 h-3" />
-                        This phone number already exists.
-                      </p>
-                    )}
-
                     {/* Available number */}
                     {!(!!editingId && !customerEditMode) &&
                       phoneCheck &&

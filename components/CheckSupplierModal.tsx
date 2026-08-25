@@ -40,6 +40,7 @@ import {
   buildRowString,
   buildRawRowString,
   stripLoadIndex,
+  cleanPatternName,
 } from "@/services/productFormatter";
 import CostHistoryModal from "@/components/CostHistoryModal";
 import Filter from "@/components/Filter";
@@ -1026,19 +1027,21 @@ export default function CheckSupplierModal({
                           <td className="py-3 px-3 text-xs font-bold text-slate-900">
                             <span
                               className="break-words leading-snug block"
-                              title={
+                              title={cleanPatternName(
                                 r.pattern ||
-                                r.product_name ||
-                                r.name ||
-                                product.pattern ||
-                                ""
-                              }
+                                  r.product_name ||
+                                  r.name ||
+                                  product.pattern ||
+                                  "",
+                              )}
                             >
-                              {r.pattern ||
-                                r.product_name ||
-                                r.name ||
-                                product.pattern ||
-                                ""}
+                              {cleanPatternName(
+                                r.pattern ||
+                                  r.product_name ||
+                                  r.name ||
+                                  product.pattern ||
+                                  "",
+                              )}
                             </span>
                           </td>
 
