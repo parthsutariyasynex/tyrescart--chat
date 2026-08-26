@@ -73,11 +73,10 @@ export default function BookInquiryModal({
   const [editingInquiry, setEditingInquiry] = useState<Inquiry | null>(null);
   /** True only when the CUSTOMER column's edit icon opened the form.
    *  The Actions "Edit Inquiry" icon leaves it false, so that flow keeps
-   *  the exact read-only behaviour it has today. */
-  const [customerEditMode, setCustomerEditMode] = useState(false);
-  /** True only when the CUSTOMER column's edit icon opened the form.
-   *  The Actions "Edit Inquiry" icon leaves it false, so that flow keeps
-   *  the exact read-only behaviour it has today. */
+   *  the exact read-only behaviour it has today. Not read anywhere yet —
+   *  no caller passes `customerMode: true` to `handleEdit` — so only the
+   *  setter is bound for now. */
+  const [, setCustomerEditMode] = useState(false);
   const [viewingInquiry, setViewingInquiry] = useState<Inquiry | null>(null);
 
   // Separate Edit Customer Details popup state
@@ -331,13 +330,18 @@ export default function BookInquiryModal({
   }, [isOpen]);
 
   /**
-   * Check the typed phone against the CRM, 600ms after typing stops.
-   *
-   * Debounced so a 10-digit number costs one request, not ten. Read-only — it
-   * calls `crmCustomerByPhone` and never the mutation. The number is sent
-   * verbatim because the endpoint matches it exactly: "0501234567" and
-   * "501234567" are different customers upstream.
+   * [DISABLED / COMMENTED OUT] Automatic CRM Phone Number Lookup & Availability Check
+   * 
+   * Purpose:
+   * When typing a phone number (>= 7 digits), this function debounced for 600ms and
+   * queried `fetchCrmCustomerByPhoneGraphQL(phone)` to:
+   * 1. Check if the customer/phone already exists in the CRM database.
+   * 2. Trigger the green spinning loader icon (`ArrowPathIcon`) inside the input field while querying.
+   * 3. Display inline status below the field (e.g. "✓ This phone number is available" or existing customer info).
+   * 
+   * Disabled per requirement to remove the green loading spinner and automatic phone verification.
    */
+  /*
   useEffect(() => {
     if (editingId && !customerEditMode) {
       setPhoneCheck(undefined);
@@ -345,9 +349,6 @@ export default function BookInquiryModal({
     }
     const p = phone.trim();
     let alive = true;
-    // Below 7 digits there is nothing worth asking about, and the endpoint only
-    // accepts a phone, so an incomplete number is left unchecked. Both state
-    // writes are deferred: a synchronous setState in an effect body cascades.
     const tooShort = p.replace(/[^\d]/g, "").length < 7;
     const spinner = setTimeout(() => {
       if (!alive) return;
@@ -363,10 +364,6 @@ export default function BookInquiryModal({
     const timer = setTimeout(() => {
       void fetchCrmCustomerByPhoneGraphQL(p)
         .then((c) => {
-          /* Result is reported INLINE under the phone field — the red
-             "already exists" / green "available" lines below the input — not as
-             a toast. One place to look, and it stays on screen instead of
-             disappearing after 3s. */
           if (alive) setPhoneCheck({ phone: p, customer: c, loading: false });
         })
         .catch(() => {
@@ -379,6 +376,7 @@ export default function BookInquiryModal({
       clearTimeout(timer);
     };
   }, [phone, editingId, customerEditMode]);
+  */
 
 
 
@@ -1307,9 +1305,10 @@ export default function BookInquiryModal({
                           } disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed disabled:border-slate-200`}
                         />
 
+                        {/* [DISABLED] Green spinning loader icon shown while checking phone against CRM:
                         {phoneCheck?.loading && (
                           <ArrowPathIcon className="w-4 h-4 absolute right-2.5 top-2.5 text-emerald-600 animate-spin pointer-events-none" />
-                        )}
+                        )} */}
                       </div>
 
                       {/* Check Number Button */}
@@ -1325,7 +1324,7 @@ export default function BookInquiryModal({
                       )} */}
                     </div>
 
-                    {/* Available number */}
+                    {/* [DISABLED] "Available number" inline success message below phone input:
                     {!(!!editingId && !customerEditMode) &&
                       phoneCheck &&
                       !phoneCheck.loading &&
@@ -1333,7 +1332,7 @@ export default function BookInquiryModal({
                         <p className="text-[11px] text-emerald-600 mt-1 font-medium">
                           ✓ This phone number is available.
                         </p>
-                      )}
+                      )} */}
 
                     {errors.phone && (
                       <p className="text-[11px] text-red-500 mt-1 font-medium flex items-center gap-1">

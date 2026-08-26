@@ -2,6 +2,7 @@
 
 import React, {
   useEffect,
+  useLayoutEffect,
   useState,
   useSyncExternalStore,
   useMemo,
@@ -15,6 +16,7 @@ import {
   TruckIcon,
   SparklesIcon,
   ExclamationTriangleIcon,
+  ArrowTopRightOnSquareIcon,
 } from "@heroicons/react/24/outline";
 import {
   fetchKleverVehicleCatalogueGraphQL,
@@ -279,13 +281,7 @@ function formatYearRanges(raw: string | null | undefined): string {
  * TyresCart plus Tire.ae. `missing_variables` is not used to decide
  * availability — the returned items are the availability.
  */
-function UrlTemplateLinks({
-  front,
-  rear,
-}: {
-  front: string;
-  rear?: string;
-}) {
+function UrlTemplateLinks({ front, rear }: { front: string; rear?: string }) {
   const [items, setItems] = useState<UrlTemplateItem[] | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -348,7 +344,33 @@ function UrlTemplateLinks({
     );
   }
 
-  if (!items.length) {
+  // Deduplicate items by name/label + resolved_url so identical links are never rendered twice
+  const seenKeys = new Set<string>();
+  const uniqueItems = (items ?? []).filter((item) => {
+    const key = `${String(item?.name ?? "").trim()}|${String(item?.resolved_url ?? "").trim()}`;
+    if (seenKeys.has(key)) return false;
+    seenKeys.add(key);
+    return true;
+  });
+
+  const f = parseSearchSize(front);
+  const r =
+    rear && rear !== "—" && rear !== front ? parseSearchSize(rear) : null;
+  const fallbackLinks: UrlTemplateItem[] = f
+    ? [
+        {
+          name: "Tire.ae",
+          site: "tire.ae",
+          resolved_url: r
+            ? `https://tire.ae/search?width=${f.width}&aspect_ratio=${f.height}&rim_size=${f.rim}&rwidth=${r.width}&raspect_ratio=${r.height}&rrim_size=${r.rim}`
+            : `https://tire.ae/search?width=${f.width}&aspect_ratio=${f.height}&rim_size=${f.rim}`,
+        },
+      ]
+    : [];
+
+  const displayList = uniqueItems.length > 0 ? uniqueItems : fallbackLinks;
+
+  if (!displayList.length) {
     return (
       <p className="px-1 py-1.5 text-[11px] font-semibold text-slate-500">
         {failed
@@ -358,18 +380,9 @@ function UrlTemplateLinks({
     );
   }
 
-  // Deduplicate items by name/label + resolved_url so identical links are never rendered twice
-  const seenKeys = new Set<string>();
-  const uniqueItems = items.filter((item) => {
-    const key = `${String(item?.name ?? "").trim()}|${String(item?.resolved_url ?? "").trim()}`;
-    if (seenKeys.has(key)) return false;
-    seenKeys.add(key);
-    return true;
-  });
-
   return (
     <>
-      {uniqueItems.map((item, i) => {
+      {displayList.map((item, i) => {
         const url = String(item?.resolved_url ?? "").trim();
         const label = String(item?.name ?? "").trim() || "Tyres";
         /* An item without a resolved URL is shown but not clickable, rather
@@ -380,8 +393,9 @@ function UrlTemplateLinks({
               key={i}
               aria-disabled="true"
               title="No link available for this size"
-              className="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-400 font-bold cursor-not-allowed"
+              className="flex items-center justify-start gap-2.5 px-3 py-2 rounded-lg bg-slate-50 text-slate-400 text-xs font-bold cursor-not-allowed no-underline"
             >
+              <ArrowTopRightOnSquareIcon className="w-4 h-4 text-slate-300 shrink-0" />
               <span>{label}</span>
             </span>
           );
@@ -392,18 +406,179 @@ function UrlTemplateLinks({
             href={url}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-between p-2.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-950 font-bold transition-all cursor-pointer group"
+            className="flex items-center justify-start gap-2.5 px-3 py-2 rounded-lg bg-slate-100/80 hover:bg-slate-200/80 text-slate-800 hover:text-slate-950 text-xs font-bold transition-all cursor-pointer group no-underline"
           >
-            <span className="underline decoration-emerald-400 decoration-2">
+            <ArrowTopRightOnSquareIcon className="w-4 h-4 text-slate-400 group-hover:text-slate-700 transition-colors shrink-0" />
+            <span>
               {label}
-            </span>
-            <span className="text-xs font-extrabold text-emerald-700 group-hover:translate-x-0.5 transition-transform">
-              ➔
             </span>
           </a>
         );
       })}
     </>
+  );
+}
+
+/**
+ * A front/rear size chip that reveals a `UrlTemplateLinks` popup when
+ * selected, with the popup's vertical side chosen dynamically rather than
+ * from a static "is this the last row" guess.
+ *
+ * On open, and again whenever the popup's own content resizes (the links
+ * load asynchronously — a short skeleton can become a taller list, or vice
+ * versa), it measures the real space above/below the trigger against the
+ * nearest clipping ancestor (an `overflow: auto/scroll/hidden` container —
+ * e.g. the Suggested Size list itself, which clips absolutely-positioned
+ * children exactly like normal content) and falls back to the window
+ * viewport if none is found. It opens below when the popup fits there,
+ * above when it doesn't but fits above, and otherwise opens on whichever
+ * side has more room with its own content capped to that space and
+ * scrollable internally — so it is never actually clipped, on any screen
+ * size.
+ */
+function SizeFitmentChip({
+  isSelected,
+  onToggle,
+  front,
+  rear,
+  popupPadding = "p-2",
+  children,
+}: {
+  isSelected: boolean;
+  onToggle: () => void;
+  front: string;
+  rear?: string;
+  popupPadding?: string;
+  children: React.ReactNode;
+}) {
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const popupRef = useRef<HTMLDivElement | null>(null);
+  const [placement, setPlacement] = useState<{
+    side: "above" | "below";
+    maxHeight: number | null;
+  }>({ side: "below", maxHeight: null });
+
+  useLayoutEffect(() => {
+    if (!isSelected) return;
+
+    const recalculate = () => {
+      const trigger = triggerRef.current;
+      const popup = popupRef.current;
+      if (!trigger || !popup) return;
+
+      const GAP = 6; // matches mt-1.5 / mb-1.5
+      let triggerRect = trigger.getBoundingClientRect();
+      const popupHeight = popup.scrollHeight;
+
+      let bound: HTMLElement | null = trigger.parentElement;
+      let scrollAncestor: HTMLElement | null = null;
+      let boundsTop = 0;
+      let boundsBottom = window.innerHeight;
+      while (bound) {
+        const overflowY = getComputedStyle(bound).overflowY;
+        if (
+          overflowY === "auto" ||
+          overflowY === "scroll" ||
+          overflowY === "hidden"
+        ) {
+          scrollAncestor = bound;
+          const rect = bound.getBoundingClientRect();
+          boundsTop = rect.top;
+          boundsBottom = rect.bottom;
+          break;
+        }
+        bound = bound.parentElement;
+      }
+
+      // Content growing elsewhere in the list (e.g. the Matching Vehicles
+      // panel appearing once a fitment is selected) can push the trigger
+      // itself out of the currently scrolled-into-view region. A popup
+      // anchored to an off-screen trigger can never be "fully visible"
+      // regardless of which side it opens on, so bring the trigger back
+      // into view first.
+      if (scrollAncestor) {
+        if (triggerRect.bottom > boundsBottom) {
+          scrollAncestor.scrollTop += triggerRect.bottom - boundsBottom + GAP;
+        } else if (triggerRect.top < boundsTop) {
+          scrollAncestor.scrollTop -= boundsTop - triggerRect.top + GAP;
+        }
+        triggerRect = trigger.getBoundingClientRect();
+      }
+
+      const spaceBelow = boundsBottom - triggerRect.bottom - GAP;
+      const spaceAbove = triggerRect.top - boundsTop - GAP;
+
+      if (popupHeight <= spaceBelow) {
+        setPlacement({ side: "below", maxHeight: null });
+      } else if (popupHeight <= spaceAbove) {
+        setPlacement({ side: "above", maxHeight: null });
+      } else {
+        const side = spaceAbove > spaceBelow ? "above" : "below";
+        const available = side === "above" ? spaceAbove : spaceBelow;
+        setPlacement({ side, maxHeight: Math.max(80, Math.floor(available)) });
+      }
+    };
+
+    recalculate();
+
+    const popup = popupRef.current;
+    let observer: ResizeObserver | null = null;
+    if (popup && typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(recalculate);
+      observer.observe(popup);
+    }
+    window.addEventListener("resize", recalculate);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", recalculate);
+    };
+  }, [isSelected]);
+
+  const openUpward = placement.side === "above";
+
+  return (
+    <div className="relative w-full">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={onToggle}
+        className={`w-full px-3.5 py-2.5 rounded-xl border text-left transition-all flex items-center justify-start gap-2 cursor-pointer shadow-2xs ${
+          isSelected
+            ? "bg-emerald-50/60 border-2 border-emerald-500 ring-2 ring-emerald-500/20"
+            : "bg-white border-slate-200/90 hover:bg-slate-50 hover:border-slate-300"
+        }`}
+      >
+        {children}
+      </button>
+
+      {isSelected && (
+        <div
+          ref={popupRef}
+          className={`absolute left-0 z-40 w-72 sm:w-80 animate-in fade-in zoom-in-95 duration-150 ${
+            openUpward ? "bottom-full mb-2" : "top-full mt-2"
+          }`}
+        >
+          {/* Triangular pointer arrow connecting to the active button */}
+          <div
+            className={`absolute left-8 w-3.5 h-3.5 bg-white border-emerald-500 rotate-45 z-50 ${
+              openUpward
+                ? "-bottom-2 border-b-2 border-r-2"
+                : "-top-2 border-t-2 border-l-2"
+            }`}
+          />
+          <div
+            style={
+              placement.maxHeight
+                ? { maxHeight: `${placement.maxHeight}px` }
+                : undefined
+            }
+            className={`w-full bg-white border-2 border-emerald-500 rounded-xl ${popupPadding} shadow-xl space-y-1.5 text-xs text-slate-800 relative z-40 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden`}
+          >
+            <UrlTemplateLinks front={front} rear={rear} />
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -664,34 +839,67 @@ export default function TyresGuideModal({
   const selectedFitment = useMemo(() => {
     if (!selectedFitmentKey) return undefined;
 
-    // A staggered chip carries the full `front|rear` key.
-    const exact = fitmentList.find(
-      (f) => `${f.front}|${f.rear}` === selectedFitmentKey,
+    const [selFront, selRear] = selectedFitmentKey.split("|");
+    const normSelFront = normalizeTyreSize(selFront || "");
+    const normSelRear = selRear ? normalizeTyreSize(selRear) : "";
+
+    // 1. Exact staggered match in fitmentList
+    if (normSelRear) {
+      const exact = fitmentList.find(
+        (f) =>
+          normalizeTyreSize(f.front) === normSelFront &&
+          normalizeTyreSize(f.rear) === normSelRear,
+      );
+      if (exact) return exact;
+    }
+
+    // 2. Matching front or rear size in fitmentList
+    const sameFront = fitmentList.filter(
+      (f) =>
+        normalizeTyreSize(f.front) === normSelFront ||
+        (normSelRear && normalizeTyreSize(f.rear) === normSelRear),
     );
-    if (exact) return exact;
-
-    /* The "Selected Size" chip for a front-only search uses just the front
-       size as its key, which never equals a `front|rear` entry — so the lookup
-       missed and Matching Vehicles stayed hidden. Gather every combination
-       sharing that front size instead, de-duped by make+model. */
-    const sameFront = fitmentList.filter((f) => f.front === selectedFitmentKey);
-    if (!sameFront.length) return undefined;
-
-    const merged: KleverVehicleCatalogueItem[] = [];
-    for (const f of sameFront) {
-      for (const v of f.vehicles) {
-        if (
-          !merged.some(
-            (ex) =>
-              ex.make_name === v.make_name && ex.model_name === v.model_name,
-          )
-        ) {
-          merged.push(v);
+    if (sameFront.length > 0) {
+      const merged: KleverVehicleCatalogueItem[] = [];
+      for (const f of sameFront) {
+        for (const v of f.vehicles) {
+          if (
+            !merged.some(
+              (ex) =>
+                (ex.make_slug || ex.make_name) ===
+                  (v.make_slug || v.make_name) &&
+                ex.model_name === v.model_name,
+            )
+          ) {
+            merged.push(v);
+          }
         }
       }
+      return { ...sameFront[0], vehicles: merged, count: merged.length };
     }
-    return { ...sameFront[0], vehicles: merged, count: merged.length };
-  }, [fitmentList, selectedFitmentKey]);
+
+    // 3. Fallback: filter directly from vehicles list
+    const matchedVehicles = vehicles.filter((v) => {
+      const pairs = extractVehicleFitmentPairs(v);
+      return pairs.some((p) =>
+        normSelRear
+          ? pairMatchesQuery(p, normSelFront, normSelRear)
+          : normalizeTyreSize(p.front).includes(normSelFront) ||
+            normalizeTyreSize(p.rear).includes(normSelFront),
+      );
+    });
+    if (matchedVehicles.length > 0) {
+      return {
+        front: selFront,
+        rear: selRear || selFront,
+        count: matchedVehicles.length,
+        isStock: true,
+        vehicles: matchedVehicles,
+      };
+    }
+
+    return undefined;
+  }, [fitmentList, selectedFitmentKey, vehicles]);
 
   const matchingVehicles = selectedFitment?.vehicles ?? filteredVehicles;
 
@@ -1003,7 +1211,7 @@ export default function TyresGuideModal({
                 </div>
               </div>
 
-              <div className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-2xs flex flex-col max-h-full">
+              <div className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-2xs flex flex-col flex-1 min-h-0 max-h-full">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-3 shrink-0">
                   <div className="flex items-center gap-2">
                     <SparklesIcon className="w-4 h-4 text-emerald-600" />
@@ -1130,96 +1338,93 @@ export default function TyresGuideModal({
 
                         return (
                           <div
-                            className={`grid gap-4 w-full ${
+                            className={`grid gap-4 w-full flex-1 min-h-0 ${
                               hasVehiclesOnSide
                                 ? "grid-cols-1 md:grid-cols-2"
                                 : "grid-cols-1"
                             }`}
                           >
                             {/* Part 1: Selected & Suggested Sizes */}
-                            <div className="flex flex-col gap-3 max-h-[500px] overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden pr-1 w-full">
-                              {searchedFront && (
-                                <div className="space-y-1.5 w-full">
-                                  <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-700">
-                                    Selected Size
-                                  </div>
-                                  <div className="flex flex-col gap-2 w-full">
-                                    <div className="relative w-full">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setSelectedFitmentKey(
-                                            selectedFitmentKey === searchedKey
-                                              ? null
-                                              : searchedKey,
-                                          );
-                                        }}
-                                        className={`w-full px-3.5 py-2.5 rounded-xl border text-left transition-all flex items-center justify-start gap-2 cursor-pointer shadow-2xs ${
-                                          selectedFitmentKey === searchedKey
-                                            ? "bg-emerald-50/60 border-emerald-500 ring-1 ring-emerald-500/20"
-                                            : "bg-white border-slate-200/90 hover:bg-slate-50 hover:border-slate-300"
-                                        }`}
-                                      >
-                                        <div className="flex items-center gap-2">
-                                          <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-blue-50 text-blue-900">
-                                            {searchedFront}
-                                            {searchedRear ? " (front)" : ""}
-                                          </span>
-                                          {searchedRear && (
-                                            <>
-                                              <span className="text-slate-600 text-xs">
-                                                /
-                                              </span>
-                                              <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-amber-50 text-amber-950">
-                                                {searchedRear} (rear)
-                                              </span>
-                                            </>
-                                          )}
-                                        </div>
-                                      </button>
-
-                                      {selectedFitmentKey === searchedKey && (
-                                        <div className="absolute top-full left-0 mt-2 z-40 w-72 sm:w-80 bg-white border-2 border-emerald-500 rounded-xl p-3 shadow-xl space-y-2 text-xs text-slate-800 animate-in fade-in zoom-in-95 duration-150">
-                                          <div className="absolute -top-2 left-8 w-3.5 h-3.5 bg-white border-t-2 border-l-2 border-emerald-500 rotate-45" />
-                                          <UrlTemplateLinks
+                            <div className="flex flex-col gap-3 flex-1 min-h-0 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden pr-1 w-full">
+                                {searchedFront && (
+                                  <div className="space-y-1.5 w-full">
+                                    <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-700">
+                                      Selected Size
+                                    </div>
+                                    <div className="flex flex-col gap-2 w-full">
+                                      {(() => {
+                                        const isSelected =
+                                          selectedFitmentKey === searchedKey ||
+                                          (selectedFitmentKey !== null &&
+                                            normalizeTyreSize(
+                                              selectedFitmentKey.replace("|", ""),
+                                            ) ===
+                                              normalizeTyreSize(
+                                                searchedKey.replace("|", ""),
+                                              ));
+                                        return (
+                                          <SizeFitmentChip
+                                            isSelected={isSelected}
+                                            onToggle={() =>
+                                              setSelectedFitmentKey(
+                                                isSelected ? null : searchedKey,
+                                              )
+                                            }
                                             front={searchedFront}
                                             rear={searchedRear}
-                                          />
-                                        </div>
-                                      )}
+                                          >
+                                            <div className="flex items-center gap-2">
+                                              <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-blue-50 text-blue-900">
+                                                {searchedFront}
+                                                {searchedRear ? " (front)" : ""}
+                                              </span>
+                                              {searchedRear && (
+                                                <>
+                                                  <span className="text-slate-600 text-xs">
+                                                    /
+                                                  </span>
+                                                  <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-amber-50 text-amber-950">
+                                                    {searchedRear} (rear)
+                                                  </span>
+                                                </>
+                                              )}
+                                            </div>
+                                          </SizeFitmentChip>
+                                        );
+                                      })()}
                                     </div>
                                   </div>
-                                </div>
-                              )}
+                                )}
 
-                              {staggeredFitments.length > 0 && (
-                                <div className="space-y-1.5 w-full">
-                                  <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-700">
-                                    Suggested Size
-                                  </div>
-                                  <div className="flex flex-col gap-2.5 w-full">
-                                    {staggeredFitments.map((fitment, fIdx) => {
-                                      const fitmentKey = `${fitment.front}|${fitment.rear}`;
-                                      const isSelected =
-                                        selectedFitmentKey === fitmentKey;
+                                {staggeredFitments.length > 0 && (
+                                  <div className="space-y-1.5 w-full">
+                                    <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-700">
+                                      Suggested Size
+                                    </div>
+                                    <div className="flex flex-col gap-2.5 w-full">
+                                      {staggeredFitments.map((fitment, fIdx) => {
+                                        const fitmentKey = `${fitment.front}|${fitment.rear}`;
+                                        const isSelected =
+                                          selectedFitmentKey === fitmentKey ||
+                                          (selectedFitmentKey !== null &&
+                                            normalizeTyreSize(
+                                              selectedFitmentKey.replace("|", ""),
+                                            ) ===
+                                              normalizeTyreSize(
+                                                fitmentKey.replace("|", ""),
+                                              ));
 
-                                      return (
-                                        <div
-                                          key={fIdx}
-                                          className="relative w-full"
-                                        >
-                                          <button
-                                            type="button"
-                                            onClick={() => {
+                                        return (
+                                          <SizeFitmentChip
+                                            key={fIdx}
+                                            isSelected={isSelected}
+                                            onToggle={() =>
                                               setSelectedFitmentKey(
                                                 isSelected ? null : fitmentKey,
-                                              );
-                                            }}
-                                            className={`w-full px-3.5 py-2.5 rounded-xl border text-left transition-all flex items-center justify-start gap-2 cursor-pointer shadow-2xs ${
-                                              isSelected
-                                                ? "bg-emerald-50/60 border-emerald-500 ring-1 ring-emerald-500/20"
-                                                : "bg-white border-slate-200/90 hover:bg-slate-50 hover:border-slate-300"
-                                            }`}
+                                              )
+                                            }
+                                            front={fitment.front}
+                                            rear={fitment.rear}
                                           >
                                             <div className="flex items-center gap-2">
                                               <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-blue-50 text-blue-900">
@@ -1232,33 +1437,19 @@ export default function TyresGuideModal({
                                                 {fitment.rear} (rear)
                                               </span>
                                             </div>
-                                          </button>
-
-                                          {isSelected && (
-                                            <div className="absolute top-full left-0 mt-2 z-40 w-72 sm:w-80 bg-white border-2 border-emerald-500 rounded-xl p-3 shadow-xl space-y-2 text-xs text-slate-800 animate-in fade-in zoom-in-95 duration-150">
-                                              <div className="absolute -top-2 left-8 w-3.5 h-3.5 bg-white border-t-2 border-l-2 border-emerald-500 rotate-45" />
-                                              <UrlTemplateLinks
-                                                front={fitment.front}
-                                                rear={fitment.rear}
-                                              />
-                                            </div>
-                                          )}
-                                        </div>
-                                      );
-                                    })}
+                                          </SizeFitmentChip>
+                                        );
+                                      })}
+                                    </div>
                                   </div>
-                                </div>
-                              )}
+                                )}
                             </div>
 
                             {/* Part 2: Matching Vehicles */}
                             {hasVehiclesOnSide && (
-                              <div className="pl-0 md:pl-4 border-t md:border-t-0 md:border-l border-slate-500 space-y-2 flex flex-col max-h-full min-h-0 pt-3 md:pt-0">
+                              <div className="pl-0 md:pl-4 border-t md:border-t-0 md:border-l border-slate-200 space-y-2 flex flex-col flex-1 min-h-[360px] max-h-[500px] pt-3 md:pt-0">
                                 <div
-                                  onScroll={() => {
-                                    if (expandedMake) setExpandedMake(null);
-                                  }}
-                                  className="grid grid-cols-3 gap-2.5 w-full max-h-[450px] overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden px-1 pt-2 pb-48 relative"
+                                  className="grid grid-cols-3 auto-rows-max content-start items-start gap-2.5 w-full flex-1 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden px-1 pt-1 pb-4 relative"
                                 >
                                   {/* One chip per MAKE. `matchingVehicles` holds a
                                       row per model, so listing them verbatim
@@ -1299,7 +1490,9 @@ export default function TyresGuideModal({
                                       return (
                                         <div
                                           key={idx}
-                                          className="relative w-full"
+                                          className={`relative w-full h-28 ${
+                                            isExpanded ? "z-50" : "z-10"
+                                          }`}
                                         >
                                           <div
                                             onClick={() =>
@@ -1341,7 +1534,7 @@ export default function TyresGuideModal({
 
                                           {isExpanded && (
                                             <div
-                                              className={`absolute z-40 ${openUpward ? "bottom-full mb-2" : "top-full mt-2"} ${isSingleModel ? "w-48 sm:w-56" : "w-72 sm:w-80"} bg-white border-2 border-emerald-500 rounded-xl p-3 shadow-xl space-y-2 text-xs text-slate-800 animate-in fade-in zoom-in-95 duration-150 ${
+                                              className={`absolute z-50 ${openUpward ? "bottom-full mb-2" : "top-full mt-2"} ${isSingleModel ? "w-48 sm:w-56" : "w-72 sm:w-80"} bg-white border-2 border-emerald-500 rounded-xl p-3 shadow-xl space-y-2 text-xs text-slate-800 animate-in fade-in zoom-in-95 duration-150 ${
                                                 idx % 3 === 0
                                                   ? "left-0"
                                                   : idx % 3 === 1

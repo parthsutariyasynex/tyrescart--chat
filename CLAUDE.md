@@ -359,3 +359,77 @@ triggered) but the chart no longer reads it — verified 0 reads while charting.
 - **Each chart open on /tc-products costs an extra SKU→feed-id lookup** (~1–2 s before the modal appears). The modal caches per `(id, source)`, but that resolution step is not cached, so reopening the same row pays it again.
 - **Schema introspection is unavailable** (Braintree DI fault on the Magento build), which blocks every schema tool. Field existence has to be probed one name at a time.
 - **The competitor feed's `product_name` is widely double-concatenated on production — 6,788 of 28,245 `is_latest:1` rows (24%), measured via a full scan against the live backend.** Pattern: the brand/size/load-speed prefix appears twice before the pattern name, e.g. SKU `ps_178418129959` → `"Yokohama 235/60 R19 103V Yokohama 235/60 R19 103V Advan V61 2026"`. **100% of affected rows are `product_source: "competitor"`** (zero `supplier` rows), spread across nearly every brand (Pirelli 676, Michelin 627, Continental 538, Bridgestone 531, Nexen 360, Dunlop 335, Hankook 294, Yokohama 265, and more) — this is a systemic bug in whoever scrapes/imports the competitor feed, not an isolated data-entry mistake, and needs a fix on that ingestion pipeline. The QA endpoint this dev environment talks to does NOT reproduce it (0 of 12,607 rows) — QA and live are different datasets, so this bug is only visible against the live backend. `cleanPatternName` in `services/productFormatter.ts` masks it client-side (sanitizes multiline strings, strips a repeated prefix phrase) across `app/(app)/supplier-products/page.tsx` and `components/CheckSupplierModal.tsx`, but that fix has not yet been deployed to `tyrescart.vercel.app` and only hides the symptom — the underlying feed data is still wrong.
+
+## Task Logging
+
+Every development task in this project — a feature, a fix, a refactor,
+anything that changes code — gets an entry in `TASK_LOG.md` at the project
+root. This is a permanent workflow, not a one-off: follow it for every task
+without being asked again.
+
+**Before making any code changes for a task:**
+- Open `TASK_LOG.md` and add a new entry using the template below.
+- Assign the next sequential Task ID (`#001`, `#002`, ... — never reuse or
+  renumber an existing one).
+- Use today's date.
+- Fill in the task title and a clear description of the requirement, the
+  files/components likely to be affected, and a short implementation plan.
+- Set `Status: In Progress`.
+- If the task is a continuation of an existing, still-open entry (same
+  feature/fix picked back up), update that entry instead of creating a new
+  one.
+
+**After making the changes:**
+- Update the *same* entry (do not create a second one for the same task).
+- Record the actual files changed (add any that weren't anticipated in the
+  plan, drop any that turned out not to need changes).
+- Explain exactly what was implemented and any important logic/behavior
+  changes — including, when applicable, the root cause and fix for a bug, or
+  the nature of an API/database/UI/config/business-logic change.
+- Record what testing or verification was actually performed (e.g. `tsc
+  --noEmit`, `npm run lint`, `npm run build`, a live browser check) — never
+  invent results that weren't actually observed.
+- Record any remaining issues, limitations, or follow-up work.
+- Set `Status: Completed` only once the task is fully finished and verified;
+  otherwise leave it `In Progress`, or set `Blocked` with a clear explanation
+  of what it's blocked on.
+
+**Template** (copy exactly, filling in the bracketed parts):
+
+```
+# Task #NNN — [Task Title]
+
+Date: YYYY-MM-DD
+Status: In Progress / Completed / Blocked
+
+## Requirement
+[What the user requested]
+
+## Planned Changes
+- ...
+
+## Files Affected
+- ...
+
+## Implementation
+- ...
+
+## Testing
+- ...
+
+## Issues / Notes
+- ...
+
+## Final Status
+[Completed / In Progress / Blocked]
+```
+
+**Hard rules:**
+- Never delete or overwrite a previous task's entry. `TASK_LOG.md` only ever
+  grows, in chronological order by Task ID.
+- Never invent files changed, implementation details, or testing results —
+  document only what was actually done in this codebase.
+- Keep entries concise but technically precise; this is a working log, not
+  marketing copy.
+- Don't let logging touch unrelated application code — `TASK_LOG.md` and, on
+  setup, `CLAUDE.md` are the only files this workflow itself modifies.
