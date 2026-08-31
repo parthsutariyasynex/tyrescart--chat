@@ -791,6 +791,10 @@ export function kleverVehicleSearchQuery(width: number, height: number, rim: num
         rear_width
         rear_height
         rear_rim
+        front_size
+        rear_size
+        front_size_flat
+        rear_size_flat
         is_stock
       }
     }
@@ -824,6 +828,8 @@ export function kleverVehicleCatalogueQuery(offset: number, limit: number): stri
         year_ranges
         front_size
         rear_size
+        front_size_flat
+        rear_size_flat
         is_stock
       }
     }

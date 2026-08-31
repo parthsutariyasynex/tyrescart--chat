@@ -20,6 +20,7 @@ import {
 } from "@heroicons/react/24/outline";
 import {
   fetchKleverVehicleCatalogueGraphQL,
+  fetchKleverVehicleSearchGraphQL,
   fetchUrlTemplates,
 } from "../services/graphql";
 import type {
@@ -116,8 +117,18 @@ function sizeFieldMatches(
   sizeField: string | null | undefined,
   norm: string,
   raw: string,
+  flatField?: string | null | undefined,
 ): boolean {
   if (!norm && !raw) return false;
+
+  // Pure digits matching on flat size fields (e.g. "2355519" in "2355519, 2356018")
+  const normDigits = norm.replace(/[^0-9]/g, "");
+  if (flatField && normDigits.length >= 3) {
+    const flatValues = splitSizeValues(flatField);
+    if (flatValues.some((fv) => fv.replace(/[^0-9]/g, "").includes(normDigits)))
+      return true;
+  }
+
   const values = splitSizeValues(sizeField);
   if (!values.length) return false;
   const normIsPureDigits = norm !== "" && !/[a-z]/i.test(norm);
@@ -138,7 +149,7 @@ function sizeFieldMatches(
 function formatSizeDisplay(raw: string | null | undefined): string {
   const value = String(raw ?? "").trim();
   if (!value) return "";
-  return value.replace(/^(\d+\/\d+)\s*([A-Z]{0,2}R\d+.*)$/i, "$1 $2");
+  return value.replace(/^(\d+(?:\/\d+)?)\s*([A-Za-z]{0,2}R\d+.*)$/i, "$1 $2");
 }
 
 interface FitmentPair {
@@ -453,13 +464,20 @@ function SizeFitmentChip({
 }) {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popupRef = useRef<HTMLDivElement | null>(null);
+  const [prevIsSelected, setPrevIsSelected] = useState(isSelected);
+  const [isPopupOpen, setIsPopupOpen] = useState(isSelected);
   const [placement, setPlacement] = useState<{
     side: "above" | "below";
     maxHeight: number | null;
   }>({ side: "below", maxHeight: null });
 
+  if (prevIsSelected !== isSelected) {
+    setPrevIsSelected(isSelected);
+    setIsPopupOpen(isSelected);
+  }
+
   useLayoutEffect(() => {
-    if (!isSelected) return;
+    if (!isPopupOpen) return;
 
     const recalculate = () => {
       const trigger = triggerRef.current;
@@ -532,7 +550,7 @@ function SizeFitmentChip({
       observer?.disconnect();
       window.removeEventListener("resize", recalculate);
     };
-  }, [isSelected]);
+  }, [isPopupOpen]);
 
   const openUpward = placement.side === "above";
 
@@ -541,7 +559,14 @@ function SizeFitmentChip({
       <button
         ref={triggerRef}
         type="button"
-        onClick={onToggle}
+        onClick={() => {
+          if (!isSelected) {
+            onToggle();
+            setIsPopupOpen(true);
+          } else {
+            setIsPopupOpen((prev) => !prev);
+          }
+        }}
         className={`w-full px-3.5 py-2.5 rounded-xl border text-left transition-all flex items-center justify-start gap-2 cursor-pointer shadow-2xs ${
           isSelected
             ? "bg-emerald-50/60 border-2 border-emerald-500 ring-2 ring-emerald-500/20"
@@ -551,7 +576,7 @@ function SizeFitmentChip({
         {children}
       </button>
 
-      {isSelected && (
+      {isSelected && isPopupOpen && (
         <div
           ref={popupRef}
           className={`absolute left-0 z-40 w-72 sm:w-80 animate-in fade-in zoom-in-95 duration-150 ${
@@ -572,9 +597,27 @@ function SizeFitmentChip({
                 ? { maxHeight: `${placement.maxHeight}px` }
                 : undefined
             }
-            className={`w-full bg-white border-2 border-emerald-500 rounded-xl ${popupPadding} shadow-xl space-y-1.5 text-xs text-slate-800 relative z-40 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden`}
+            className={`w-full bg-white border-2 border-emerald-500 rounded-xl ${popupPadding} shadow-xl text-xs text-slate-800 relative z-40 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden`}
           >
-            <UrlTemplateLinks front={front} rear={rear} />
+            <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-100 px-0.5">
+              <span className="text-[11px] font-bold text-slate-700">
+                Tyres Link
+              </span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsPopupOpen(false);
+                }}
+                className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                title="Close"
+              >
+                <XMarkIcon className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="space-y-1.5">
+              <UrlTemplateLinks front={front} rear={rear} />
+            </div>
           </div>
         </div>
       )}
@@ -600,6 +643,11 @@ export default function TyresGuideModal({
   const [frontTag, setFrontTag] = useState("");
   const [rearTag, setRearTag] = useState("");
 
+  /* Autocomplete Dropdown State */
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+
   /**
    * The fitment chip the user has highlighted, as `front|rear`.
    *
@@ -617,6 +665,8 @@ export default function TyresGuideModal({
 
   /* Data & Loading states */
   const [vehicles, setVehicles] = useState<KleverVehicleCatalogueItem[]>([]);
+  const [searchedVehicles, setSearchedVehicles] = useState<KleverVehicleCatalogueItem[] | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
@@ -629,6 +679,75 @@ export default function TyresGuideModal({
 
   /** Ref tracking the current fetch request ID to ignore stale out-of-order responses */
   const fetchRequestIdRef = useRef<number>(0);
+
+  /**
+   * Pre-aggregated list of all unique tyre sizes across the catalogue,
+   * sorted by frequency so common sizes appear first in suggestions.
+   */
+  const availableSizes = useMemo(() => {
+    const map = new Map<
+      string,
+      { size: string; flat: string; count: number }
+    >();
+
+    vehicles.forEach((v) => {
+      const fSizes = splitSizeValues(v.front_size);
+      const rSizes = splitSizeValues(v.rear_size);
+      const allSizes = Array.from(new Set([...fSizes, ...rSizes]));
+
+      allSizes.forEach((raw) => {
+        const formatted = formatSizeDisplay(raw);
+        if (!formatted) return;
+        const flat = formatted.replace(/[^0-9]/g, "");
+        const key = flat || formatted;
+        const existing = map.get(key);
+        if (existing) {
+          existing.count += 1;
+        } else {
+          map.set(key, { size: formatted, flat, count: 1 });
+        }
+      });
+    });
+
+    return Array.from(map.values()).sort((a, b) => b.count - a.count);
+  }, [vehicles]);
+
+  /**
+   * Filtered suggestions matching the typed searchQuery (by flat numbers or text).
+   */
+  const sizeSuggestions = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q || q.length < 2) return [];
+    const qDigits = q.replace(/[^0-9]/g, "");
+
+    return availableSizes
+      .filter((item) => {
+        if (qDigits.length >= 2 && item.flat.includes(qDigits)) return true;
+        const normItem = normalizeTyreSize(item.size);
+        const normQ = normalizeTyreSize(q);
+        return (
+          normItem.includes(normQ) || item.size.toLowerCase().includes(q)
+        );
+      })
+      .slice(0, 8);
+  }, [availableSizes, searchQuery]);
+
+  /* Click outside listener for autocomplete dropdown */
+  useEffect(() => {
+    if (!isDropdownOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target as Node) &&
+        searchInputRef.current &&
+        !searchInputRef.current.contains(e.target as Node)
+      ) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isDropdownOpen]);
 
   /**
    * Loads the 1,362 vehicle catalogue using fetchKleverVehicleCatalogueGraphQL
@@ -671,10 +790,54 @@ export default function TyresGuideModal({
     setRearTag("");
     setSelectedFitmentKey(null);
     setExpandedMake(null);
+    setIsDropdownOpen(false);
+    setHighlightedIndex(-1);
+    setSearchedVehicles(null);
+    setIsSearching(false);
     setCurrentPage(1);
     setError(null);
     setHasSearched(false);
   };
+
+  /* Live API search triggered whenever a size is searched */
+  useEffect(() => {
+    const fParsed = parseSearchSize(frontTag);
+    const rParsed = parseSearchSize(rearTag);
+
+    if (!frontTag && !rearTag) {
+      setSearchedVehicles(null);
+      setIsSearching(false);
+      return;
+    }
+
+    const targetParsed = fParsed || rParsed;
+    if (!targetParsed) return;
+
+    let isCancelled = false;
+    setIsSearching(true);
+
+    fetchKleverVehicleSearchGraphQL(
+      targetParsed.width,
+      targetParsed.height,
+      targetParsed.rim,
+    )
+      .then((results) => {
+        if (!isCancelled) {
+          setSearchedVehicles(results);
+          setIsSearching(false);
+        }
+      })
+      .catch((err) => {
+        if (!isCancelled) {
+          console.error("Size search API error:", err);
+          setIsSearching(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [frontTag, rearTag]);
 
   /* Auto-fetch on initial modal open */
   useEffect(() => {
@@ -769,7 +932,12 @@ export default function TyresGuideModal({
       }
     >();
 
-    vehicles.forEach((v) => {
+    const sourceVehicles =
+      searchedVehicles !== null && searchedVehicles.length > 0
+        ? searchedVehicles
+        : vehicles;
+
+    sourceVehicles.forEach((v) => {
       const pairs = extractVehicleFitmentPairs(v);
       let matchedVehicle = false;
 
@@ -824,7 +992,7 @@ export default function TyresGuideModal({
       filteredVehicles: exactMatches,
       fitmentList,
     };
-  }, [vehicles, frontTag, rearTag]);
+  }, [vehicles, searchedVehicles, frontTag, rearTag]);
 
   /* Right Panel Table vehicles: paginated list of filteredVehicles or vehicles */
   /**
@@ -919,15 +1087,31 @@ export default function TyresGuideModal({
       const q = headerQuery.trim().toLowerCase();
       const qDigitsRaw = normalizeTyreSize(q);
       const qDigits = qDigitsRaw.length >= 3 ? qDigitsRaw : "";
+      // A query that names both the make and the model ("Mercedes S",
+      // "Toyota Camry", "BMW M2", "Land Rover Defender") is never a
+      // substring of EITHER field alone, so `q` as a whole cannot match
+      // there — split it on whitespace once so a multi-word query can be
+      // satisfied by tokens spread across the two fields.
+      const qWords = q.split(/\s+/).filter(Boolean);
       return fallback.filter((v) => {
         const make = (v.make_name || "").toLowerCase();
         const model = (v.model_name || "").toLowerCase();
-        return (
+        if (
           make.includes(q) ||
           model.includes(q) ||
-          sizeFieldMatches(v.front_size, qDigits, q) ||
-          sizeFieldMatches(v.rear_size, qDigits, q)
-        );
+          sizeFieldMatches(v.front_size, qDigits, q, v.front_size_flat) ||
+          sizeFieldMatches(v.rear_size, qDigits, q, v.rear_size_flat)
+        ) {
+          return true;
+        }
+        // Combined Make + Model match: every word has to appear somewhere
+        // across the two fields together, not necessarily in the same one —
+        // "Mercedes" in make_name and "S" in model_name both count.
+        if (qWords.length > 1) {
+          const combined = `${make} ${model}`;
+          return qWords.every((word) => combined.includes(word));
+        }
+        return false;
       });
     }
     return fallback;
@@ -1050,7 +1234,7 @@ export default function TyresGuideModal({
             {/* Left Panel: 40% Width for Search Bar & Tyre Size Search Results - STICKY TOP */}
             <div className="w-full lg:w-[40%] flex flex-col gap-3 shrink-0 lg:sticky lg:top-0">
               {/* Zero-Layout-Shift Search Bar Container */}
-              <div className="bg-white border border-slate-200/90 rounded-xl p-2.5 shadow-2xs h-[88px] flex flex-col justify-between shrink-0">
+              <div className="bg-white border border-slate-200/90 rounded-xl p-2.5 shadow-2xs h-[88px] flex flex-col justify-between shrink-0 relative z-30">
                 <div className="flex items-center gap-2 h-[44px] px-3 bg-slate-50/90 border border-slate-200 rounded-lg overflow-x-auto no-scrollbar">
                   {/* Front Tag Pill */}
                   {frontTag && (
@@ -1096,6 +1280,9 @@ export default function TyresGuideModal({
                       value={searchQuery}
                       onChange={(e) => {
                         const val = e.target.value;
+                        setSearchQuery(val);
+                        setHighlightedIndex(-1);
+                        setIsDropdownOpen(val.trim().length >= 2);
                         const parsed = parseSearchSize(val);
                         if (parsed) {
                           const tagVal = `${parsed.width}/${parsed.height} R${parsed.rim}`;
@@ -1103,25 +1290,59 @@ export default function TyresGuideModal({
                             setFrontTag(tagVal);
                             setSearchQuery("");
                             setHasSearched(true);
+                            setIsDropdownOpen(false);
                           } else if (!rearTag) {
                             setRearTag(tagVal);
                             setSearchQuery("");
                             setHasSearched(true);
+                            setIsDropdownOpen(false);
                           }
-                        } else {
-                          setSearchQuery(val);
+                        }
+                      }}
+                      onFocus={() => {
+                        if (searchQuery.trim().length >= 2) {
+                          setIsDropdownOpen(true);
                         }
                       }}
                       onKeyDown={(e) => {
+                        if (isDropdownOpen && sizeSuggestions.length > 0) {
+                          if (e.key === "ArrowDown") {
+                            e.preventDefault();
+                            setHighlightedIndex((prev) => (prev + 1) % sizeSuggestions.length);
+                            return;
+                          }
+                          if (e.key === "ArrowUp") {
+                            e.preventDefault();
+                            setHighlightedIndex((prev) => (prev <= 0 ? sizeSuggestions.length - 1 : prev - 1));
+                            return;
+                          }
+                          if (e.key === "Escape") {
+                            setIsDropdownOpen(false);
+                            return;
+                          }
+                          if (e.key === "Enter" && highlightedIndex >= 0 && sizeSuggestions[highlightedIndex]) {
+                            e.preventDefault();
+                            const selected = sizeSuggestions[highlightedIndex];
+                            const tagVal = selected.size;
+                            if (!frontTag) {
+                              setFrontTag(tagVal);
+                              setSearchQuery("");
+                              setHasSearched(true);
+                            } else if (!rearTag) {
+                              setRearTag(tagVal);
+                              setSearchQuery("");
+                              setHasSearched(true);
+                            }
+                            setIsDropdownOpen(false);
+                            return;
+                          }
+                        }
                         if (e.key === "Enter" && searchQuery.trim()) {
                           const typed = searchQuery.trim();
                           const parsed = parseSearchSize(typed);
                           const tagVal = parsed
                             ? `${parsed.width}/${parsed.height} R${parsed.rim}`
                             : typed;
-                          // The whole catalogue is already loaded — committing
-                          // a tag only sets state; the tag-matching memo does
-                          // the (client-side) filtering. No fetch here.
                           if (!frontTag) {
                             setFrontTag(tagVal);
                             setSearchQuery("");
@@ -1131,10 +1352,55 @@ export default function TyresGuideModal({
                             setSearchQuery("");
                             setHasSearched(true);
                           }
+                          setIsDropdownOpen(false);
                         }
                       }}
                       className="flex-1 min-w-[140px] bg-transparent text-xs font-semibold text-slate-800 focus:outline-none placeholder:text-slate-400"
                     />
+                  )}
+
+                  {/* Autocomplete Dropdown */}
+                  {isDropdownOpen && sizeSuggestions.length > 0 && (
+                    <div
+                      ref={dropdownRef}
+                      className="absolute left-2.5 right-2.5 top-[52px] z-50 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden animate-in fade-in zoom-in-95 duration-100 max-h-60 overflow-y-auto"
+                    >
+                      <div className="py-1">
+                        {sizeSuggestions.map((item, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              const tagVal = item.size;
+                              if (!frontTag) {
+                                setFrontTag(tagVal);
+                                setSearchQuery("");
+                                setHasSearched(true);
+                              } else if (!rearTag) {
+                                setRearTag(tagVal);
+                                setSearchQuery("");
+                                setHasSearched(true);
+                              }
+                              setIsDropdownOpen(false);
+                            }}
+                            onMouseEnter={() => setHighlightedIndex(idx)}
+                            className={`w-full px-3 py-2 flex items-center justify-between text-left transition-colors cursor-pointer ${
+                              highlightedIndex === idx
+                                ? "bg-slate-100 text-slate-900 font-semibold"
+                                : "hover:bg-slate-50 text-slate-700"
+                            }`}
+                          >
+                            <span className="text-xs font-medium text-slate-800">
+                              {item.size}
+                            </span>
+                            <span className="text-[11px] text-slate-400">
+                              {item.count} vehicle{item.count !== 1 ? "s" : ""}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   )}
 
                   {/* Clear Button */}
@@ -1261,6 +1527,7 @@ export default function TyresGuideModal({
                     </p>
                   </div>
                 ) : !loading &&
+                  !isSearching &&
                   filteredVehicles.length === 0 &&
                   fitmentList.length === 0 ? (
                   /* Non-parseable input (partial width like "195") or
@@ -1375,7 +1642,7 @@ export default function TyresGuideModal({
                                           >
                                             <div className="flex items-center gap-2">
                                               <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-blue-50 text-blue-900">
-                                                {searchedFront}
+                                                {formatSizeDisplay(searchedFront)}
                                                 {searchedRear ? " (front)" : ""}
                                               </span>
                                               {searchedRear && (
@@ -1384,7 +1651,7 @@ export default function TyresGuideModal({
                                                     /
                                                   </span>
                                                   <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-amber-50 text-amber-950">
-                                                    {searchedRear} (rear)
+                                                    {formatSizeDisplay(searchedRear)} (rear)
                                                   </span>
                                                 </>
                                               )}
@@ -1428,13 +1695,13 @@ export default function TyresGuideModal({
                                           >
                                             <div className="flex items-center gap-2">
                                               <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-blue-50 text-blue-900">
-                                                {fitment.front} (front)
+                                                {formatSizeDisplay(fitment.front)} (front)
                                               </span>
                                               <span className="text-slate-600 text-xs">
                                                 /
                                               </span>
                                               <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-amber-50 text-amber-950">
-                                                {fitment.rear} (rear)
+                                                {formatSizeDisplay(fitment.rear)} (rear)
                                               </span>
                                             </div>
                                           </SizeFitmentChip>
@@ -1490,7 +1757,7 @@ export default function TyresGuideModal({
                                       return (
                                         <div
                                           key={idx}
-                                          className={`relative w-full h-28 ${
+                                          className={`make-card-container relative w-full h-28 ${
                                             isExpanded ? "z-50" : "z-10"
                                           }`}
                                         >
@@ -1500,13 +1767,13 @@ export default function TyresGuideModal({
                                                 isExpanded ? null : makeKey,
                                               )
                                             }
-                                            className={`relative flex flex-col items-center justify-between p-2.5 rounded-xl border transition-all text-center group cursor-pointer w-full h-28 ${
+                                            className={`relative flex flex-col items-center justify-between p-2 rounded-xl border transition-all text-center group cursor-pointer w-full h-28 ${
                                               isExpanded
                                                 ? "bg-emerald-50/90 border-2 border-emerald-500 ring-2 ring-emerald-500/40 shadow-md z-20"
                                                 : "bg-white border-slate-200/90 hover:border-emerald-500 hover:ring-1 hover:ring-emerald-500/30 shadow-2xs"
                                             }`}
                                           >
-                                            <div className="h-14 w-full flex items-center justify-center shrink-0 flex-1">
+                                            <div className="h-12 w-full flex items-center justify-center shrink-0 flex-1">
                                               {/* eslint-disable-next-line @next/next/no-img-element */}
                                               <img
                                                 src={makeLogoUrl(
@@ -1527,7 +1794,10 @@ export default function TyresGuideModal({
                                               />
                                               <TruckIcon className="w-7 h-7 text-emerald-600 hidden" />
                                             </div>
-                                            <span className="font-extrabold text-[11px] sm:text-xs text-slate-800 text-center truncate w-full pt-1 shrink-0 leading-normal">
+                                            <span
+                                              title={v.make_name || ""}
+                                              className="font-extrabold text-[10.5px] sm:text-[11px] text-slate-800 text-center w-full pt-1 shrink-0 leading-tight break-words line-clamp-2"
+                                            >
                                               {v.make_name}
                                             </span>
                                           </div>
@@ -1556,6 +1826,23 @@ export default function TyresGuideModal({
                                                       : "right-8"
                                                 }`}
                                               />
+
+                                              <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-100">
+                                                <span className="text-[11px] font-bold text-slate-700 truncate pr-2">
+                                                  {v.make_name} Models
+                                                </span>
+                                                <button
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setExpandedMake(null);
+                                                  }}
+                                                  className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer shrink-0"
+                                                  title="Close"
+                                                >
+                                                  <XMarkIcon className="w-3.5 h-3.5" />
+                                                </button>
+                                              </div>
 
                                               <div
                                                 className={`grid ${

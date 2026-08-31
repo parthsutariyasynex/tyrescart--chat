@@ -630,6 +630,9 @@ export interface KleverVehicleCatalogueItem {
   /** Comma-joined, e.g. "245/50R20, 245/55R19, 245/60R18" — not a single size. */
   front_size?: string | null;
   rear_size?: string | null;
+  /** Flat digits-only comma-joined sizes, e.g. "2355519, 2356018" */
+  front_size_flat?: string | null;
+  rear_size_flat?: string | null;
   is_stock: boolean | number | string | null;
 }
 

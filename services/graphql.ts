@@ -544,11 +544,11 @@ export async function fetchKleverVehicleSearchGraphQL(
   width: number,
   height: number,
   rim: number,
-): Promise<KleverVehicleItem[]> {
+): Promise<KleverVehicleCatalogueItem[]> {
   const query = kleverVehicleSearchQuery(width, height, rim);
   const data = await executeGraphQLQuery(query);
   return (
-    (data?.kleverVehicleSearch?.data as KleverVehicleItem[] | undefined) ?? []
+    (data?.kleverVehicleSearch?.data as KleverVehicleCatalogueItem[] | undefined) ?? []
   );
 }
 
