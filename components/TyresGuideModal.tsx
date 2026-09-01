@@ -641,7 +641,7 @@ function SizeFitmentChip({
             setIsPopupOpen((prev) => !prev);
           }
         }}
-        className={`w-full px-3.5 py-2.5 rounded-xl border text-left transition-all flex items-center justify-start gap-2 cursor-pointer shadow-2xs ${
+        className={`w-full min-w-0 px-3 sm:px-3.5 py-2 sm:py-2.5 rounded-xl border text-left transition-all flex items-center justify-start gap-2 cursor-pointer shadow-2xs ${
           isSelected
             ? "bg-emerald-50/60 border-2 border-emerald-500 ring-2 ring-emerald-500/20"
             : "bg-white border-slate-200/90 hover:bg-slate-50 hover:border-slate-300"
@@ -653,7 +653,7 @@ function SizeFitmentChip({
       {isSelected && isPopupOpen && (
         <div
           ref={popupRef}
-          className={`absolute left-0 z-40 w-72 sm:w-80 animate-in fade-in zoom-in-95 duration-150 ${
+          className={`absolute left-0 z-40 w-full min-w-[11rem] max-w-[calc(100vw-2rem)] animate-in fade-in zoom-in-95 duration-150 ${
             openUpward ? "bottom-full mb-2" : "top-full mt-2"
           }`}
         >
@@ -1265,13 +1265,13 @@ export default function TyresGuideModal({
     >
       {/* Slide-up panel */}
       <div
-        className={`relative bg-slate-50 w-full max-w-full border-t border-slate-200 shadow-2xl flex flex-col overflow-hidden transition-transform duration-300 ease-out h-[92vh] max-h-[92vh] rounded-t-2xl ${
+        className={`relative bg-slate-50 w-full max-w-full border-t border-slate-200 shadow-2xl flex flex-col overflow-hidden transition-transform duration-300 ease-out h-[92dvh] max-h-[92dvh] rounded-t-2xl ${
           isAnimatedOpen && !isClosing ? "translate-y-0" : "translate-y-full"
         }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header Bar */}
-        <div className="bg-white px-5 sm:px-6 py-3 border-b border-slate-200 flex items-center justify-between gap-3 shrink-0">
+        <div className="bg-white px-3 sm:px-6 py-2.5 sm:py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 shrink-0">
           <div className="flex items-center gap-3 shrink-0">
             <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200/80 shadow-2xs">
               <BookOpenIcon className="w-5 h-5" />
@@ -1292,7 +1292,7 @@ export default function TyresGuideModal({
             </div>
           </div>
 
-          <div className="flex-1 min-w-0 max-w-[240px] sm:max-w-xs">
+          <div className="order-last w-full sm:order-none sm:w-auto sm:flex-1 min-w-0 sm:max-w-xs">
             <div className="flex items-center gap-1.5 h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg focus-within:ring-2 focus-within:ring-emerald-500/30 focus-within:border-emerald-500">
               <MagnifyingGlassIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
               <input
@@ -1321,7 +1321,7 @@ export default function TyresGuideModal({
         </div>
 
         {/* Modal Body - Locked page scroll, internal list scrolling only */}
-        <div className="flex-1 min-h-0 overflow-hidden p-3 sm:p-4 flex flex-col justify-between gap-3">
+        <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden p-2.5 sm:p-4 flex flex-col justify-between gap-3">
           {error && (
             <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs font-semibold flex items-center justify-between shrink-0">
               <span>{error}</span>
@@ -1338,10 +1338,14 @@ export default function TyresGuideModal({
           {/* Responsive 2-panel layout: 40% Left Panel & 60% Right Panel */}
           <div className="flex flex-col lg:flex-row gap-4 items-stretch flex-1 min-h-0">
             {/* Left Panel: 40% Width for Search Bar & Tyre Size Search Results - STICKY TOP */}
-            <div className="w-full lg:w-[40%] flex flex-col gap-3 shrink-0 lg:sticky lg:top-0">
+            <div className="w-full lg:w-[40%] lg:min-w-[330px] flex flex-col gap-3 shrink-0 lg:sticky lg:top-0">
               {/* Zero-Layout-Shift Search Bar Container */}
               <div className="bg-white border border-slate-200/90 rounded-xl p-2.5 shadow-2xs h-[88px] flex flex-col justify-between shrink-0 relative z-30">
-                <div className="flex items-center gap-2 h-[44px] px-3 bg-slate-50/90 border border-slate-200 rounded-lg overflow-x-auto no-scrollbar">
+                <div className="flex items-center gap-2 h-[44px] px-3 bg-slate-50/90 border border-slate-200 rounded-lg">
+                  {/* Tag pills + input scroll horizontally; the Clear/Search
+                      buttons sit OUTSIDE this scroller so a long tag list can
+                      never push them out of the card. */}
+                  <div className="flex items-center gap-2 flex-1 min-w-0 overflow-x-auto no-scrollbar">
                   {/* Front Tag Pill */}
                   {frontTag && (
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-700 text-white font-bold text-xs shrink-0 shadow-2xs">
@@ -1474,9 +1478,10 @@ export default function TyresGuideModal({
                           setIsDropdownOpen(false);
                         }
                       }}
-                      className="flex-1 min-w-[140px] bg-transparent text-xs font-semibold text-slate-800 focus:outline-none placeholder:text-slate-400"
+                      className="flex-1 min-w-[120px] bg-transparent text-xs font-semibold text-slate-800 focus:outline-none placeholder:text-slate-400"
                     />
                   )}
+                  </div>
 
                   {/* Autocomplete Dropdown */}
                   {isDropdownOpen && sizeSuggestions.length > 0 && (
@@ -1547,7 +1552,7 @@ export default function TyresGuideModal({
                            to re-appear after the tags are cleared. */
                         setTimeout(() => searchInputRef.current?.focus(), 50);
                       }}
-                      className="ml-auto inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 text-xs font-bold transition-colors cursor-pointer shrink-0 border border-slate-200/80"
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 text-xs font-bold transition-colors cursor-pointer shrink-0 border border-slate-200/80"
                       title="Clear search and show all vehicles"
                     >
                       <XMarkIcon className="w-3.5 h-3.5" />
@@ -1575,7 +1580,7 @@ export default function TyresGuideModal({
                       // never an independent search/fetch.
                       setHasSearched(true);
                     }}
-                    className={`${frontTag || rearTag || searchQuery.trim() ? "ml-1.5" : "ml-auto"} inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition-colors cursor-pointer shrink-0 shadow-2xs`}
+                    className={`${frontTag || rearTag || searchQuery.trim() ? "ml-0.5" : ""} inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition-colors cursor-pointer shrink-0 shadow-2xs`}
                   >
                     <MagnifyingGlassIcon className="w-3.5 h-3.5" />
                     Search
@@ -1592,7 +1597,7 @@ export default function TyresGuideModal({
                 </div>
               </div>
 
-              <div className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-2xs flex flex-col flex-1 min-h-0 max-h-full">
+              <div className="bg-white border border-slate-200/90 rounded-xl p-3 sm:p-4 shadow-2xs flex flex-col flex-1 min-h-[320px] lg:min-h-0 max-h-full">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-3 shrink-0">
                   <div className="flex items-center gap-2">
                     <SparklesIcon className="w-4 h-4 text-emerald-600" />
@@ -1729,7 +1734,7 @@ export default function TyresGuideModal({
                           <div
                             className={`grid gap-4 w-full flex-1 min-h-0 ${
                               hasVehiclesOnSide
-                                ? "grid-cols-1 md:grid-cols-2"
+                                ? "grid-cols-1 xl:grid-cols-2"
                                 : "grid-cols-1"
                             }`}
                           >
@@ -1762,8 +1767,8 @@ export default function TyresGuideModal({
                                             front={searchedFront}
                                             rear={searchedRear}
                                           >
-                                            <div className="flex items-center gap-2">
-                                              <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-blue-50 text-blue-900">
+                                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 w-full">
+                                              <span className="font-extrabold text-[11px] sm:text-xs font-mono px-2 py-0.5 rounded-md bg-blue-50 text-blue-900 break-words">
                                                 {formatSizeDisplay(searchedFront)}
                                                 {searchedRear ? " (front)" : ""}
                                               </span>
@@ -1772,7 +1777,7 @@ export default function TyresGuideModal({
                                                   <span className="text-slate-600 text-xs">
                                                     /
                                                   </span>
-                                                  <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-amber-50 text-amber-950">
+                                                  <span className="font-extrabold text-[11px] sm:text-xs font-mono px-2 py-0.5 rounded-md bg-amber-50 text-amber-950 break-words">
                                                     {formatSizeDisplay(searchedRear)} (rear)
                                                   </span>
                                                 </>
@@ -1815,14 +1820,14 @@ export default function TyresGuideModal({
                                             front={fitment.front}
                                             rear={fitment.rear}
                                           >
-                                            <div className="flex items-center gap-2">
-                                              <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-blue-50 text-blue-900">
+                                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 w-full">
+                                              <span className="font-extrabold text-[11px] sm:text-xs font-mono px-2 py-0.5 rounded-md bg-blue-50 text-blue-900 break-words">
                                                 {formatSizeDisplay(fitment.front)} (front)
                                               </span>
                                               <span className="text-slate-600 text-xs">
                                                 /
                                               </span>
-                                              <span className="font-extrabold text-xs font-mono px-2 py-0.5 rounded-md bg-amber-50 text-amber-950">
+                                              <span className="font-extrabold text-[11px] sm:text-xs font-mono px-2 py-0.5 rounded-md bg-amber-50 text-amber-950 break-words">
                                                 {formatSizeDisplay(fitment.rear)} (rear)
                                               </span>
                                             </div>
@@ -1836,7 +1841,7 @@ export default function TyresGuideModal({
 
                             {/* Part 2: Matching Vehicles */}
                             {hasVehiclesOnSide && (
-                              <div className="pl-0 md:pl-4 border-t md:border-t-0 md:border-l border-slate-200 space-y-2 flex flex-col flex-1 min-h-[360px] max-h-[500px] pt-3 md:pt-0">
+                              <div className="pl-0 xl:pl-4 border-t xl:border-t-0 xl:border-l border-slate-200 space-y-2 flex flex-col flex-1 min-h-[220px] sm:min-h-[280px] xl:min-h-0 pt-3 xl:pt-0">
                                 <div
                                   className="grid grid-cols-3 auto-rows-max content-start items-start gap-2.5 w-full flex-1 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden px-1 pt-1 pb-4 relative"
                                 >
@@ -1926,7 +1931,7 @@ export default function TyresGuideModal({
 
                                           {isExpanded && (
                                             <div
-                                              className={`absolute z-50 ${openUpward ? "bottom-full mb-2" : "top-full mt-2"} ${isSingleModel ? "w-48 sm:w-56" : "w-72 sm:w-80"} bg-white border-2 border-emerald-500 rounded-xl p-3 shadow-xl space-y-2 text-xs text-slate-800 animate-in fade-in zoom-in-95 duration-150 ${
+                                              className={`absolute z-50 ${openUpward ? "bottom-full mb-2" : "top-full mt-2"} ${isSingleModel ? "w-44 sm:w-56 xl:w-[11rem] 2xl:w-56" : "w-[min(18rem,calc(100vw-2rem))] xl:w-[13.5rem] 2xl:w-72"} bg-white border-2 border-emerald-500 rounded-xl p-3 shadow-xl space-y-2 text-xs text-slate-800 animate-in fade-in zoom-in-95 duration-150 ${
                                                 idx % 3 === 0
                                                   ? "left-0"
                                                   : idx % 3 === 1
@@ -2023,7 +2028,7 @@ export default function TyresGuideModal({
             </div>
 
             {/* Right Panel: 60% Width for Vehicle Table - Stretches Full Height */}
-            <div className="w-full lg:w-[60%] flex-1 min-w-0 flex flex-col min-h-0">
+            <div className="w-full lg:w-[60%] flex-1 min-w-0 flex flex-col min-h-[340px] lg:min-h-0">
               {/* Loading Skeleton state */}
               {loading ? (
                 <div className="space-y-2.5">
@@ -2051,7 +2056,7 @@ export default function TyresGuideModal({
                   {/* Vehicle List Table - Fixed layout to prevent shifts on page change */}
                   <div className="bg-white border border-slate-200/90 rounded-xl overflow-hidden shadow-2xs flex flex-col flex-1 min-h-0">
                     <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
-                      <table className="w-full text-left border-collapse text-xs table-fixed">
+                      <table className="w-full min-w-[600px] lg:min-w-0 text-left border-collapse text-xs table-fixed">
                         <thead className="sticky top-0 bg-slate-50 border-b border-slate-200/80 z-10">
                           <tr className="text-[11px] font-bold text-slate-500 uppercase tracking-wider h-9">
                             <th className="py-2 px-3 text-center w-12 bg-slate-50">
@@ -2287,7 +2292,7 @@ export default function TyresGuideModal({
                   </div>
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center h-[580px] bg-white border border-slate-200/90 rounded-xl text-slate-400 gap-3">
+                <div className="flex flex-col items-center justify-center flex-1 min-h-[280px] p-6 bg-white border border-slate-200/90 rounded-xl text-slate-400 gap-3">
                   <TruckIcon className="w-12 h-12 opacity-30 text-emerald-500" />
                   <p className="text-base font-bold text-slate-700">
                     No vehicle fitments found

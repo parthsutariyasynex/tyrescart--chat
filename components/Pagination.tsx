@@ -36,7 +36,7 @@ export default function Pagination({
   if (totalPages <= 0) return null;
 
   return (
-    <div className={`px-5 py-3 flex items-center ${pageSize && setPageSize ? "justify-between" : "justify-end"} border-t border-slate-100 bg-white`}>
+    <div className={`px-3 sm:px-5 py-3 flex flex-wrap items-center gap-x-3 gap-y-2 ${pageSize && setPageSize ? "justify-center sm:justify-between" : "justify-center sm:justify-end"} border-t border-slate-100 bg-white`}>
       {/* Left: Show N entries/page (if pageSize and setPageSize provided) */}
       {pageSize !== undefined && setPageSize && (
         <div
@@ -88,7 +88,7 @@ export default function Pagination({
       )}
 
       {/* Right: First / Previous / page numbers / Next / Last */}
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center justify-center gap-1.5">
         <button
           type="button"
           disabled={currentPage <= 1}
