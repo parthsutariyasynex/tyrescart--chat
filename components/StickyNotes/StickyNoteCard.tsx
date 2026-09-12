@@ -149,7 +149,7 @@ export default function StickyNoteCard({ note }: { note: KleverStickyNote }) {
     const serverContentChanged = prevServerContentRef.current !== (note.content ?? "");
     const serverColorChanged = prevServerColorRef.current !== color;
 
-    if (noteIdChanged || serverTitleChanged || serverContentChanged || serverColorChanged) {
+    if (noteIdChanged || ((serverTitleChanged || serverContentChanged || serverColorChanged) && !dirty)) {
       prevNoteIdRef.current = note.note_id;
       prevServerTitleRef.current = note.title ?? "";
       prevServerContentRef.current = note.content ?? "";
@@ -163,7 +163,7 @@ export default function StickyNoteCard({ note }: { note: KleverStickyNote }) {
       setContentState(note.content ?? "");
       setEditColorState(color);
     }
-  }, [note.note_id, note.title, note.content, color]);
+  }, [note.note_id, note.title, note.content, color, dirty]);
 
   const [syncing, setSyncing] = useState(false);
 

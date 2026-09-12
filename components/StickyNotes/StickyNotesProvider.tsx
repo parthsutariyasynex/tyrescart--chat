@@ -104,7 +104,7 @@ export function StickyNotesProvider({ children }: { children: ReactNode }) {
 
   const reload = useCallback(async () => {
     try {
-      const res = await fetchKleverStickyNotesGraphQL({ pageSize: 200 });
+      const res = await fetchKleverStickyNotesGraphQL({ pageSize: 500 });
       setNotes(res.items ?? []);
     } catch (err) {
       console.warn("Failed to load sticky notes:", err);
@@ -120,7 +120,7 @@ export function StickyNotesProvider({ children }: { children: ReactNode }) {
     (async () => {
       setLoading(true);
       try {
-        const res = await fetchKleverStickyNotesGraphQL({ pageSize: 200 });
+        const res = await fetchKleverStickyNotesGraphQL({ pageSize: 500 });
         if (!cancelled) {
           const items = res.items ?? [];
           setNotes(items);
@@ -141,6 +141,14 @@ export function StickyNotesProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, []);
+
+  // Poll server every 5 seconds to pull down live updates and new notes from other users
+  useEffect(() => {
+    const interval = setInterval(() => {
+      void reload();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [reload]);
 
   const patchNote = useCallback(
     (note_id: number, patch: Partial<KleverStickyNote>) => {

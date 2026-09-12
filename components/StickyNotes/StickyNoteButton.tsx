@@ -34,19 +34,11 @@ import {
 } from "./StickyNotesProvider";
 import type { KleverStickyNote } from "@/services/types";
 
-/** True for a note that is still exactly what `addNote` created — no custom
- *  title, no content — i.e. nothing the user has actually written yet. */
-function isUnsavedPlaceholder(note: KleverStickyNote): boolean {
-  const titleIsDefault = !note.title || note.title === DEFAULT_NOTE_TITLE;
-  const contentIsEmpty = !note.content || note.content.trim() === "";
-  return titleIsDefault && contentIsEmpty;
-}
-
 export default function StickyNoteButton() {
   const { notes, closedIds, addNote, reopenNote } = useStickyNotes();
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const savedNotes = notes.filter((n) => !isUnsavedPlaceholder(n));
+  const savedNotes = notes;
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
