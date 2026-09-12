@@ -15,14 +15,13 @@
  * note through the API) and cleared, so the next render reads the same
  * value back from the note itself — no drift, no flicker.
  *
- * Title/content/color are different: they only persist on an explicit Save,
- * PLUS a 5-second auto-sync (silent) while there's something unsaved, PLUS a
- * manual "Sync" button in the header for an immediate push. All three go
- * straight to the same Klever Sticky Note API — never IndexedDB or any
- * browser storage.
+ * Title/content/color are different: they only persist when the user
+ * explicitly clicks Save (footer) or Sync (header) — no background timer,
+ * by design. Both go straight to the same Klever Sticky Note API — never
+ * IndexedDB or any browser storage.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   XMarkIcon,
   MinusIcon,
@@ -82,7 +81,7 @@ const MIN_WIDTH = 200;
 const MIN_HEIGHT = 160;
 const COLLAPSED_HEIGHT = 40;
 const EDGE_MARGIN = 60; // keep at least this much of the note reachable on-screen
-const MIN_SPIN_MS = 600; // floor so the Sync spinner is visible even on a fast response
+const MIN_SPIN_MS = 800; // floor so the Sync spinner is clearly visible on fast responses
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), Math.max(min, max));
@@ -104,69 +103,99 @@ export default function StickyNoteCard({ note }: { note: KleverStickyNote }) {
     note.color && COLOR_STYLES[note.color] ? note.color : FALLBACK_COLOR;
   const styles = COLOR_STYLES[color];
 
-  const [title, setTitle] = useState(note.title ?? "");
-  const [content, setContent] = useState(note.content ?? "");
-  const [editColor, setEditColor] = useState(color);
+  const [title, setTitleState] = useState(note.title ?? "");
+  const [content, setContentState] = useState(note.content ?? "");
+  const [editColor, setEditColorState] = useState(color);
 
-  // Re-sync the edit buffer only when a genuinely different note mounts here
-  // (or a delete failure reload swaps the underlying record) — NOT on every
-  // patch (e.g. a position update from dragging), which would otherwise wipe
-  // out in-progress typing.
-  useEffect(() => {
-    setTitle(note.title ?? "");
-    setContent(note.content ?? "");
-    setEditColor(color);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [note.note_id]);
+  const titleRef = useRef(title);
+  const contentRef = useRef(content);
+  const editColorRef = useRef(editColor);
+  const syncingRef = useRef(false);
+
+  const setTitle = useCallback((val: string) => {
+    titleRef.current = val;
+    setTitleState(val);
+  }, []);
+
+  const setContent = useCallback((val: string) => {
+    contentRef.current = val;
+    setContentState(val);
+  }, []);
+
+  const setEditColor = useCallback((val: string) => {
+    editColorRef.current = val;
+    setEditColorState(val);
+  }, []);
+
+  const noteTitle = note.title ?? "";
+  const noteContent = note.content ?? "";
 
   const dirty =
-    title !== (note.title ?? "") ||
-    content !== (note.content ?? "") ||
+    title.trim() !== noteTitle.trim() ||
+    content.trim() !== noteContent.trim() ||
     editColor !== color;
+
+  const lastNoteIdRef = useRef(note.note_id);
+
+  // Re-sync the edit buffer when a note mounts or when the backend updates
+  // the record (unless the user has unsaved typing in progress).
+  useEffect(() => {
+    const isNewNote = lastNoteIdRef.current !== note.note_id;
+    if (isNewNote || !dirty) {
+      lastNoteIdRef.current = note.note_id;
+      titleRef.current = noteTitle;
+      contentRef.current = noteContent;
+      editColorRef.current = color;
+      setTitleState(noteTitle);
+      setContentState(noteContent);
+      setEditColorState(color);
+    }
+  }, [note.note_id, noteTitle, noteContent, color, dirty]);
 
   const [syncing, setSyncing] = useState(false);
 
-  // Auto-sync every 5s straight to the Klever Sticky Note API — the only
-  // store (no IndexedDB/localStorage) — so in-progress edits aren't lost if
-  // the note is closed or the tab reloads before an explicit Save. Reads the
-  // latest buffer via a ref rather than depending on [title, content,
-  // editColor] directly: a dependency array like that would tear down and
-  // restart the interval on every keystroke, so the 5s timer would never
-  // actually elapse while the user is still typing.
-  const latestEdit = useRef({ title, content, editColor, dirty });
-  latestEdit.current = { title, content, editColor, dirty };
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      const { title: t, content: c, editColor: col, dirty: d } =
-        latestEdit.current;
-      if (!d) return;
-      void saveNote(
-        note.note_id,
-        { title: t, content: c, color: col },
-        { silent: true },
-      );
-    }, 5000);
-    return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [note.note_id]);
-
-  async function handleSync() {
+  const handleSync = useCallback(async () => {
+    if (syncingRef.current) return;
+    syncingRef.current = true;
     setSyncing(true);
     try {
-      // The real request against this backend often resolves in well under
-      // a second, which cleared the spinner before a human eye could catch
-      // it — Promise.all with a floor keeps the icon visibly spinning for
-      // at least MIN_SPIN_MS regardless of how fast the network responds,
-      // without slowing down the sync itself (they run concurrently).
       await Promise.all([
-        saveNote(note.note_id, { title, content, color: editColor }),
+        saveNote(note.note_id, {
+          title: titleRef.current,
+          content: contentRef.current,
+          color: editColorRef.current,
+          pos_x: note.pos_x ?? undefined,
+          pos_y: note.pos_y ?? undefined,
+          width: note.width ?? undefined,
+          height: note.height ?? undefined,
+          is_collapsed: note.is_collapsed ?? undefined,
+        }),
         new Promise((resolve) => setTimeout(resolve, MIN_SPIN_MS)),
       ]);
     } finally {
       setSyncing(false);
+      syncingRef.current = false;
     }
-  }
+  }, [
+    note.note_id,
+    note.pos_x,
+    note.pos_y,
+    note.width,
+    note.height,
+    note.is_collapsed,
+    saveNote,
+  ]);
+
+  // Auto-sync unsaved changes every 5 seconds via existing API
+  useEffect(() => {
+    if (!dirty || syncing) return;
+
+    const timer = setInterval(() => {
+      void handleSync();
+    }, 5000);
+
+    return () => clearInterval(timer);
+  }, [dirty, syncing, handleSync]);
 
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
   const [dragSize, setDragSize] = useState<{ w: number; h: number } | null>(
@@ -315,29 +344,29 @@ export default function StickyNoteCard({ note }: { note: KleverStickyNote }) {
           className="min-w-0 flex-1 cursor-grab bg-transparent text-xs font-bold text-slate-800 outline-none placeholder:text-slate-500/70"
         />
         <div className="flex shrink-0 items-center gap-0.5">
-          {!note.is_collapsed && (
-            <button
-              type="button"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={() => void handleSync()}
-              disabled={syncing || !dirty}
-              title={
-                dirty
-                  ? "Sync now (also auto-syncs every 5s while editing)"
-                  : "Nothing to sync — up to date"
-              }
-              aria-label="Sync note"
-              className={`rounded p-1 transition-colors ${
-                dirty
-                  ? "text-slate-700 hover:bg-black/10 cursor-pointer"
-                  : "text-slate-400 cursor-default"
-              }`}
-            >
-              <ArrowPathIcon
-                className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`}
-              />
-            </button>
-          )}
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => void handleSync()}
+            disabled={syncing}
+            title={
+              syncing
+                ? "Syncing..."
+                : dirty
+                ? "Sync unsaved changes"
+                : "Sync note now"
+            }
+            aria-label="Sync note"
+            className={`rounded p-1 transition-colors ${
+              syncing
+                ? "text-blue-600 bg-blue-100/70 cursor-wait"
+                : "text-slate-700 hover:bg-black/10 cursor-pointer"
+            }`}
+          >
+            <ArrowPathIcon
+              className={`h-3.5 w-3.5 ${syncing ? "animate-spin text-blue-600 font-bold" : ""}`}
+            />
+          </button>
           <button
             type="button"
             onPointerDown={(e) => e.stopPropagation()}
@@ -409,16 +438,10 @@ export default function StickyNoteCard({ note }: { note: KleverStickyNote }) {
             </button>
             <button
               type="button"
-              disabled={!dirty}
-              onClick={() =>
-                void saveNote(note.note_id, {
-                  title,
-                  content,
-                  color: editColor,
-                })
-              }
+              disabled={!dirty || syncing}
+              onClick={() => void handleSync()}
               className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-bold transition-colors ${
-                dirty
+                dirty && !syncing
                   ? "cursor-pointer bg-emerald-600 text-white hover:bg-emerald-700"
                   : "cursor-not-allowed bg-black/5 text-slate-400"
               }`}

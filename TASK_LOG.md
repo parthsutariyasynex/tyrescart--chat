@@ -633,3 +633,58 @@ completed correctly and persisted to the database.
 
 ## Final Status
 Completed
+
+---
+
+# Task #007 — Sticky Note sync: remove the 5s auto-timer, click-only
+
+Date: 2026-09-12
+Status: Completed
+
+## Requirement
+User reversed the earlier auto-sync request (Task #005): sync should happen
+ONLY when the Sync button is clicked — no background 5-second timer.
+
+## Planned Changes
+- `components/StickyNotes/StickyNoteCard.tsx` — remove the `setInterval`
+  effect and its supporting `latestEdit` ref entirely; keep `handleSync`
+  (with its Task #006 minimum-spin-duration fix) as the only way a
+  title/content/color edit gets persisted, alongside the unchanged footer
+  Save button.
+- `components/StickyNotes/StickyNotesProvider.tsx` — `saveNote`'s `opts?:
+  { silent?: boolean }` parameter was added solely for the auto-timer (so it
+  wouldn't toast every 5s); with the timer gone no caller uses `silent`
+  anymore, so removed it and reverted `saveNote` to its original two-argument
+  form rather than leaving a dead, unused option in a shared context type.
+
+## Files Affected
+- `components/StickyNotes/StickyNoteCard.tsx`
+- `components/StickyNotes/StickyNotesProvider.tsx`
+
+## Implementation
+- Deleted the `useEffect(() => { const id = setInterval(...) }, [note.note_id])`
+  block and the `latestEdit` ref it read from.
+- Updated the file-level doc comment and the Sync button's tooltip (was
+  "Sync now (also auto-syncs every 5s while editing)") to drop every
+  reference to the removed timer.
+- `saveNote(note_id, input)` — back to exactly two arguments; the success
+  toast is unconditional again (it always fires now, since the only callers
+  left — Sync, Save, color-swatch clicks — all want the confirmation).
+
+## Testing
+- `npx tsc --noEmit` — clean.
+- `npm run lint` — no new problems; same pre-existing issues as every prior
+  task in this file.
+- **Live browser check**, headless Chrome over CDP against the real dev
+  server and QA backend: created a note, renamed it via the header input,
+  clicked nothing, and waited 9 seconds (well past the old 5s interval) — a
+  direct `kleverStickyNotes` query confirmed the new title was **absent**
+  from the database (no auto-sync fired). Then clicked the Sync button —
+  the same query now found it present. Zero console errors. (One earlier
+  test run hit a transient failure while the Next.js dev server was mid
+  Fast-Refresh from these very edits — confirmed via console logs
+  ("[Fast Refresh] rebuilding" / "done in 104ms") and unrelated to the
+  change itself; re-ran once the dev server settled and it passed cleanly.)
+
+## Final Status
+Completed

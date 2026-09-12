@@ -898,7 +898,7 @@ export async function updateKleverStickyNoteGraphQL(
   input: KleverStickyNoteInput,
 ): Promise<KleverStickyNote> {
   const data = await executeGraphQLQuery(UPDATE_KLEVER_STICKY_NOTE, {
-    note_id,
+    note_id: Number(note_id),
     input,
   });
   const res = data?.updateKleverStickyNote as KleverStickyNote | undefined;
