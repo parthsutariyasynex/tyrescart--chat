@@ -97,6 +97,7 @@ export default function StickyNoteCard({ note }: { note: KleverStickyNote }) {
     bringToFront,
     frontId,
     closeNote,
+    reload,
   } = useStickyNotes();
 
   const color =
@@ -135,22 +136,34 @@ export default function StickyNoteCard({ note }: { note: KleverStickyNote }) {
     content.trim() !== noteContent.trim() ||
     editColor !== color;
 
-  const lastNoteIdRef = useRef(note.note_id);
+  const prevServerTitleRef = useRef(note.title ?? "");
+  const prevServerContentRef = useRef(note.content ?? "");
+  const prevServerColorRef = useRef(color);
+  const prevNoteIdRef = useRef(note.note_id);
 
-  // Re-sync the edit buffer when a note mounts or when the backend updates
-  // the record (unless the user has unsaved typing in progress).
+  // Re-sync the edit buffer whenever the note_id changes or when the backend
+  // delivers updated values for title, content, or color.
   useEffect(() => {
-    const isNewNote = lastNoteIdRef.current !== note.note_id;
-    if (isNewNote || !dirty) {
-      lastNoteIdRef.current = note.note_id;
-      titleRef.current = noteTitle;
-      contentRef.current = noteContent;
+    const noteIdChanged = prevNoteIdRef.current !== note.note_id;
+    const serverTitleChanged = prevServerTitleRef.current !== (note.title ?? "");
+    const serverContentChanged = prevServerContentRef.current !== (note.content ?? "");
+    const serverColorChanged = prevServerColorRef.current !== color;
+
+    if (noteIdChanged || serverTitleChanged || serverContentChanged || serverColorChanged) {
+      prevNoteIdRef.current = note.note_id;
+      prevServerTitleRef.current = note.title ?? "";
+      prevServerContentRef.current = note.content ?? "";
+      prevServerColorRef.current = color;
+
+      titleRef.current = note.title ?? "";
+      contentRef.current = note.content ?? "";
       editColorRef.current = color;
-      setTitleState(noteTitle);
-      setContentState(noteContent);
+
+      setTitleState(note.title ?? "");
+      setContentState(note.content ?? "");
       setEditColorState(color);
     }
-  }, [note.note_id, noteTitle, noteContent, color, dirty]);
+  }, [note.note_id, note.title, note.content, color]);
 
   const [syncing, setSyncing] = useState(false);
 
@@ -159,8 +172,8 @@ export default function StickyNoteCard({ note }: { note: KleverStickyNote }) {
     syncingRef.current = true;
     setSyncing(true);
     try {
-      await Promise.all([
-        saveNote(note.note_id, {
+      if (dirty) {
+        await saveNote(note.note_id, {
           title: titleRef.current,
           content: contentRef.current,
           color: editColorRef.current,
@@ -169,14 +182,17 @@ export default function StickyNoteCard({ note }: { note: KleverStickyNote }) {
           width: note.width ?? undefined,
           height: note.height ?? undefined,
           is_collapsed: note.is_collapsed ?? undefined,
-        }),
-        new Promise((resolve) => setTimeout(resolve, MIN_SPIN_MS)),
-      ]);
+        });
+      } else {
+        await reload();
+      }
+      await new Promise((resolve) => setTimeout(resolve, MIN_SPIN_MS));
     } finally {
       setSyncing(false);
       syncingRef.current = false;
     }
   }, [
+    dirty,
     note.note_id,
     note.pos_x,
     note.pos_y,
@@ -184,18 +200,10 @@ export default function StickyNoteCard({ note }: { note: KleverStickyNote }) {
     note.height,
     note.is_collapsed,
     saveNote,
+    reload,
   ]);
 
-  // Auto-sync unsaved changes every 5 seconds via existing API
-  useEffect(() => {
-    if (!dirty || syncing) return;
 
-    const timer = setInterval(() => {
-      void handleSync();
-    }, 5000);
-
-    return () => clearInterval(timer);
-  }, [dirty, syncing, handleSync]);
 
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
   const [dragSize, setDragSize] = useState<{ w: number; h: number } | null>(

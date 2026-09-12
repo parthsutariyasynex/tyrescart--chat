@@ -81,6 +81,8 @@ interface StickyNotesContextValue {
    *  just brings it to front, so the "My Notes" list can use one action for
    *  both "open this" and "find this among several open notes". */
   reopenNote: (note_id: number) => void;
+  /** Re-fetches all notes from the server database, pulling down changes/notes from other users. */
+  reload: () => Promise<void>;
 }
 
 const StickyNotesContext = createContext<StickyNotesContextValue | null>(null);
@@ -200,9 +202,12 @@ export function StickyNotesProvider({ children }: { children: ReactNode }) {
     async (note_id: number, input: KleverStickyNoteInput) => {
       patchNote(note_id, input);
       const ok = await persist(note_id, input, "Failed to save note.");
-      if (ok) toast("Note saved.", "success");
+      if (ok) {
+        toast("Note saved.", "success");
+        void reload();
+      }
     },
-    [patchNote, persist, toast],
+    [patchNote, persist, reload, toast],
   );
 
   const moveNote = useCallback(
@@ -290,6 +295,7 @@ export function StickyNotesProvider({ children }: { children: ReactNode }) {
         closedIds,
         closeNote,
         reopenNote,
+        reload,
       }}
     >
       {children}
