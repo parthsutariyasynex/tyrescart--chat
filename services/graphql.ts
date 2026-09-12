@@ -18,6 +18,10 @@ import {
   crmRecentBookingsQuery,
   CREATE_KLEVER_QUOTE,
   ADD_QUOTE_HISTORY,
+  KLEVER_STICKY_NOTES_QUERY,
+  CREATE_KLEVER_STICKY_NOTE,
+  UPDATE_KLEVER_STICKY_NOTE,
+  DELETE_KLEVER_STICKY_NOTE,
   kleverVehicleSearchQuery,
   kleverVehicleCatalogueQuery,
   urlTemplatesQuery,
@@ -41,6 +45,10 @@ import type {
   KleverQuoteInput,
   KleverQuoteHistory,
   KleverQuoteHistoryInput,
+  KleverStickyNote,
+  KleverStickyNoteInput,
+  KleverStickyNotesQueryVars,
+  KleverStickyNotesResult,
   CrmCustomer,
   CrmBookingInput,
   CrmBookingResult,
@@ -854,4 +862,59 @@ export function fetchKleverVehicleFitments(
   // A failed lookup must not be cached, or the vehicle can never be retried.
   task.catch(() => fitmentCache.delete(key));
   return task;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Klever Sticky Note
+───────────────────────────────────────────────────────────── */
+
+/**
+ * Fetch every sticky note (unfiltered — see the comment above
+ * `KLEVER_STICKY_NOTES_QUERY` in `./queries`).
+ */
+export async function fetchKleverStickyNotesGraphQL(
+  vars: KleverStickyNotesQueryVars = {},
+): Promise<KleverStickyNotesResult> {
+  const { pageSize = 200, currentPage = 1 } = vars;
+  const data = await executeGraphQLQuery(KLEVER_STICKY_NOTES_QUERY, {
+    pageSize,
+    currentPage,
+  });
+  return data?.kleverStickyNotes ?? { items: [], total_count: 0 };
+}
+
+export async function createKleverStickyNoteGraphQL(
+  input: KleverStickyNoteInput,
+): Promise<KleverStickyNote> {
+  const data = await executeGraphQLQuery(CREATE_KLEVER_STICKY_NOTE, { input });
+  const res = data?.createKleverStickyNote as KleverStickyNote | undefined;
+  if (!res)
+    throw new Error("Sticky note create failed: the server returned no record.");
+  return res;
+}
+
+export async function updateKleverStickyNoteGraphQL(
+  note_id: number,
+  input: KleverStickyNoteInput,
+): Promise<KleverStickyNote> {
+  const data = await executeGraphQLQuery(UPDATE_KLEVER_STICKY_NOTE, {
+    note_id,
+    input,
+  });
+  const res = data?.updateKleverStickyNote as KleverStickyNote | undefined;
+  if (!res)
+    throw new Error("Sticky note update failed: the server returned no record.");
+  return res;
+}
+
+/** Returns whether the delete succeeded (`success` from
+ *  `KleverStickyNoteDeleteOutput`), rather than throwing on a false result —
+ *  callers decide what a "not deleted" response means for their UI. */
+export async function deleteKleverStickyNoteGraphQL(
+  note_id: number,
+): Promise<boolean> {
+  const data = await executeGraphQLQuery(DELETE_KLEVER_STICKY_NOTE, {
+    note_id,
+  });
+  return Boolean(data?.deleteKleverStickyNote?.success);
 }

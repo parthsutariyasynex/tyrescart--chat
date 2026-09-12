@@ -696,3 +696,84 @@ export interface KleverFitmentPair {
   isStock: boolean;
 }
 
+/* ── Klever Sticky Note (Klever_StickyNote module) ──
+ *
+ * Field names verified against the Klever API docs
+ * (`/en/kleverapi/docs`, mod-6) — there is no introspection to check them
+ * against (see CLAUDE.md "Environment"), so every name here must match the
+ * docs exactly rather than being guessed.
+ */
+
+/** Allowed values for `color`, per the docs. Kept as a plain string union
+ *  plus `(string & {})` so a value the backend adds later still type-checks. */
+export type KleverStickyNoteColor =
+  | "yellow"
+  | "blue"
+  | "green"
+  | "pink"
+  | "purple"
+  | "orange"
+  | "grey"
+  | (string & {});
+
+/** Input shape for both `createKleverStickyNote` and `updateKleverStickyNote`
+ *  — every field is optional on the schema itself (no `!`), so a caller sends
+ *  only the fields it is actually changing. */
+export interface KleverStickyNoteInput {
+  title?: string;
+  content?: string;
+  color?: KleverStickyNoteColor;
+  pos_x?: number;
+  pos_y?: number;
+  width?: number;
+  height?: number;
+  sort_order?: number;
+  is_collapsed?: boolean;
+  is_pinned?: boolean;
+  is_shared?: boolean;
+  status?: number;
+  admin_user_id?: number;
+  owner_name?: string;
+  external_ref?: string;
+  entity_type?: string;
+  entity_id?: string;
+  reminder_at?: string;
+}
+
+/** One sticky note, as returned by `kleverStickyNote(s)` / the mutations. */
+export interface KleverStickyNote {
+  note_id: number;
+  title: string | null;
+  content: string | null;
+  color: KleverStickyNoteColor | null;
+  pos_x: number | null;
+  pos_y: number | null;
+  width: number | null;
+  height: number | null;
+  sort_order: number | null;
+  is_collapsed: boolean | null;
+  is_pinned: boolean | null;
+  is_shared: boolean | null;
+  status: number | null;
+  admin_user_id: number | null;
+  owner_name: string | null;
+  /** Set by the backend (observed `"api"`), never sent by the client. */
+  source: string | null;
+  external_ref: string | null;
+  entity_type: string | null;
+  entity_id: string | null;
+  reminder_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface KleverStickyNotesQueryVars {
+  pageSize?: number;
+  currentPage?: number;
+}
+
+export interface KleverStickyNotesResult {
+  items: KleverStickyNote[];
+  total_count: number | null;
+}
+

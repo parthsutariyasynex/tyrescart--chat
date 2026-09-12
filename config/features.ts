@@ -56,6 +56,7 @@ export const features = {
   tyresGuide: envBool(process.env.NEXT_PUBLIC_FEATURE_TYRES_GUIDE),
   exportCsv: envBool(process.env.NEXT_PUBLIC_FEATURE_EXPORT),
   copyResult: envBool(process.env.NEXT_PUBLIC_FEATURE_COPY_RESULT),
+  stickyNotes: envBool(process.env.NEXT_PUBLIC_FEATURE_STICKY_NOTES),
 
   /* ── Table row action buttons + their modals ── */
   cart: envBool(process.env.NEXT_PUBLIC_FEATURE_CART),

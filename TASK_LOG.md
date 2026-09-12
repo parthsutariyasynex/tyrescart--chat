@@ -56,6 +56,294 @@ Completed
 
 ---
 
+# Task #003 — Draggable floating Sticky Note UI (Klever Sticky Note API)
+
+Date: 2026-09-12
+Status: In Progress
+
+## Requirement
+Add a freely movable floating sticky-note overlay to the POS: drag anywhere
+(mouse + touch), persist position/size through the existing Sticky Note API so
+it survives refresh/login/device changes, support multiple independently
+movable notes, edit/save/delete/minimize/expand, add a header button to create
+a note. No IndexedDB/localStorage, no new backend/API logic, no mock/fallback
+data — must inspect the real API first and use its exact field names.
+
+## Planned Changes
+- Inspect the existing Sticky Note API (there was no frontend code for it in
+  this repo) via the Klever API docs the user linked
+  (`/en/kleverapi/docs`, mod-6, `Klever_StickyNote` module) to get exact
+  query/mutation names and field names.
+- `services/types.ts` — add `KleverStickyNote`, `KleverStickyNoteInput`,
+  `KleverStickyNotesQueryVars`, `KleverStickyNotesResult` types matching the
+  API exactly.
+- `services/queries.ts` — add `KLEVER_STICKY_NOTES_QUERY`,
+  `CREATE_KLEVER_STICKY_NOTE`, `UPDATE_KLEVER_STICKY_NOTE`,
+  `DELETE_KLEVER_STICKY_NOTE` GraphQL documents (variables-based, like
+  `CREATE_KLEVER_QUOTE`).
+- `services/graphql.ts` — add
+  `fetchKleverStickyNotesGraphQL`/`createKleverStickyNoteGraphQL`/
+  `updateKleverStickyNoteGraphQL`/`deleteKleverStickyNoteGraphQL` fetchers,
+  reusing `executeGraphQLQuery` (goes through the existing `/api/graphql`
+  proxy — no new backend route).
+- `config/features.ts` — add a `stickyNotes` feature flag next to the other
+  header-action flags.
+- New `components/StickyNotes/StickyNotesProvider.tsx` — client context: loads
+  notes on mount, exposes add/save/move/resize/toggleCollapsed/remove, all
+  backed by the mutations above (no local persistence).
+- New `components/StickyNotes/StickyNoteCard.tsx` — an individual floating
+  note: Pointer Events–based drag (header) and resize (corner handle) so mouse
+  and touch share one code path, editable title/content/color with an
+  explicit Save, minimize/expand, delete.
+- New `components/StickyNotes/StickyNotesOverlay.tsx` — renders all notes in a
+  `fixed inset-0 pointer-events-none` layer (so it floats above content
+  without affecting layout or blocking clicks between notes).
+- New `components/StickyNotes/StickyNoteButton.tsx` — header "Add Sticky
+  Note" button.
+- `app/(app)/layout.tsx` — mount `StickyNotesProvider` + `StickyNotesOverlay`
+  once, above the route boundary (same reasoning as `<Sidebar />`: a dragged
+  note must not remount on navigation).
+- `components/Header.tsx` — render `StickyNoteButton` as a new shared trailing
+  control (same pattern as the existing Book Inquiry button), gated by
+  `features.stickyNotes`.
+
+## Files Affected
+- `services/types.ts`
+- `services/queries.ts`
+- `services/graphql.ts`
+- `config/features.ts`
+- `.env.local` (added `NEXT_PUBLIC_FEATURE_STICKY_NOTES=true`, gitignored)
+- `components/Header.tsx`
+- `app/(app)/layout.tsx`
+- `components/StickyNotes/StickyNotesProvider.tsx` (new)
+- `components/StickyNotes/StickyNoteCard.tsx` (new)
+- `components/StickyNotes/StickyNotesOverlay.tsx` (new)
+- `components/StickyNotes/StickyNoteButton.tsx` (new)
+
+## Implementation
+- **Types/queries/fetchers** added exactly matching the live
+  `Klever_StickyNote` module (query `kleverStickyNotes` →
+  `{ items, total_count }`, `createKleverStickyNote`/`updateKleverStickyNote`/
+  `deleteKleverStickyNote`, `KleverStickyNoteInput` with `pos_x`/`pos_y`/
+  `width`/`height`/`is_collapsed`/`color` etc., all optional so an update
+  sends only the fields it changes). No new backend fields — everything maps
+  to what already exists.
+- **`StickyNotesProvider`** (mounted once in `app/(app)/layout.tsx`, above the
+  route boundary, next to `<Sidebar />`) loads all notes on mount and exposes
+  add/save/move/resize/toggleCollapsed/remove, all backed by the mutations —
+  no IndexedDB/localStorage anywhere.
+- **`StickyNoteCard`**: drag (header strip) and resize (corner handle) via
+  the Pointer Events API (`onPointerDown/Move/Up` + `setPointerCapture`), one
+  code path for mouse and touch. Position/size are rendered from a local
+  override while a drag/resize is in flight and handed to `moveNote`/
+  `resizeNote` on pointer-up, which persists via `updateKleverStickyNote` and
+  is not written on every pixel of movement.
+- **`StickyNotesOverlay`**: `fixed inset-0 pointer-events-none` layer so
+  floating notes sit above all page content without taking part in layout or
+  blocking clicks between notes.
+- **`StickyNoteButton`**: added to `components/Header.tsx` as a new shared
+  trailing control (same pattern as the existing Book Inquiry button), gated
+  by a new `features.stickyNotes` flag — shows on every page automatically,
+  no per-page wiring needed.
+- **Close vs. Delete split** (added after live testing surfaced it as a real
+  problem — see Issues below): the header's **X** button now only sets local
+  `dismissed` state (hides the card for the rest of this browser session,
+  touches no API field, note reappears on reload) — it is labelled "Close"
+  and no longer deletes anything. A separate **Delete** button (trash icon,
+  red, in the footer next to Save) performs the actual
+  `deleteKleverStickyNote` call, still behind a `window.confirm`. The title
+  input was moved out of the header into the body for the same investigation
+  (see below) — the header is now a plain draggable strip showing the title
+  as static text, with only the Minimize/Expand and Close icons on it.
+
+## Testing
+- `npx tsc --noEmit` — clean, at every step.
+- `npm run lint` — no new problems; the 2 errors (`QuotationModal.tsx`) and 2
+  warnings (`ProductTableRow.tsx`, `TyresGuideModal.tsx`) are pre-existing,
+  in files this task did not touch.
+- **Live browser verification**, driven end-to-end over CDP (headless Chrome,
+  `chrome-remote-interface`) against this project's own dev server (this
+  machine had TWO unrelated Next dev servers running — port 3000 turned out
+  to be a different project, `tyresworld-front-graphql`; this repo's own
+  server was on port 3001, confirmed by `ps`/`lsof` before testing against
+  it), logged in via `/api/auth/login`, against the real QA GraphQL backend
+  (no mocks):
+  - Add Sticky Note (header button) → `createKleverStickyNote`, 0 GraphQL
+    errors, card renders floating above content.
+  - Drag by the header → `updateKleverStickyNote(pos_x, pos_y)` → **reload →
+    note restored at the exact dragged position** (120,100 → 360,260,
+    confirmed via a fresh `kleverStickyNotes` query after reload).
+  - Resize via the corner handle → same persistence pattern confirmed
+    (260×220 → 340×284, survived reload).
+  - Edit title/content/color + Save → persisted, confirmed present after
+    reload; a "Note saved." toast appears; no error toast.
+  - Minimize/Expand → collapses to a 40px header bar and back, confirmed via
+    measured height.
+  - Close (X) → note hidden from the DOM immediately, confirmed still
+    present in the backend via a direct `kleverStickyNotes` query, and
+    confirmed it reappears after a reload (i.e. genuinely non-destructive,
+    session-only).
+  - Delete (trash icon, footer) → confirm() dialog auto-accepted →
+    `deleteKleverStickyNote` → gone from the DOM and confirmed gone after
+    reload (real, permanent removal).
+  - Multiple independent notes: created 2+ concurrently, each draggable
+    without affecting the others.
+  - Checked `console --errors` equivalent (CDP `Runtime.exceptionThrown` /
+    console.error capture) after every step — 0 by the end (see bugs found
+    and fixed, below).
+
+## Issues / Notes
+- **Two real bugs were found and fixed during this same live-testing pass**
+  (not shipped, then found separately — testing caught them before this task
+  was called done):
+  1. The title `<input>` originally lived inside the draggable header and
+     had to call `stopPropagation()` on pointerdown to stay editable — which
+     swallowed the drag gesture almost everywhere in the header (only a few
+     px of padding were left grabbable). Fixed by moving the title into the
+     body and leaving the header a plain draggable strip with a static title
+     label.
+  2. `handleHeaderPointerUp`/`handleResizePointerUp` called `moveNote`/
+     `resizeNote` (which update `StickyNotesProvider`'s state) **from inside**
+     the functional updater passed to `setDragPos`/`setDragSize`. React logs
+     "Cannot update a component while rendering a different component" for
+     this and does not guarantee the update applies correctly. Fixed by
+     mirroring the latest drag/resize value in a ref and calling
+     `moveNote`/`resizeNote` as an ordinary call in the event handler instead.
+- **Live/shared environment caveat**: this task's browser verification ran
+  against the same QA Magento backend and the same dev server the user was
+  actively testing against in their own browser at the same time (confirmed
+  by seeing the user's own notes, e.g. a "Tyrscart" note with real content,
+  appear mid-test). A handful of empty test notes from both this session's
+  automated runs and the user's own manual testing were left in the QA
+  `kleverStickyNotes` table — left alone deliberately rather than
+  auto-deleted, since distinguishing "my test data" from "the user's
+  in-progress testing" isn't reliable, and deleting someone's real note
+  amid live testing is exactly the kind of action this project's own
+  guidance treats as needing explicit confirmation. They can be removed via
+  the new Delete button whenever convenient.
+- Confirmed by a repo-wide search (before writing any code) that no
+  sticky-note code, types, or GraphQL fields existed anywhere in this
+  codebase — this is new frontend work against an already-live backend
+  module, not a continuation.
+- Exact API shape (query/mutation names, `KleverStickyNoteInput`/
+  `KleverStickyNote` fields, `pos_x`/`pos_y`/`width`/`height`/`is_collapsed`,
+  color enum, response wrappers) came from the Klever API docs page the user
+  linked, not introspection (introspection is broken on this Magento build —
+  see CLAUDE.md "Environment").
+- **Follow-up (same day)**: after Close (X) shipped, the user asked how to
+  get back to a note they had closed — Close only set local component state,
+  so the only way back was a full page reload. Fixed by lifting the "closed"
+  set out of `StickyNoteCard` into `StickyNotesProvider` (`closedIds: Set
+  <number>`, `closeNote`/`reopenNote`), still session-only/not persisted
+  (unchanged behavior otherwise — closing still touches no API field and a
+  reload still brings everything back). `StickyNoteButton` now shows a small
+  amber count badge + caret next to "Add Sticky Note" whenever at least one
+  note is closed; clicking it opens a dropdown (styled to match
+  `components/TableDensityMenu.tsx`'s existing button+panel+click-outside
+  pattern) listing closed note titles with a "Reopen" action each. Re-verified
+  live over CDP: create → close (hidden, badge shows "1") → open dropdown →
+  Reopen → card reappears with no reload, 0 console errors.
+- **Follow-up #2 (same day)**: user reported that refreshing the page opened
+  *every* note as a floating card at once (clutter), and asked instead to be
+  able to open one particular note to edit. This meant inverting the
+  default: previously every note fetched on load started **open** (not in
+  `closedIds`), so a page with several notes always popped all of them onto
+  the screen on every login/reload — the "closed" tray only helped once you
+  had explicitly closed one first.
+  - `StickyNotesProvider`'s initial-load effect now seeds `closedIds` with
+    every note id from that fetch, so a fresh load shows nothing floating.
+    A note created via `addNote` this session is never added to
+    `closedIds`, so it still opens immediately, as before.
+  - `StickyNoteButton`'s dropdown ("My Notes", was "Closed notes") now lists
+    **every** note, not just closed ones, each with "Open" (closed) or
+    "Focus" (already open) — `reopenNote` already handled the "already open"
+    case as a harmless bring-to-front, so no logic change there.
+  - Live-verified over CDP end to end: fresh load → 0 floating cards, badge
+    shows the true total count → create+save+close a marked note → reload →
+    still 0 floating (the actual bug being fixed) → open that one specific
+    note from "My Notes" → edit its content → Save → confirmed persisted
+    both via a direct `kleverStickyNotes` API query and via a second fresh
+    reload + reopen through the UI. 0 console errors. (The user's earlier,
+    separate report that "edit after reopen doesn't update" did not
+    reproduce under this test — likely was disorientation from several
+    notes being open/overlapping at once before this fix, not a persistence
+    bug; editing and saving a specifically-opened note works correctly.)
+- **Follow-up #3 (same day)**: the "My Notes" list was cluttered with blank
+  "New note" placeholders from repeated Add-Sticky-Note clicks that were
+  never actually written into. User asked for the list to show only notes
+  that were actually saved. Added `DEFAULT_NOTE_TITLE` export from
+  `StickyNotesProvider` (the literal `addNote` already used) and an
+  `isUnsavedPlaceholder()` check in `StickyNoteButton` — a note is excluded
+  from "My Notes" (and the badge count) only while its title is still
+  exactly the default AND its content is still empty; typing a real title or
+  any content makes it appear. Live-verified: badge dropped from the raw
+  total (e.g. 9) to the count of genuinely-written notes (2), and the
+  dropdown listed only those two.
+- **Follow-up #4 (same day)**: the "My Notes" caret+badge button was only
+  rendered when `savedNotes.length > 0`, so the header's flex row reflowed
+  (Fullscreen/Sync/Online shifted) the moment a note went from unsaved to
+  saved (or the last saved note was deleted). Fixed by always mounting that
+  button (same fixed padding/icon, so identical footprint) and only toggling
+  the badge `<span>` and the enabled/disabled + color state inside it —
+  matches this app's existing "fixed-width wrapper prevents layout shift"
+  convention (see the items-count badge in `components/HeaderActions.tsx`).
+  Live-verified over CDP: measured the Fullscreen button's `getBoundingClientRect().x`
+  before and after creating+saving a new note — identical (1248px both
+  times), 0 console errors.
+- **Follow-up #5 (same day)**: the header trigger was an unlabeled icon-only
+  button (matching `FullscreenButton`'s minimal style), and the user asked
+  for a proper named button instead. Restyled to match
+  `components/HeaderBookInquiry.tsx` exactly (`h-9 ... text-xs font-bold ...
+  rounded-lg`, icon + `<span>` label), now reading "Sticky Note" with its own
+  accent (`violet`, distinct from Book Inquiry/emerald, Create Quote/indigo,
+  Chat/sky, Tyres Guide/amber). The "My Notes" caret+badge became a small
+  square icon button (border, white bg) next to it rather than the previous
+  bare muted chevron, so it doesn't look like a stray artifact next to a
+  solid colored button. Screenshotted on `/dashboard` and `/tc-products` —
+  reads correctly next to the other labeled header buttons on both.
+- **Follow-up #6 (same day)**: an expanded note showed its title twice — once
+  as the static header label added when the title input was moved out of the
+  header (Follow-up bug-fix pass), and again as the title `<input>` right
+  below it in the body. Fixed by only rendering the header's static title
+  `<span>` while the note is collapsed (the one time the input itself isn't
+  visible); the icon buttons now use `ml-auto` to stay right-aligned whether
+  or not that span is present, instead of relying on the span's `flex-1` to
+  push them over. Screenshotted both states — expanded shows the title once
+  (in the input), collapsed shows it once (in the header).
+- **Follow-up #7 (same day)**: user asked for the title to show IN the
+  header (not below it in the body, where Follow-up #6's predecessor had
+  moved it to solve the drag bug). Put the title `<input>` back in the
+  header — this time WITHOUT `stopPropagation()` on its pointerdown, so the
+  press still bubbles to the header's own drag handlers (a plain click still
+  focuses the input and places the caret as a normal browser default action;
+  only a click-AND-DRAG gesture across the title text now moves the note
+  instead of selecting text — typing/backspace are unaffected). Removed the
+  now-redundant body title input entirely, so there is exactly one title
+  field, in the header, visible whether collapsed or expanded (the
+  collapsed-only static `<span>` from Follow-up #6 is gone too — the input
+  itself is now what shows in both states). Live-verified over CDP: only one
+  `input[placeholder="Title"]` exists for the note; dragging by pressing
+  directly on the title text still moves the card (confirmed a real position
+  change after a drag started on the title); 0 console errors.
+- **Follow-up #8 (same day)**: the "orange" note color looked transparent/
+  washed out rather than a proper solid orange. Root cause: it used
+  `bg-orange-50` (Tailwind's palest orange tint, close to white) for the
+  card body plus `bg-orange-200/90` (a partial-alpha header) — both other
+  colors' `-50`/`-200` shades read as visibly tinted, but orange's happens to
+  be the palest of the set, so the `/90` transparency on top of it looked
+  like the header wasn't really colored at all. Bumped orange one shade
+  darker (`bg-orange-100` body, `bg-orange-300` header) and dropped the
+  `/90` opacity from every color's header (all were technically translucent,
+  orange just showed it) for a consistently solid, fully-opaque header
+  across all seven colors. Verified via computed style: card
+  `rgb(255,237,213)` (orange-100) and header `rgb(253,186,116)` (orange-300),
+  both fully opaque; screenshotted — reads as a proper solid orange note.
+
+## Final Status
+Completed
+
+---
+
 # Task #002 — Make the Tyres Guide modal properly responsive
 
 Date: 2026-09-01

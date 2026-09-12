@@ -20,18 +20,22 @@
  */
 
 import type { ReactNode } from "react";
-import { OnlineStatusBadge, FullscreenButton } from "@/components/HeaderUtilities";
+import {
+  OnlineStatusBadge,
+  FullscreenButton,
+} from "@/components/HeaderUtilities";
 import SyncButton from "@/components/SyncButton";
 import HeaderBookInquiry from "@/components/HeaderBookInquiry";
+import StickyNoteButton from "@/components/StickyNotes/StickyNoteButton";
 import { features } from "@/config/features";
 import type { SyncTaskId } from "@/services/syncManager";
 
 /** Standard unified header shell across all pages to prevent navigation layout shift. */
 const SHELL = {
   plain:
-    "sticky top-0 z-20 h-16 bg-white border-b border-gray-200 px-3 sm:px-6 flex items-center justify-between shrink-0 shadow-2xs",
+    "sticky top-0 z-50 h-16 bg-white border-b border-gray-200 px-3 sm:px-6 flex items-center justify-between shrink-0 shadow-2xs",
   sticky:
-    "sticky top-0 z-20 h-16 bg-white border-b border-gray-200 px-3 sm:px-6 flex items-center justify-between shrink-0 shadow-2xs",
+    "sticky top-0 z-50 h-16 bg-white border-b border-gray-200 px-3 sm:px-6 flex items-center justify-between shrink-0 shadow-2xs",
 } as const;
 
 /** Unified Right-hand cluster spacing across all header variants. */
@@ -103,7 +107,11 @@ export default function Header({
                 {title}
               </h1>
             )}
-            {subtitle && <p className="text-xs text-slate-500 mt-0.5 whitespace-nowrap">{subtitle}</p>}
+            {subtitle && (
+              <p className="text-xs text-slate-500 mt-0.5 whitespace-nowrap">
+                {subtitle}
+              </p>
+            )}
             {badge}
           </div>
         )}
@@ -113,10 +121,20 @@ export default function Header({
       {/* ── Right Section ── */}
       <div className={`flex items-center ${ACTION_GAP[variant]} shrink-0`}>
         {actions}
-        {features.bookInquiry && bookInquiry !== false &&
-          (bookInquiry === "emerald" ? <HeaderBookInquiry variant="emerald" /> : <HeaderBookInquiry />)}
+        {features.bookInquiry &&
+          bookInquiry !== false &&
+          (bookInquiry === "emerald" ? (
+            <HeaderBookInquiry variant="emerald" />
+          ) : (
+            <HeaderBookInquiry />
+          ))}
+        {features.stickyNotes && <StickyNoteButton />}
         <FullscreenButton tone={fullscreenTone} />
-        <SyncButton {...(syncTask ? { task: syncTask } : {})} title={syncTitle} tone={syncTone} />
+        <SyncButton
+          {...(syncTask ? { task: syncTask } : {})}
+          title={syncTitle}
+          tone={syncTone}
+        />
         <OnlineStatusBadge isOnline={isOnline} variant={onlineVariant} />
         {children}
       </div>

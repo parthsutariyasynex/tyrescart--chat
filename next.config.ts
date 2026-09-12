@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: "https",
-        hostname: "www.tyrescart.com",
+        hostname: "qa.tyrescart.ae",
         pathname: "/**",
       },
     ],

@@ -738,6 +738,81 @@ export const ADD_QUOTE_HISTORY = /* GraphQL */ `
   }
 `;
 
+/* ─────────────────────────────────────────────────────────────
+   Klever Sticky Note
+
+   Field/operation names verified against the Klever API docs
+   (`/en/kleverapi/docs`, mod-6, `Klever_StickyNote`) — introspection is
+   broken on this Magento build (see "Environment" in CLAUDE.md), so nothing
+   here is guessed from the schema itself.
+
+   `kleverStickyNotes` also accepts a `filter` argument (by `admin_user_id`,
+   `status`, `color`, `entity_type`, `search`, etc.), but this app has no auth
+   / admin-user concept to filter by, so it is deliberately omitted here —
+   every note is fetched, unfiltered, up to `pageSize`.
+───────────────────────────────────────────────────────────── */
+
+const KLEVER_STICKY_NOTE_FIELDS = `
+  note_id
+  title
+  content
+  color
+  pos_x
+  pos_y
+  width
+  height
+  sort_order
+  is_collapsed
+  is_pinned
+  is_shared
+  status
+  admin_user_id
+  owner_name
+  source
+  external_ref
+  entity_type
+  entity_id
+  reminder_at
+  created_at
+  updated_at
+`;
+
+export const KLEVER_STICKY_NOTES_QUERY = /* GraphQL */ `
+  query KleverStickyNotes($pageSize: Int, $currentPage: Int) {
+    kleverStickyNotes(pageSize: $pageSize, currentPage: $currentPage) {
+      items {
+        ${KLEVER_STICKY_NOTE_FIELDS}
+      }
+      total_count
+    }
+  }
+`;
+
+export const CREATE_KLEVER_STICKY_NOTE = /* GraphQL */ `
+  mutation CreateKleverStickyNote($input: KleverStickyNoteInput!) {
+    createKleverStickyNote(input: $input) {
+      ${KLEVER_STICKY_NOTE_FIELDS}
+    }
+  }
+`;
+
+export const UPDATE_KLEVER_STICKY_NOTE = /* GraphQL */ `
+  mutation UpdateKleverStickyNote($note_id: Int!, $input: KleverStickyNoteInput!) {
+    updateKleverStickyNote(note_id: $note_id, input: $input) {
+      ${KLEVER_STICKY_NOTE_FIELDS}
+    }
+  }
+`;
+
+export const DELETE_KLEVER_STICKY_NOTE = /* GraphQL */ `
+  mutation DeleteKleverStickyNote($note_id: Int!) {
+    deleteKleverStickyNote(note_id: $note_id) {
+      success
+      note_id
+    }
+  }
+`;
+
 /** Option id → label maps for {@link TC_LABELLED_ATTRIBUTES}. Fetched once. */
 export function tcAttributeLabelsQuery(): string {
   const attrs = TC_LABELLED_ATTRIBUTES
