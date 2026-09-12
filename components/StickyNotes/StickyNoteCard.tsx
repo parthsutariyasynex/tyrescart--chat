@@ -14,6 +14,12 @@
  * override is handed to `moveNote`/`resizeNote` (which updates the shared
  * note through the API) and cleared, so the next render reads the same
  * value back from the note itself — no drift, no flicker.
+ *
+ * Title/content/color are different: they only persist on an explicit Save,
+ * PLUS a 5-second auto-sync (silent) while there's something unsaved, PLUS a
+ * manual "Sync" button in the header for an immediate push. All three go
+ * straight to the same Klever Sticky Note API — never IndexedDB or any
+ * browser storage.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -21,6 +27,7 @@ import {
   XMarkIcon,
   MinusIcon,
   ArrowsPointingOutIcon,
+  ArrowPathIcon,
   CheckIcon,
   TrashIcon,
 } from "@heroicons/react/24/outline";
@@ -75,6 +82,7 @@ const MIN_WIDTH = 200;
 const MIN_HEIGHT = 160;
 const COLLAPSED_HEIGHT = 40;
 const EDGE_MARGIN = 60; // keep at least this much of the note reachable on-screen
+const MIN_SPIN_MS = 600; // floor so the Sync spinner is visible even on a fast response
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), Math.max(min, max));
@@ -115,6 +123,50 @@ export default function StickyNoteCard({ note }: { note: KleverStickyNote }) {
     title !== (note.title ?? "") ||
     content !== (note.content ?? "") ||
     editColor !== color;
+
+  const [syncing, setSyncing] = useState(false);
+
+  // Auto-sync every 5s straight to the Klever Sticky Note API — the only
+  // store (no IndexedDB/localStorage) — so in-progress edits aren't lost if
+  // the note is closed or the tab reloads before an explicit Save. Reads the
+  // latest buffer via a ref rather than depending on [title, content,
+  // editColor] directly: a dependency array like that would tear down and
+  // restart the interval on every keystroke, so the 5s timer would never
+  // actually elapse while the user is still typing.
+  const latestEdit = useRef({ title, content, editColor, dirty });
+  latestEdit.current = { title, content, editColor, dirty };
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      const { title: t, content: c, editColor: col, dirty: d } =
+        latestEdit.current;
+      if (!d) return;
+      void saveNote(
+        note.note_id,
+        { title: t, content: c, color: col },
+        { silent: true },
+      );
+    }, 5000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note.note_id]);
+
+  async function handleSync() {
+    setSyncing(true);
+    try {
+      // The real request against this backend often resolves in well under
+      // a second, which cleared the spinner before a human eye could catch
+      // it — Promise.all with a floor keeps the icon visibly spinning for
+      // at least MIN_SPIN_MS regardless of how fast the network responds,
+      // without slowing down the sync itself (they run concurrently).
+      await Promise.all([
+        saveNote(note.note_id, { title, content, color: editColor }),
+        new Promise((resolve) => setTimeout(resolve, MIN_SPIN_MS)),
+      ]);
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
   const [dragSize, setDragSize] = useState<{ w: number; h: number } | null>(
@@ -263,6 +315,29 @@ export default function StickyNoteCard({ note }: { note: KleverStickyNote }) {
           className="min-w-0 flex-1 cursor-grab bg-transparent text-xs font-bold text-slate-800 outline-none placeholder:text-slate-500/70"
         />
         <div className="flex shrink-0 items-center gap-0.5">
+          {!note.is_collapsed && (
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => void handleSync()}
+              disabled={syncing || !dirty}
+              title={
+                dirty
+                  ? "Sync now (also auto-syncs every 5s while editing)"
+                  : "Nothing to sync — up to date"
+              }
+              aria-label="Sync note"
+              className={`rounded p-1 transition-colors ${
+                dirty
+                  ? "text-slate-700 hover:bg-black/10 cursor-pointer"
+                  : "text-slate-400 cursor-default"
+              }`}
+            >
+              <ArrowPathIcon
+                className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`}
+              />
+            </button>
+          )}
           <button
             type="button"
             onPointerDown={(e) => e.stopPropagation()}

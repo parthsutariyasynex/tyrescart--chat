@@ -55,8 +55,17 @@ interface StickyNotesContextValue {
   frontId: number | null;
   bringToFront: (note_id: number) => void;
   addNote: () => Promise<void>;
-  /** Explicit edit save — title/content/color. */
-  saveNote: (note_id: number, input: KleverStickyNoteInput) => Promise<void>;
+  /** Edit save — title/content/color. Persists straight to the Klever
+   *  Sticky Note API (the only store; never IndexedDB/localStorage), same
+   *  as every other field. `silent` skips the "Note saved." toast — used by
+   *  the 5-second auto-sync in `StickyNoteCard` so a continuously-typing
+   *  note doesn't spam a toast every cycle; the manual Sync/Save controls
+   *  still call this without `silent` for their explicit confirmation. */
+  saveNote: (
+    note_id: number,
+    input: KleverStickyNoteInput,
+    opts?: { silent?: boolean },
+  ) => Promise<void>;
   /** Fire-and-forget position/size persistence, called on drag/resize end. */
   moveNote: (note_id: number, pos_x: number, pos_y: number) => void;
   resizeNote: (note_id: number, width: number, height: number) => void;
@@ -194,10 +203,14 @@ export function StickyNotesProvider({ children }: { children: ReactNode }) {
   }, [toast]);
 
   const saveNote = useCallback(
-    async (note_id: number, input: KleverStickyNoteInput) => {
+    async (
+      note_id: number,
+      input: KleverStickyNoteInput,
+      opts?: { silent?: boolean },
+    ) => {
       patchNote(note_id, input);
       const ok = await persist(note_id, input, "Failed to save note.");
-      if (ok) toast("Note saved.", "success");
+      if (ok && !opts?.silent) toast("Note saved.", "success");
     },
     [patchNote, persist, toast],
   );

@@ -516,3 +516,120 @@ too small.
 
 ## Final Status
 Completed
+
+---
+
+# Task #005 — Sticky Note: auto-sync every 5s + manual Sync button
+
+Date: 2026-09-12
+Status: Completed
+
+## Requirement
+User asked for a Sync button inside each sticky note, plus an automatic sync
+every 5 seconds — explicitly to the real database (Klever Sticky Note API),
+not IndexedDB or any browser storage.
+
+## Planned Changes
+- `components/StickyNotes/StickyNotesProvider.tsx` — `saveNote` gets an
+  optional `{ silent?: boolean }` third argument so a background auto-sync
+  can persist without popping a "Note saved." toast every cycle.
+- `components/StickyNotes/StickyNoteCard.tsx` — a `setInterval(5000)` effect
+  that pushes the current title/content/color to the API (via `saveNote`,
+  silent) whenever they differ from the last-saved values, plus a manual
+  "Sync" icon button in the note header (next to Minimize/Close) that does
+  the same push immediately and does show the toast.
+
+## Files Affected
+- `components/StickyNotes/StickyNotesProvider.tsx`
+- `components/StickyNotes/StickyNoteCard.tsx`
+
+## Implementation
+- `saveNote(note_id, input, opts?: { silent?: boolean })`: unchanged
+  behavior except the success toast is skipped when `opts.silent` is true.
+  Still the exact same `updateKleverStickyNoteGraphQL` call either way —
+  auto-sync and the manual controls both go straight to the real API.
+- `StickyNoteCard`: a `latestEdit` ref mirrors `{ title, content, editColor,
+  dirty }` on every render. A single `setInterval(..., 5000)` — keyed only on
+  `note.note_id`, so it is created ONCE per note and never torn down and
+  restarted while typing — reads that ref every 5s and, only if `dirty`,
+  calls `saveNote(..., { silent: true })`. Depending the effect on `[title,
+  content, editColor]` directly was deliberately avoided: that would reset
+  the interval on every keystroke, so the 5s timer would never actually
+  elapse for a user who is continuously typing.
+- Manual **Sync** button: `ArrowPathIcon`, header, next to Minimize/Close,
+  only rendered when expanded. Disabled (and greyed) when nothing is dirty.
+  Spins (`animate-spin`) while its own `handleSync()` call is in flight, and
+  calls `saveNote` WITHOUT `silent`, so a deliberate click still gets the
+  toast confirmation the existing Save button gives.
+- Left the existing footer **Save** button exactly as it was — Sync doesn't
+  replace it, it's an additional, faster/no-toast-spam path plus the
+  automatic timer, per the user's "add a sync button" (not "rename Save").
+
+## Testing
+- `npx tsc --noEmit` — clean.
+- `npm run lint` — no new problems; same pre-existing issues as every prior
+  task in this file.
+- **Live browser check**, headless Chrome over CDP against the real dev
+  server and the real QA GraphQL backend (no mocks): created a note, renamed
+  its title via the header input, did NOT click Save/Sync — queried
+  `kleverStickyNotes` directly and confirmed the new title was **absent**
+  from the database. Waited 6 seconds, queried again — the title was **now
+  present** (the 5s auto-sync fired) with **no** "Note saved." toast visible
+  (silent, as intended). Then edited the content and clicked the new Sync
+  button — confirmed the toast appeared this time, and a final direct API
+  query showed the edited content persisted. Zero console errors throughout.
+
+## Issues / Notes
+- Auto-sync only covers title/content/color (the fields that otherwise
+  require an explicit Save) — position/size already persist immediately on
+  drag/resize release (`moveNote`/`resizeNote`, unchanged, not touched by
+  this task).
+- As a side benefit, this also shrinks the pre-existing risk that clicking
+  Close (X) mid-edit loses unsaved typing (Close unmounts the card): now at
+  most ~5 seconds of typing is ever at risk, not everything since the last
+  manual Save.
+
+## Final Status
+Completed
+
+---
+
+# Task #006 — Sticky Note Sync button: spinner wasn't visible
+
+Date: 2026-09-12
+Status: Completed
+
+## Requirement
+User reported the Sync button (added in Task #005) doesn't visibly spin when
+clicked, even though the earlier live test had confirmed the sync itself
+completed correctly and persisted to the database.
+
+## Planned Changes
+- `components/StickyNotes/StickyNoteCard.tsx` — enforce a minimum visible
+  spin duration in `handleSync()`, since the real round-trip against this
+  backend resolves fast enough that the spinner was clearing before a human
+  eye could register it (confirmed: the earlier CDP test's own screenshot
+  window happened to catch it, but a real click-and-glance would not).
+
+## Files Affected
+- `components/StickyNotes/StickyNoteCard.tsx`
+
+## Implementation
+- Added `MIN_SPIN_MS = 600` alongside the other layout constants.
+- `handleSync()` now `Promise.all([saveNote(...), sleep(MIN_SPIN_MS)])` — the
+  actual API call and the timer run concurrently (the sync itself is not
+  slowed down), but `syncing` only clears once BOTH have settled, so the
+  icon spins for at least 600ms regardless of how fast the network responds.
+
+## Testing
+- `npx tsc --noEmit` — clean.
+- `npm run lint` — no new problems; same pre-existing issues as every prior
+  task in this file.
+- **Live browser check**, headless Chrome over CDP: clicked the Sync button
+  and polled the icon's `animate-spin` class every 50ms — measured it
+  staying applied for ~742ms (comfortably above the 600ms floor, plus
+  polling overhead), i.e. now a clearly perceivable rotation rather than a
+  flash too brief to notice.
+
+## Final Status
+Completed
