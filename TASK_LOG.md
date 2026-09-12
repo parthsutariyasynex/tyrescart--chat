@@ -56,6 +56,113 @@ Completed
 
 ---
 
+# Task #002 — Make the Tyres Guide modal properly responsive
+
+Date: 2026-09-01
+Status: Completed
+
+## Requirement
+The Tyres Guide modal did not lay out correctly at real screen sizes. At
+~1292x684 the front/rear fitment chips overflowed their column, the
+"Tyres Link" popup was wider than the column it lived in and was clipped by
+the card, and the Search button was pushed out of the search bar. Make the
+whole modal render properly from phone width up to large desktops.
+
+## Planned Changes
+- Chip content wraps instead of overflowing.
+- Popup width follows its column instead of a fixed `w-72`/`w-80`.
+- Move the inner Sizes / Matching Vehicles split from `md:` to `xl:`.
+- Drop the fixed `min-h-[360px] max-h-[500px]` / `h-[580px]` boxes.
+- Let the modal body scroll below `lg` where the panels stack.
+- Give the vehicle table a `min-w` so its scroller engages on small screens.
+- Header bar: search input on its own row on small screens.
+- `Pagination`: wrap instead of overflowing.
+
+## Files Affected
+- `components/TyresGuideModal.tsx`
+- `components/Pagination.tsx`
+
+## Implementation
+- **Fitment chips** (`SizeFitmentChip` + both call sites): the content row is
+  now `flex-wrap … min-w-0 w-full` and the size pills got `break-words` plus a
+  `text-[11px] sm:text-xs` step, so a staggered pair wraps onto a second line
+  instead of spilling past the card edge. Button padding steps
+  `px-3 sm:px-3.5 / py-2 sm:py-2.5`.
+- **"Tyres Link" popup**: `w-72 sm:w-80` → `w-full min-w-[11rem]
+  max-w-[calc(100vw-2rem)]`. The popup's offset parent is the chip, so it now
+  always matches the column it lives in — it can no longer be wider than the
+  scroll container that clips it. The existing above/below measuring logic is
+  untouched.
+- **Make-models popup**: widths capped for the narrow `xl` column
+  (`w-[min(18rem,calc(100vw-2rem))] xl:w-[13.5rem] 2xl:w-72`, single-model
+  `w-44 sm:w-56 xl:w-[11rem] 2xl:w-56`). The `idx % 3` left/centre/right
+  alignment and the `grid-cols-3` logo grid were deliberately left alone —
+  they are coupled, so changing the column count would misplace the arrow.
+- **Inner split** moved from `md:grid-cols-2` to `xl:grid-cols-2` (and the
+  Matching Vehicles column's `md:pl-4 / md:border-l / md:pt-0` to `xl:`). The
+  left panel is only 40 % of the modal from `lg` up, so the old `md` split
+  produced two ~190 px columns — the root cause of the chip/popup overflow.
+- **Fluid heights**: the Matching Vehicles column lost `min-h-[360px]
+  max-h-[500px]` (now `min-h-[220px] sm:min-h-[280px] xl:min-h-0`), and the
+  "no fitments" empty state lost `h-[580px]` (now `flex-1 min-h-[280px]`).
+- **Stacked layout below `lg`**: modal body is `overflow-y-auto
+  lg:overflow-hidden`, the Selected Size card is `min-h-[320px] lg:min-h-0`
+  and the table panel `min-h-[340px] lg:min-h-0`, so the stacked panels get a
+  real height and the body scrolls instead of crushing them. Sheet height
+  `h-[92vh]` → `h-[92dvh]` so mobile browser chrome doesn't eat the footer.
+- **Search bar**: the tag pills + input now live in their own
+  `flex-1 min-w-0 overflow-x-auto` inner div, with Clear and Search OUTSIDE
+  it. Previously the whole row was the scroller, so once a Front tag was
+  committed the Search button scrolled out of the visible card. The
+  autocomplete dropdown was kept outside the new scroller (it is absolutely
+  positioned against the card and would otherwise be clipped).
+- **Vehicle table**: `min-w-[600px] lg:min-w-0` — below `lg` the existing
+  `overflow-x-auto` wrapper scrolls instead of squeezing six columns; at `lg`+
+  the table fits its panel so no scrollbar appears.
+- **Header bar**: `flex-wrap` with the search field
+  `order-last w-full sm:order-none sm:w-auto sm:flex-1`, so on phones it drops
+  to its own full-width row instead of being squeezed to 240 px.
+- **`components/Pagination.tsx`**: the footer row and the button group are
+  `flex-wrap` with `justify-center sm:justify-between`, so the First/Previous/
+  Next/Last group wraps instead of overflowing. This component is shared by
+  the other pages, so the change is additive only.
+
+## Testing
+- `npx tsc --noEmit` — clean.
+- `npm run lint` — no new problems; the 2 errors (`QuotationModal.tsx`) and 2
+  warnings (`ProductTableRow.tsx`, and `findMatchingSize` unused in
+  `TyresGuideModal.tsx`) are all pre-existing and in code this task did not
+  touch.
+- **Live browser check** (headless Chrome over CDP against `npm run dev`,
+  logged in with a locally minted session cookie): opened the modal on
+  /products, searched `245/35 ZR19`, selected a staggered fitment chip and
+  expanded a make logo, then measured at 1536x900, 1292x684, 1180x800,
+  1024x768, 768x1000 and 390x844. At every width: no element inside the
+  dialog extends past the viewport except inside an intentional horizontal
+  scroller, `popupClipped: false` and `makeClipped: false` (both popups stay
+  within their scroll ancestor's box), and the document never scrolls
+  horizontally. Screenshots reviewed at each width.
+- Before the fix the same measurement at 1292x684 showed the fitment chips
+  and the Tyres Link popup escaping the Selected Size card, and the Search
+  button clipped by the search-bar card.
+
+## Issues / Notes
+- The floating chat/avatar bubble from the page behind the modal paints over
+  the modal's bottom-left "Show N entries" control. That is a pre-existing
+  z-index conflict outside this modal, not a responsive-layout issue, and was
+  left alone.
+- The make-logo grid stays `grid-cols-3` at all widths on purpose: the models
+  popup picks its horizontal alignment from `idx % 3`, so a responsive column
+  count would need that logic reworked too. It fits at every width measured.
+- The rear-size input's placeholder ("Add rear size (optional)") truncates in
+  the narrowest columns; the field is inside the horizontal scroller, so the
+  text is still reachable.
+
+## Final Status
+Completed
+
+---
+
 # Task #003 — Draggable floating Sticky Note UI (Klever Sticky Note API)
 
 Date: 2026-09-12
@@ -344,107 +451,68 @@ Completed
 
 ---
 
-# Task #002 — Make the Tyres Guide modal properly responsive
+# Task #004 — Tyres Guide fitment chips: single line, no wrap
 
-Date: 2026-09-01
+Date: 2026-09-12
 Status: Completed
 
 ## Requirement
-The Tyres Guide modal did not lay out correctly at real screen sizes. At
-~1292x684 the front/rear fitment chips overflowed their column, the
-"Tyres Link" popup was wider than the column it lived in and was clipped by
-the card, and the Search button was pushed out of the search bar. Make the
-whole modal render properly from phone width up to large desktops.
+On the Tyres Guide modal's "Selected Size"/"Suggested Size" fitment chips
+(e.g. "245/35 ZR20 (front) / 305/30 ZR20 (rear)"), the front/rear size pair
+was wrapping onto two lines inside its card at narrower widths. User wanted
+it to always render on a single line (no wrap) — first with a smaller font,
+then asked for the font to come back up a notch since the first pass read as
+too small.
 
 ## Planned Changes
-- Chip content wraps instead of overflowing.
-- Popup width follows its column instead of a fixed `w-72`/`w-80`.
-- Move the inner Sizes / Matching Vehicles split from `md:` to `xl:`.
-- Drop the fixed `min-h-[360px] max-h-[500px]` / `h-[580px]` boxes.
-- Let the modal body scroll below `lg` where the panels stack.
-- Give the vehicle table a `min-w` so its scroller engages on small screens.
-- Header bar: search input on its own row on small screens.
-- `Pagination`: wrap instead of overflowing.
+- `components/TyresGuideModal.tsx` — `SizeFitmentChip`'s two call sites
+  (Selected Size, Suggested Size): change the content row from `flex-wrap`
+  to `flex-nowrap` (+ an `overflow-x-auto` safety net in case a size pair is
+  ever too long to fit at all, so it scrolls instead of wrapping or
+  overflowing the card), and adjust the pill/separator font size and padding
+  so the pair actually fits on one line at the widths this card renders at.
 
 ## Files Affected
 - `components/TyresGuideModal.tsx`
-- `components/Pagination.tsx`
 
 ## Implementation
-- **Fitment chips** (`SizeFitmentChip` + both call sites): the content row is
-  now `flex-wrap … min-w-0 w-full` and the size pills got `break-words` plus a
-  `text-[11px] sm:text-xs` step, so a staggered pair wraps onto a second line
-  instead of spilling past the card edge. Button padding steps
-  `px-3 sm:px-3.5 / py-2 sm:py-2.5`.
-- **"Tyres Link" popup**: `w-72 sm:w-80` → `w-full min-w-[11rem]
-  max-w-[calc(100vw-2rem)]`. The popup's offset parent is the chip, so it now
-  always matches the column it lives in — it can no longer be wider than the
-  scroll container that clips it. The existing above/below measuring logic is
-  untouched.
-- **Make-models popup**: widths capped for the narrow `xl` column
-  (`w-[min(18rem,calc(100vw-2rem))] xl:w-[13.5rem] 2xl:w-72`, single-model
-  `w-44 sm:w-56 xl:w-[11rem] 2xl:w-56`). The `idx % 3` left/centre/right
-  alignment and the `grid-cols-3` logo grid were deliberately left alone —
-  they are coupled, so changing the column count would misplace the arrow.
-- **Inner split** moved from `md:grid-cols-2` to `xl:grid-cols-2` (and the
-  Matching Vehicles column's `md:pl-4 / md:border-l / md:pt-0` to `xl:`). The
-  left panel is only 40 % of the modal from `lg` up, so the old `md` split
-  produced two ~190 px columns — the root cause of the chip/popup overflow.
-- **Fluid heights**: the Matching Vehicles column lost `min-h-[360px]
-  max-h-[500px]` (now `min-h-[220px] sm:min-h-[280px] xl:min-h-0`), and the
-  "no fitments" empty state lost `h-[580px]` (now `flex-1 min-h-[280px]`).
-- **Stacked layout below `lg`**: modal body is `overflow-y-auto
-  lg:overflow-hidden`, the Selected Size card is `min-h-[320px] lg:min-h-0`
-  and the table panel `min-h-[340px] lg:min-h-0`, so the stacked panels get a
-  real height and the body scrolls instead of crushing them. Sheet height
-  `h-[92vh]` → `h-[92dvh]` so mobile browser chrome doesn't eat the footer.
-- **Search bar**: the tag pills + input now live in their own
-  `flex-1 min-w-0 overflow-x-auto` inner div, with Clear and Search OUTSIDE
-  it. Previously the whole row was the scroller, so once a Front tag was
-  committed the Search button scrolled out of the visible card. The
-  autocomplete dropdown was kept outside the new scroller (it is absolutely
-  positioned against the card and would otherwise be clipped).
-- **Vehicle table**: `min-w-[600px] lg:min-w-0` — below `lg` the existing
-  `overflow-x-auto` wrapper scrolls instead of squeezing six columns; at `lg`+
-  the table fits its panel so no scrollbar appears.
-- **Header bar**: `flex-wrap` with the search field
-  `order-last w-full sm:order-none sm:w-auto sm:flex-1`, so on phones it drops
-  to its own full-width row instead of being squeezed to 240 px.
-- **`components/Pagination.tsx`**: the footer row and the button group are
-  `flex-wrap` with `justify-center sm:justify-between`, so the First/Previous/
-  Next/Last group wraps instead of overflowing. This component is shared by
-  the other pages, so the change is additive only.
+- Row: `flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 w-full` →
+  `flex flex-nowrap items-center gap-x-1.5 min-w-0 w-full overflow-x-auto`
+  (both call sites — this exact string was byte-identical in both places,
+  confirmed via `grep` count before using `replace_all`).
+- Front/rear pills: `break-words` (which permitted wrapping) → `whitespace-
+  nowrap shrink-0`; first pass also dropped `text-[11px] sm:text-xs` → `text-
+  [10px]` and `px-2` → `px-1.5` to guarantee it fit in one line — the user
+  found 10px too small, so bumped back to `text-[11px]` (fixed, no responsive
+  step) with `px-2` restored, relying on the `overflow-x-auto` row as the
+  fallback for any width where 11px genuinely doesn't fit, rather than
+  shrinking the font further.
+- Slash separator: `text-slate-600 text-xs` → `text-slate-600 text-[11px]
+  shrink-0` (kept in step with the pills' final size).
 
 ## Testing
 - `npx tsc --noEmit` — clean.
-- `npm run lint` — no new problems; the 2 errors (`QuotationModal.tsx`) and 2
-  warnings (`ProductTableRow.tsx`, and `findMatchingSize` unused in
-  `TyresGuideModal.tsx`) are all pre-existing and in code this task did not
-  touch.
-- **Live browser check** (headless Chrome over CDP against `npm run dev`,
-  logged in with a locally minted session cookie): opened the modal on
-  /products, searched `245/35 ZR19`, selected a staggered fitment chip and
-  expanded a make logo, then measured at 1536x900, 1292x684, 1180x800,
-  1024x768, 768x1000 and 390x844. At every width: no element inside the
-  dialog extends past the viewport except inside an intentional horizontal
-  scroller, `popupClipped: false` and `makeClipped: false` (both popups stay
-  within their scroll ancestor's box), and the document never scrolls
-  horizontally. Screenshots reviewed at each width.
-- Before the fix the same measurement at 1292x684 showed the fitment chips
-  and the Tyres Link popup escaping the Selected Size card, and the Search
-  button clipped by the search-bar card.
+- `npm run lint` — no new problems; the same 2 pre-existing errors
+  (`QuotationModal.tsx`) and 2 warnings (`ProductTableRow.tsx`,
+  `TyresGuideModal.tsx`'s unrelated unused `findMatchingSize`) as before this
+  task.
+- **Live browser check** (headless Chrome over CDP, logged in against the
+  real dev server): opened Tyres Guide on `/tc-products`, searched a
+  staggered size (`305/30 ZR20`), at a 480px viewport (matching the width in
+  the user's screenshot) measured every visible chip row's `scrollWidth` vs
+  `clientWidth` — identical for all of them (370px each, `overflowing:
+  false`), confirming the 11px pass fits on one line with no wrap and no
+  scroll needed. Screenshotted at 1600px and 480px.
 
 ## Issues / Notes
-- The floating chat/avatar bubble from the page behind the modal paints over
-  the modal's bottom-left "Show N entries" control. That is a pre-existing
-  z-index conflict outside this modal, not a responsive-layout issue, and was
-  left alone.
-- The make-logo grid stays `grid-cols-3` at all widths on purpose: the models
-  popup picks its horizontal alignment from `idx % 3`, so a responsive column
-  count would need that logic reworked too. It fits at every width measured.
-- The rear-size input's placeholder ("Add rear size (optional)") truncates in
-  the narrowest columns; the field is inside the horizontal scroller, so the
-  text is still reachable.
+- While fixing this, noticed and corrected a **pre-existing ordering bug in
+  this very file**: Task #003 (Sticky Note UI) had been inserted between
+  Task #001 and Task #002 instead of appended after #002, violating this
+  file's own "always appended at the end, in chronological order" rule.
+  Reordered the three blocks (content byte-for-byte unchanged — verified via
+  `diff` on sorted output before and after) so the file now reads #001 → #002
+  → #003 → #004. No task content was deleted or altered, only its position
+  in the file.
 
 ## Final Status
 Completed

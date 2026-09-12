@@ -1767,17 +1767,17 @@ export default function TyresGuideModal({
                                             front={searchedFront}
                                             rear={searchedRear}
                                           >
-                                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 w-full">
-                                              <span className="font-extrabold text-[11px] sm:text-xs font-mono px-2 py-0.5 rounded-md bg-blue-50 text-blue-900 break-words">
+                                            <div className="flex flex-nowrap items-center gap-x-1.5 min-w-0 w-full overflow-x-auto">
+                                              <span className="font-extrabold text-[11px] font-mono px-2 py-0.5 rounded-md bg-blue-50 text-blue-900 whitespace-nowrap shrink-0">
                                                 {formatSizeDisplay(searchedFront)}
                                                 {searchedRear ? " (front)" : ""}
                                               </span>
                                               {searchedRear && (
                                                 <>
-                                                  <span className="text-slate-600 text-xs">
+                                                  <span className="text-slate-600 text-[11px] shrink-0">
                                                     /
                                                   </span>
-                                                  <span className="font-extrabold text-[11px] sm:text-xs font-mono px-2 py-0.5 rounded-md bg-amber-50 text-amber-950 break-words">
+                                                  <span className="font-extrabold text-[11px] font-mono px-2 py-0.5 rounded-md bg-amber-50 text-amber-950 whitespace-nowrap shrink-0">
                                                     {formatSizeDisplay(searchedRear)} (rear)
                                                   </span>
                                                 </>
@@ -1820,14 +1820,14 @@ export default function TyresGuideModal({
                                             front={fitment.front}
                                             rear={fitment.rear}
                                           >
-                                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 w-full">
-                                              <span className="font-extrabold text-[11px] sm:text-xs font-mono px-2 py-0.5 rounded-md bg-blue-50 text-blue-900 break-words">
+                                            <div className="flex flex-nowrap items-center gap-x-1.5 min-w-0 w-full overflow-x-auto">
+                                              <span className="font-extrabold text-[11px] font-mono px-2 py-0.5 rounded-md bg-blue-50 text-blue-900 whitespace-nowrap shrink-0">
                                                 {formatSizeDisplay(fitment.front)} (front)
                                               </span>
-                                              <span className="text-slate-600 text-xs">
+                                              <span className="text-slate-600 text-[11px] shrink-0">
                                                 /
                                               </span>
-                                              <span className="font-extrabold text-[11px] sm:text-xs font-mono px-2 py-0.5 rounded-md bg-amber-50 text-amber-950 break-words">
+                                              <span className="font-extrabold text-[11px] font-mono px-2 py-0.5 rounded-md bg-amber-50 text-amber-950 whitespace-nowrap shrink-0">
                                                 {formatSizeDisplay(fitment.rear)} (rear)
                                               </span>
                                             </div>
