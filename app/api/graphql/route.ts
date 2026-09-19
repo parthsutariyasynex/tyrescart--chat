@@ -108,13 +108,16 @@ async function fetchUpstream(
           status: upstream.status,
           keyPresent: Boolean(KLEVER_API_KEY),
           keyLength: KLEVER_API_KEY ? KLEVER_API_KEY.length : 0,
-          /* Boolean only — the credentials themselves are never logged. A 401
-             with `basicAuthPresent: false` on a gated host says the variable is
-             missing; `true` says it is set but wrong. */
           basicAuthPresent: Boolean(BASIC_AUTH_HEADER),
           ms: Date.now() - started,
           attempt,
         });
+
+        // If rate-limited or temporarily challenged (403/429/5xx), back off and retry
+        if (attempt < MAX_ATTEMPTS && (upstream.status === 403 || upstream.status === 429 || upstream.status >= 500)) {
+          await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS * attempt * 2));
+          continue;
+        }
       }
       return upstream;
     } catch (err) {
@@ -124,7 +127,7 @@ async function fetchUpstream(
         err,
       );
       if (attempt < MAX_ATTEMPTS) {
-        await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS * attempt));
+        await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS * attempt * 2));
       }
     }
   }

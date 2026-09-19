@@ -350,8 +350,9 @@ export async function fetchStorefrontBatchWithRetry(
   return null;
 }
 
-/** Batches fetched in parallel — same ceiling as the supplier and tc pools. */
-export const PRODUCTS_SYNC_CONCURRENCY = 8;
+// export const PRODUCTS_SYNC_CONCURRENCY = 8;
+/** Batches fetched in parallel — safe ceiling to avoid Cloudflare rate limiting. */
+export const PRODUCTS_SYNC_CONCURRENCY = 2;
 
 /**
  * Every cached entry whose key starts with `prefix`, in ONE IndexedDB read.
@@ -533,16 +534,18 @@ export const STOREFRONT_PAGE_SIZE = 500;
  *  cap is harmless: the backend clamps and `detectPageSizeCap` adopts whatever
  *  it actually returned. */
 export const SUPPLIER_SYNC_BATCH_SIZE = API_MAX_PAGE_SIZE;
-/** How many pages to fetch in parallel during a sync (keeps ~3.2k requests feasible). */
-const SUPPLIER_SYNC_CONCURRENCY = 8;
+// const SUPPLIER_SYNC_CONCURRENCY = 8;
+/** How many pages to fetch in parallel during a sync (keeps rate limits safe from Cloudflare). */
+const SUPPLIER_SYNC_CONCURRENCY = 2;
 /** Rows accumulated before a batch is streamed to the UI during a bootstrap
  *  sync. A render/persist granularity, NOT a request size — left at 500 so the
  *  table still fills in visible steps now that one request returns 1,000 rows. */
 export const SUPPLIER_BOOTSTRAP_BATCH_SIZE = 500;
 /** Attempts per page before it is recorded as failed (1 initial + 2 retries). */
 const SUPPLIER_SYNC_MAX_ATTEMPTS = 3;
+// const SUPPLIER_SYNC_RETRY_BASE_MS = 400;
 /** Base backoff between page retries; grows exponentially and is jittered. */
-const SUPPLIER_SYNC_RETRY_BASE_MS = 400;
+const SUPPLIER_SYNC_RETRY_BASE_MS = 600;
 /** Consecutive page failures that trip the circuit breaker and abort the sync.
  *  Guards against hammering a WAF/rate-limiter with thousands of doomed
  *  requests once it has started refusing us (a 403 IP ban, for instance). */
@@ -999,6 +1002,7 @@ export async function syncLatestSupplierProducts({
       if (!res) { failedPages.push(pageNo); continue; }
       await persist(res.items ?? [], pageNo);
       onProgress?.(written, total);
+      await delay(150);
     }
   };
   await Promise.all(
@@ -1133,6 +1137,7 @@ export async function syncAllSupplierProducts({
           failureStreak = 0;
           await persistPage(res.items ?? [], pageNo, size);
           onProgress?.(written, total);
+          await delay(150);
         }
       };
 
@@ -1473,10 +1478,9 @@ export interface TcSyncResult {
   aborted: boolean;
 }
 
-/** Pages fetched in parallel. Matches `SUPPLIER_SYNC_CONCURRENCY` — same host,
- *  same proven ceiling — and is what turns ~79 × 0.9s of serial waiting into
- *  roughly one eighth of the wall clock. */
-const TC_SYNC_CONCURRENCY = 8;
+// const TC_SYNC_CONCURRENCY = 8;
+/** Pages fetched in parallel — safe ceiling to avoid Cloudflare rate limiting. */
+const TC_SYNC_CONCURRENCY = 2;
 
 /**
  * One catalogue page, retried like the supplier pages are.
@@ -1598,6 +1602,7 @@ export async function syncAllTcProducts({
       loaded += res.items.length;
       onBatch?.({ page, items: res.items });
       onProgress?.(loaded, total);
+      await delay(150);
     }
   };
 
