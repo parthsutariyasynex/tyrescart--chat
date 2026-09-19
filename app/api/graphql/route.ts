@@ -9,72 +9,23 @@ import { features } from "@/config/features";
 // where IPv6 works (still just prefers IPv4). Idempotent, runs on module load.
 setDefaultResultOrder("ipv4first");
 
-/* Server-only, so no NEXT_PUBLIC_ prefix — this must never reach the client
-   bundle.
-
-   NO fallback domain, deliberately. Two Vercel projects build this same code
-   and differ only by this variable, so a default would silently send one
-   project's traffic to the other project's API — the failure mode that had
-   production calling a host nobody configured. Missing config fails loudly
-   instead (see the guard in POST). */
-const GRAPHQL_ENDPOINT = process.env.GRAPHQL_ENDPOINT;
+/* Server-only, dynamic proxy route */
+export const dynamic = "force-dynamic";
 
 // How many times to retry a failed upstream fetch, and the base backoff.
 const MAX_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = 300;
 
-/**
- * Fetch the upstream endpoint with retries. Node's fetch (undici) can throw
- * "fetch failed" on a transient connection error — notably when it tries an
- * unreachable IPv6 route on this dev machine before the IPv4 fallback. A short
- * retry rides over those blips instead of surfacing them to the client (which,
- * during the 16-batch background load, would abort the whole run).
- */
-/**
- * Upstream API key. Read from the environment ONLY.
- *
- * No literal fallback: a hardcoded default ships the secret in the source and,
- * once pushed, lives in git history permanently. Set it in `.env.local`, which
- * `.gitignore` already excludes.
- *
- * Deliberately NOT `NEXT_PUBLIC_` — Next inlines those into the client bundle,
- * where anyone loading the page could read it. This route runs server-side, so
- * the key never needs to reach the browser.
- */
-/* No fallback value: the key comes from the environment or not at all, so a
-   missing variable can never be papered over with an empty credential. */
-const KLEVER_API_KEY = process.env.KLEVER_API_KEY;
-
-/**
- * HTTP Basic credentials for the upstream origin, as `user:password`.
- *
- * The QA host (`qa.tyrescart.ae`) sits behind nginx Basic auth: it answers
- * `401 www-authenticate: Basic realm="Restricted Area"` to EVERY request, with
- * or without the Klever key — verified, including with the key alone. This is a
- * SEPARATE gate from `X-Klever-Api-Key`: Basic gets the request past nginx, the
- * Klever key gets it past Magento. QA needs both; ungated hosts need neither.
- *
- * Server-only, like the API key — no `NEXT_PUBLIC_` prefix, so Next never
- * inlines it into the client bundle. The browser talks to this proxy, and the
- * proxy attaches the credentials, so they never leave the server.
- *
- * NOTE: credentials cannot instead be embedded in `GRAPHQL_ENDPOINT` as
- * `https://user:pass@host/…` — Node's fetch rejects that URL form outright
- * ("Request cannot be constructed from a URL that includes credentials"), even
- * though curl accepts it. The header is the only workable route.
- */
-const GRAPHQL_BASIC_AUTH = process.env.GRAPHQL_BASIC_AUTH;
-
-/* Encoded once at module load rather than per request. Empty when unset, so the
-   header below is omitted entirely instead of sent as an empty credential. */
-const BASIC_AUTH_HEADER = GRAPHQL_BASIC_AUTH
-  ? `Basic ${Buffer.from(GRAPHQL_BASIC_AUTH).toString("base64")}`
-  : "";
-
 async function fetchUpstream(
   body: unknown,
   endpoint: string,
 ): Promise<Response> {
+  const kleverApiKey = process.env.KLEVER_API_KEY;
+  const basicAuth = process.env.GRAPHQL_BASIC_AUTH;
+  const basicAuthHeader = basicAuth
+    ? `Basic ${Buffer.from(basicAuth).toString("base64")}`
+    : "";
+
   let lastErr: unknown;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
@@ -84,11 +35,8 @@ async function fetchUpstream(
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
-          // Omitted entirely when unset, rather than sent as an empty string.
-          ...(KLEVER_API_KEY ? { "X-Klever-Api-Key": KLEVER_API_KEY } : {}),
-          // Same rule: sent only when credentials are configured, so an ungated
-          // host never receives a stray Authorization header.
-          ...(BASIC_AUTH_HEADER ? { Authorization: BASIC_AUTH_HEADER } : {}),
+          ...(kleverApiKey ? { "X-Klever-Api-Key": kleverApiKey } : {}),
+          ...(basicAuthHeader ? { Authorization: basicAuthHeader } : {}),
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         },
@@ -106,9 +54,9 @@ async function fetchUpstream(
         console.warn("[graphql proxy] upstream rejected:", {
           endpoint,
           status: upstream.status,
-          keyPresent: Boolean(KLEVER_API_KEY),
-          keyLength: KLEVER_API_KEY ? KLEVER_API_KEY.length : 0,
-          basicAuthPresent: Boolean(BASIC_AUTH_HEADER),
+          keyPresent: Boolean(kleverApiKey),
+          keyLength: kleverApiKey ? kleverApiKey.length : 0,
+          basicAuthPresent: Boolean(basicAuthHeader),
           ms: Date.now() - started,
           attempt,
         });
@@ -141,7 +89,8 @@ export async function POST(req: Request) {
       { status: 403 },
     );
   }
-  if (!GRAPHQL_ENDPOINT) {
+  const endpoint = process.env.GRAPHQL_ENDPOINT;
+  if (!endpoint) {
     console.error(
       "[graphql proxy] GRAPHQL_ENDPOINT is not set — refusing to guess an upstream host.",
     );
@@ -159,7 +108,7 @@ export async function POST(req: Request) {
   }
   try {
     const body = await req.json();
-    const response = await fetchUpstream(body, GRAPHQL_ENDPOINT);
+    const response = await fetchUpstream(body, endpoint);
 
     const rawText = await response.text();
 
