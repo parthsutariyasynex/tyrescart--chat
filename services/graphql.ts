@@ -146,6 +146,9 @@ export async function executeGraphQLQuery(
     if (isServer && process.env.KLEVER_API_KEY) {
       headers["X-Klever-Api-Key"] = process.env.KLEVER_API_KEY;
     }
+    if (isServer && process.env.GRAPHQL_BASIC_AUTH) {
+      headers["Authorization"] = `Basic ${Buffer.from(process.env.GRAPHQL_BASIC_AUTH).toString("base64")}`;
+    }
 
     console.time("API Fetch");
     const res = await fetch(targetUrl, {
