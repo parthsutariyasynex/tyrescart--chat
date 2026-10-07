@@ -16,6 +16,13 @@ import type {
   TyresChatQueryVars,
 } from "./types";
 
+/**
+ * Safely escape any string for GraphQL query literals.
+ * Handles newlines (\n, \r), quotes ("), backslashes (\), and normalises dashes.
+ */
+export const esc = (s: unknown): string =>
+  JSON.stringify(String(s ?? "").replace(/[\u2013\u2014]/g, "-")).slice(1, -1);
+
 /* ─────────────────────────────────────────────
    supplierProducts
 ───────────────────────────────────────────── */
@@ -37,7 +44,6 @@ export function supplierProductsQuery(vars: SupplierProductsQueryVars = {}): str
     sortDirection = "ASC",
   } = vars;
 
-  const esc = (s: string) => String(s ?? "").replace(/[\u2013\u2014]/g, "-").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   const filterParts: string[] = [];
   if (brand) filterParts.push(`brand: "${esc(brand)}"`);
   if (plain_size) filterParts.push(`plain_size: "${esc(plain_size)}"`);
@@ -116,9 +122,6 @@ export function productsQuery(vars: ProductsQueryVars = {}): string {
     sortField = "relevance",
     sortDirection = "ASC",
   } = vars;
-
-  // Escape any embedded double-quotes to keep the inline string valid.
-  const esc = (s: string) => String(s ?? "").replace(/[\u2013\u2014]/g, "-").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 
   const filterParts: string[] = [];
   if (sku) filterParts.push(`sku: { eq: "${esc(sku)}" }`);
@@ -264,9 +267,6 @@ export function tcProductsQuery(vars: TcProductsQueryVars = {}): string {
     sortDirection = "ASC",
   } = vars;
 
-  // Escape any embedded double-quotes to keep the inline string valid.
-  const esc = (s: string) => String(s ?? "").replace(/[\u2013\u2014]/g, "-").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-
   // Magento REQUIRES `search` or `filter`; an empty search acts as match-all.
   return `query {
     products(
@@ -321,7 +321,6 @@ export function tcProductsQuery(vars: TcProductsQueryVars = {}): string {
  * LOAD/SPEED is `load_index`. See QUICK_VIEW_SPEC in the modal.
  */
 export function tcQuickViewQuery(sku: string): string {
-  const esc = (v: string) => String(v ?? "").replace(/[\u2013\u2014]/g, "-").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   return `query {
     products(filter: { sku: { eq: "${esc(sku)}" } }, pageSize: 1) {
       items {
@@ -369,7 +368,6 @@ export function tcQuickViewQuery(sku: string): string {
  * and only accepts a SINGLE exact match; this query merely narrows the field.
  */
 export function tcQuickViewMatchQuery(terms: string, pageSize = 20): string {
-  const esc = (v: string) => String(v ?? "").replace(/[\u2013\u2014]/g, "-").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   return `query {
     products(search: "${esc(terms)}", pageSize: ${pageSize}) {
       total_count
@@ -410,7 +408,6 @@ export function tcQuickViewMatchQuery(terms: string, pageSize = 20): string {
  * Dates arrive as "08-May-2025" (DD-MMM-YYYY), not ISO — see `parseHistoryDate`.
  */
 export function supplierPriceHistoryQuery(id: number | string, source: string): string {
-  const esc = (v: string) => String(v ?? "").replace(/[\u2013\u2014]/g, "-").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   return `query {
     supplierProductPriceHistory(id: ${Number(id)}, source: "${esc(source)}") {
       date
@@ -432,7 +429,6 @@ export function supplierPriceHistoryQuery(id: number | string, source: string): 
  * from an explicit user submit.
  */
 export function createCrmBookingMutation(input: CrmBookingInput): string {
-  const esc = (v: string) => String(v ?? "").replace(/[\u2013\u2014]/g, "-").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   const field = (k: string, v: string | undefined) =>
     v !== undefined && String(v).trim() !== "" ? `${k}: "${esc(String(v).trim())}"` : "";
 
@@ -500,7 +496,6 @@ export function createCrmBookingMutation(input: CrmBookingInput): string {
  * NOT file a booking — it only edits the customer.
  */
 export function updateCrmCustomerMutation(input: CrmCustomerUpdateInput): string {
-  const esc = (v: string) => String(v ?? "").replace(/[\u2013\u2014]/g, "-").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   const fields: string[] = [`entity_id: ${Number(input.entity_id)}`];
   const optional: [keyof CrmCustomerUpdateInput, string][] = [
     ["name", "name"],
@@ -535,12 +530,6 @@ export function updateCrmCustomerMutation(input: CrmCustomerUpdateInput): string
  * Update an existing CRM booking enquiry.
  */
 export function updateCrmBookingMutation(input: CrmBookingUpdateInput): string {
-  const esc = (v: string) =>
-    String(v ?? "")
-      .replace(/[\u2013\u2014]/g, "-")
-      .replace(/\\/g, "\\\\")
-      .replace(/"/g, '\\"');
-
   const fields: string[] = [`entity_id: ${Number(input.entity_id)}`];
 
   if (input.tire_size_1 !== undefined && input.tire_size_1 !== "") {
@@ -927,8 +916,6 @@ export function kleverVehicleCatalogueQuery(offset: number, limit: number): stri
 export function urlTemplatesQuery(
   values: { code: string; value: string }[],
 ): string {
-  const esc = (v: string) =>
-    String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   const pairs = values
     .filter((v) => v && v.code && String(v.value).trim() !== "")
     .map((v) => `{ code: "${esc(v.code)}", value: "${esc(String(v.value))}" }`)
@@ -969,7 +956,6 @@ export function kleverVehicleMakesQuery(): string {
  * wheel/tyre fields: sizes live only on `kleverVehicleModifications`.
  */
 export function kleverVehicleModelsQuery(make: string): string {
-  const esc = (v: string) => String(v ?? "").replace(/[\u2013\u2014]/g, "-").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   return `query {
     kleverVehicleModels(make: "${esc(make)}") {
       data {
@@ -992,7 +978,6 @@ export function kleverVehicleModelsQuery(make: string): string {
  * `name` both carry the year as an Int.
  */
 export function kleverVehicleYearsQuery(make: string, model: string): string {
-  const esc = (v: string) => String(v ?? "").replace(/[\u2013\u2014]/g, "-").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   return `query {
     kleverVehicleYears(make: "${esc(make)}", model: "${esc(model)}") {
       data {
@@ -1018,7 +1003,6 @@ export function kleverVehicleModificationsQuery(
   model: string,
   year: number,
 ): string {
-  const esc = (v: string) => String(v ?? "").replace(/[\u2013\u2014]/g, "-").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   return `query {
     kleverVehicleModifications(make: "${esc(make)}", model: "${esc(model)}", year: ${Number(year)}) {
       data {
