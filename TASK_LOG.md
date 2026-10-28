@@ -688,3 +688,29 @@ ONLY when the Sync button is clicked — no background 5-second timer.
 
 ## Final Status
 Completed
+
+# Task #008 — tc-products: sort arrow on RunFlat column header
+
+Date: 2026-10-28
+Status: Completed
+
+## Requirement
+Add the sort (↑↓) arrow and click-to-sort to the RunFlat header (`py-2.5 px-1 text-center whitespace-nowrap`) on /tc-products. No other changes.
+
+## Planned Changes
+- Make the RunFlat `<th>` sortable, matching the Status/Year headers.
+
+## Files Affected
+- app/(app)/tc-products/page.tsx
+
+## Implementation
+- RunFlat `<th>` now calls `handleSort('runflat')` and renders the same `↑↓` span, `cursor-pointer` and `hover:text-slate-900` as the other sortable headers. `runflat` is a boolean on the row, which the generic comparator in `hooks/useProductSorting.ts` already orders (No before Yes ascending).
+
+## Testing
+- `npx tsc --noEmit` passed with no errors. Not checked in a browser.
+
+## Issues / Notes
+- None.
+
+## Final Status
+Completed
