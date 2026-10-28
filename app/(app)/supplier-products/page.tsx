@@ -1239,8 +1239,14 @@ export default function SupplierProductsPage() {
                       </th>
                     )}
                     {!hiddenColumns.has("runflat") && (
-                      <th className="py-2 px-2 text-center whitespace-nowrap">
-                        Runflat
+                      <th
+                        onClick={() => handleSort("runflat")}
+                        className="py-2 px-2 text-center cursor-pointer hover:text-slate-900 whitespace-nowrap"
+                      >
+                        Runflat{" "}
+                        <span className="ml-0.5 opacity-50 font-normal">
+                          ↑↓
+                        </span>
                       </th>
                     )}
                     {!hiddenColumns.has("country") && (

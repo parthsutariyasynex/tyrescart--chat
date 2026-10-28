@@ -714,3 +714,30 @@ Add the sort (↑↓) arrow and click-to-sort to the RunFlat header (`py-2.5 px-
 
 ## Final Status
 Completed
+
+# Task #009 — supplier-products: sort arrow on Runflat column header
+
+Date: 2026-10-28
+Status: Completed
+
+## Requirement
+Add the sort (↑↓) arrow and click-to-sort to the `py-2 px-2 text-center whitespace-nowrap` header on /supplier-products. No other changes.
+
+## Planned Changes
+- Make the Runflat `<th>` sortable, matching the Year/Qty headers.
+
+## Files Affected
+- app/(app)/supplier-products/page.tsx
+
+## Implementation
+- Runflat `<th>` now calls `handleSort("runflat")` and renders the same `↑↓` span, `cursor-pointer` and `hover:text-slate-900` as the other sortable headers. `runflat` is a boolean on the row, which the generic comparator in `hooks/useProductSorting.ts` already orders (No before Yes ascending).
+- The Actions header shares the same classes but was left unsortable: it holds buttons, not a value.
+
+## Testing
+- `npx tsc --noEmit` passed with no errors. Not checked in a browser.
+
+## Issues / Notes
+- None.
+
+## Final Status
+Completed
