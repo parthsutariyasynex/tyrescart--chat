@@ -952,3 +952,66 @@ With all costs at 0, every rounded value on /calculator showed "-0" (Quick Quote
 
 ## Final Status
 Completed
+
+# Task #016 — Calculator: remove the Quick Quote (AED) panel
+
+Date: 2026-11-23
+Status: Completed
+
+## Requirement
+Remove the Quick Quote (AED) panel from /calculator.
+
+## Planned Changes
+- `app/(app)/calculator/page.tsx`: delete the Quick Quote section, its Target Margin % state and the `QuoteRow`/`ProfitCell`-style helpers. The table's target-margin highlight is driven by that input, so it goes too. Cost Inputs no longer shares a two-column grid.
+- `services/priceCalculator.ts`: remove the now-unused `quickQuote` / `QuickQuote` / `DEFAULT_TARGET_MARGIN`.
+- `services/priceCalculator.test.mts`: drop the Quick Quote test.
+
+## Files Affected
+- app/(app)/calculator/page.tsx
+- services/priceCalculator.ts
+- services/priceCalculator.test.mts
+
+## Implementation
+- Page: removed the Quick Quote section, the `targetRaw` state, `QuoteRow`, `sameMargin` and the yellow (#FFD966) target-margin row highlight from #012. The highlight was driven only by the Quick Quote's Target Margin % input. Reset now clears only the cost inputs. Cost Inputs is now a single `max-w-3xl` card (no two-column grid). Footnote and `fmtCeil` comment updated.
+- Service: removed `quickQuote`, `QuickQuote` and `DEFAULT_TARGET_MARGIN`; the header comment notes that E4:G13 is intentionally not implemented.
+- Test: dropped the Quick Quote (F6:G13) test. The unreachable-margin test now checks that `marginTable` yields null cells at 95% instead of calling `quickQuote`.
+
+## Testing
+- `npx tsc --noEmit` and `npx eslint` on the changed files: no errors. `node --test services/priceCalculator.test.mts`: 5/5 pass. A grep finds no remaining Quick Quote references in app/, components/ or services/.
+- Live check (headless Chrome over CDP, dev server): /calculator has 2 tables (Cost Inputs, Price vs Margin), no "Quick Quote" text, no target input, 0 highlighted rows; row 1% unchanged at 1,358 | 5,431 | 61 | 1,440 | 5,759 | 80.
+
+## Issues / Notes
+- Reverses the Quick Quote part of #012. If it is wanted back, #012's entry and git history have the formulas (F6:G13) and the workbook-verified test values.
+
+## Final Status
+Completed
+
+# Task #017 — Calculator: default Tyre Cost = 0
+
+Date: 2026-11-23
+Status: Completed
+
+## Requirement
+Make the Tyre Cost (per tyre) input default to 0 instead of 1,250.
+
+## Planned Changes
+- `services/priceCalculator.ts`: `DEFAULT_INPUTS.tyreCost` 1250 → 0 (the page and Reset both read it).
+- `services/priceCalculator.test.mts`: tests that relied on the 1,250 default get explicit inputs.
+
+## Files Affected
+- services/priceCalculator.ts
+- services/priceCalculator.test.mts
+
+## Implementation
+- `DEFAULT_INPUTS.tyreCost` changed from 1250 to 0. The page's initial state and the Reset button both use `DEFAULT_INPUTS`, so no page change was needed.
+- Tests: added `SCREENSHOT_INPUTS` (defaults + tyre 1,250). The four tests that relied on the old default (cost totals with courier, Order-of-1 courier handling, screenshot rows, unreachable margin) now use it explicitly. New test: with the defaults every table cell is exactly +0 (not null and not -0; `assert.equal` uses Object.is).
+
+## Testing
+- `node --test services/priceCalculator.test.mts`: 6/6 pass. `npx tsc --noEmit` and `npx eslint` on the calculator files: no errors.
+- Live check (headless Chrome over CDP, dev server): on load Tyre Cost = 0, row 1% = 0 | 0 | 0 | 0 | 0 | 0, Reset disabled; after typing 1250 the row is 1,358 | 5,431 | 61 | 1,440 | 5,759 | 80 and Reset is enabled; clicking Reset returns to 0 and all-zero rows.
+
+## Issues / Notes
+- With cost 0 the whole table reads 0 until a cost is entered, which is expected.
+
+## Final Status
+Completed
