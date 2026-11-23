@@ -9,23 +9,48 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run start` — Start production server
 - `npm run lint` — Run ESLint (runs `eslint` with next config)
 
-No test framework is configured. Verification in this project is done by driving a
-headless browser over CDP and measuring (see "Measuring" below).
+No test framework or `test` script is configured. The `services/*.test.mts`
+files run on Node's built-in runner (Node ≥22.18 strips TS types natively; the
+modules under test have no imports, which is what makes this work without a
+bundler — keep it that way, since an `@/` import would break it):
+
+- `node --test services/searchFilter.aspectRim.test.mts` — run one file
+- `node --test services/priceCalculator.test.mts` — calculator math, checked against values Excel cached in the source workbook `Tyre-Price-Calculator 1.xlsx` (the module comments map each function to its cells)
+- `node --test --test-name-pattern="Case 1" services/searchFilter.aspectRim.test.mts` — run a single test
+
+As of 2026-11-23 on a clean `main`, 5/7 pass — "Case 2" (55R16) and "Case 3"
+(65R15) aspect+rim fallback tests fail. That failure predates any later change. The
+`MODULE_TYPELESS_PACKAGE_JSON` warning it prints is harmless.
+
+Everything else is verified by driving a headless browser over CDP and measuring
+(see "Measuring" below). There is no `typecheck` script; use `npx tsc --noEmit`.
 
 ## Environment
 
 There is no database — the only network dependency is the Magento GraphQL
 endpoint, which `app/api/graphql/route.ts` proxies to `GRAPHQL_ENDPOINT`.
 
-`.env.local` is **NOT optional**: the proxy refuses to guess a host and returns
-500 when `GRAPHQL_ENDPOINT` is unset. Three server-only variables (no
-`NEXT_PUBLIC_` prefix — Next inlines those into the client bundle):
+`.env.local` is **NOT optional** (all `.env*` files are gitignored; there is no
+committed `.env.example` despite comments referencing one): the proxy refuses to
+guess a host and returns 500 when `GRAPHQL_ENDPOINT` is unset. Server-only
+variables (no `NEXT_PUBLIC_` prefix — Next inlines those into the client bundle):
 
 | Variable | Purpose |
 | --- | --- |
 | `GRAPHQL_ENDPOINT` | `https://qa.tyrescart.ae/graphql` |
 | `KLEVER_API_KEY` | `X-Klever-Api-Key`; Magento answers `403 Invalid or missing API key` without it |
 | `GRAPHQL_BASIC_AUTH` | `user:password`; the QA origin sits behind nginx Basic auth |
+| `AUTH_USERNAME` / `AUTH_PASSWORD` | The app's single login. Also the HMAC key for the session cookie, so changing either invalidates every session. Unset → `/api/auth/login` returns 500 and nobody can log in |
+
+Client-inlined (`NEXT_PUBLIC_*`, baked in at **build** time — a change needs a rebuild/redeploy):
+- `NEXT_PUBLIC_ENABLE_LOGIN` — `"false"` disables the login gate in `proxy.ts` entirely
+- `NEXT_PUBLIC_FEATURE_*` — feature flags, see "Feature flags" below
+
+`instrumentation.ts` (and the proxy route itself) call
+`dns.setDefaultResultOrder("ipv4first")`: the dev machine's IPv6 route to the
+upstream is unreachable and undici tries AAAA first, which shows up as
+intermittent `fetch failed` / ETIMEDOUT. The proxy retries 403/429/5xx and
+network errors up to 3 times.
 
 **QA needs BOTH credentials** — they are separate gates. Basic gets the request
 past nginx (`401 www-authenticate: Basic realm="Restricted Area"` without it,
@@ -58,28 +83,46 @@ needs is fetched from Magento, normalized in the browser and persisted to
 IndexedDB.
 
 ### Stack
-- **Frontend:** React 19.2, TypeScript, Tailwind CSS 3 (light theme, emerald accent; `/products` and `/tyre_guide/chat` use orange)
-- **Data:** Magento GraphQL — `products`, `supplierProducts`, `tyresChat`, `customAttributeMetadata`
-- **Server side:** exactly one route, `app/api/graphql/route.ts` (a POST proxy; it exists so the browser isn't blocked by CORS/WAF)
+- **Frontend:** React 19.2, TypeScript, Tailwind CSS 3 (light theme, emerald accent; `/dashboard` and `/products` use orange — `ORANGE_ROUTES` in `components/Sidebar.tsx`)
+- **Data:** Magento GraphQL — `products`, `supplierProducts`, `supplierProductPriceHistory`, `tyresChat`, `customAttributeMetadata`, the `crm*` queries/mutation (Book Inquiry) and `kleverStickyNotes` + create/update/delete mutations (Sticky Notes)
+- **Server side:** `app/api/graphql/route.ts` (POST proxy; exists so the browser isn't blocked by CORS/WAF) plus `app/api/auth/{login,logout}` — no domain logic
 - **Persistence:** IndexedDB only (`services/db.ts`), no MongoDB/Mongoose
-- **Auth:** none. There is no `middleware.ts`; every route and the proxy are open. This must be addressed before deployment.
-- **Offline/PWA:** `@serwist/next` service worker (`app/sw.ts` → `public/sw.js`, registered by `components/ServiceWorker.tsx`, disabled in dev) + IndexedDB for data and cart
+- **Auth:** single-user login. `proxy.ts` (Next 16's replacement for `middleware.ts`) redirects every non-`/api`, non-`/login` request to `/login` unless the `tc_session` cookie verifies. The cookie is a stateless HMAC token from `services/session.ts`. **`/api/*` is deliberately NOT gated**, so the GraphQL proxy is still open to anyone who can reach it.
+- **Offline/PWA:** `@serwist/next` service worker (`app/sw.ts` → `public/sw.js`, registered by `components/ServiceWorker.tsx`, disabled in dev — test offline with `npm run build && npm start`) + IndexedDB for data and cart
 
 ### Key Directories
-- `app/` — routes: `dashboard` (placeholder charts), `products` (storefront catalogue, card grid), `supplier-products` (~319k-row supplier feed, table), `tc-products` (7.8k-row storefront table with cart/list actions), `tyre_guide/chat` (chat shortcuts)
-- `app/api/graphql/` — the single API route
-- `components/` — `Sidebar`, `SidebarSyncButton`, `Skeletons`, `HeaderUtilities`, `ToastProvider`, `DbInit`, `ServiceWorker`
-- `services/` — the whole data layer: `graphql.ts` (fetchers), `queries.ts` (query strings), `cache.ts` (read-through cache + sync routines + session rows cache), `db.ts` (IndexedDB wrapper), `syncManager.ts` / `syncTasks.ts` (background sync), `searchFilter.ts` (search/size matching), `cartStore.ts`, `productFormatter.ts`, `productEnrich.ts`
-- `hooks/` — `useSyncManager`, `useCart`, `useOnlineStatus`, `useDebouncedValue`, `useSync`
+- `app/(app)/` — route group holding every page that gets the app shell: `dashboard`, `products` (storefront catalogue, card grid), `supplier-products` (supplier feed, table), `tc-products` (storefront table with cart/list actions), `tyreschat` (chat shortcuts), `calculator` (tyre price/margin calculator — pure client math in `services/priceCalculator.ts`, no API). `/` redirects to `/supplier-products` (hard-coded on purpose; see the comment in `app/(app)/page.tsx`)
+- `app/login`, `app/forgot-password` — standalone routes outside the group, so they render without the Sidebar
+- `app/api/` — `graphql/` proxy and `auth/` routes
+- `config/features.ts` — feature flags (see below)
+- `services/` — the whole data layer: `graphql.ts` (fetchers), `queries.ts` (query strings), `cache.ts` (read-through cache + sync routines + session rows cache), `db.ts` (IndexedDB wrapper), `syncManager.ts` / `syncTasks.ts` (background sync), `syncService.ts` (older per-route refresher registry, still used by `products` and `tyreschat` pages), `searchFilter.ts` (search/size matching), `costHistory.ts`, `dashboardData.ts`, `inquiryStorage.ts`, `session.ts`
+- `hooks/` — `useSyncManager`, `useCart`, `useOnlineStatus`, `useDebouncedValue`, `useProductFilter`, `useProductSorting`
 - `constants/badges.ts` — shared category/brand badge classes
 
-There is no `lib/`, `models/`, `types/` or `middleware.ts` directory. Shared
-types live in `services/types.ts`.
+There is no `lib/`, `models/` or `types/` directory. Shared types live in
+`services/types.ts`.
+
+### Feature flags
+`config/features.ts` is the single switchboard. The same codebase deploys as
+several Vercel projects (tyrescart, klevertire) that differ only in env values.
+Every flag is **opt-out** — on unless its env var is `false`/`0`/`no`/`off`.
+Pages, header buttons, row actions, sticky notes, sync-all and the GraphQL proxy
+(`FEATURE_GRAPHQL_PROXY`, server-only) are each gated. To add one: add the env
+var and one line in `features`. A page flag must also be in `NAV_FEATURE_MAP`.
+That one map drives both the Sidebar filter and `proxy.ts`'s redirect away
+from disabled routes, so a route's nav link and its protection can't drift.
+
+### Sticky Notes
+`components/StickyNotes/` is a draggable floating-note overlay backed by the
+Klever `kleverStickyNotes` GraphQL API. It is server-persisted, not IndexedDB.
+Its provider and overlay are mounted in `app/(app)/layout.tsx` above the route
+boundary, so a note mid-drag/edit survives navigation. Sync is click-only (the
+5 s auto-timer was removed — TASK_LOG #007).
 
 ### Data flow
 1. **Fetch** — `services/graphql.ts` builds a query from `services/queries.ts` and POSTs it through `/api/graphql`.
 2. **Cache** — `services/cache.ts` wraps every fetch in a read-through: fresh IndexedDB entry (`CACHE_TTL_MS`, 5 min) is served with **no network**; otherwise fetch → persist → return; on failure the stale entry is served rather than nothing.
-3. **Persist** — `services/db.ts`, database `tyrescart-pos` v6, stores: `productQueries` (per-query/per-page responses), `supplierProducts` (one record per product, keyed `id`), `costHistory` (one record per observed cost CHANGE, `productId` index), `tyresChat`, `cart`, `meta`.
+3. **Persist** — `services/db.ts`, database `tyrescart-pos` v8, stores: `productQueries` (per-query/per-page responses), `supplierProducts` (one record per product, keyed `id`), `costHistory` and `fittingPriceHistory` (one record per observed CHANGE, `productId` index), `tyresChat`, `cart`, `meta`. Adding a store means bumping `DB_VERSION` and guarding creation with `objectStoreNames.contains`.
 4. **Render** — pages hold normalized rows in state, filter/sort/paginate entirely client-side. No API call is made for search, filtering, sorting or pagination.
 
 ### Background sync
@@ -92,15 +135,15 @@ running when the user navigates away**. Pages observe it via
 - `start(id)` dedupes synchronously — a second call joins the in-flight run, so a sync can never be started twice (this also covers React StrictMode's double effect).
 - Large syncs use a fixed **worker pool of 8** with per-page retry (3 attempts, exponential backoff + jitter) and, for supplier, a circuit breaker. A failed page is recorded, never silently skipped.
 - **One button component:** `components/SyncButton.tsx` on every page. It maps the route to a task and calls `syncManager.start(task)` — same in-flight check, 3s cooldown, toasts (via `ToastProvider`) and spinner everywhere. `/dashboard` has no task, so its button renders disabled. The sidebar button runs `startAll()`.
-- **Header vs sidebar scope:** the header button syncs only the current route's task. On /supplier-products that is `supplierPage` (~1 request, refreshes the rows on screen), NOT the 319k catalogue — the full pass belongs to the sidebar. `supplierPage` sets `excludeFromStartAll` so a full sync doesn't also run it.
+- **Header vs sidebar scope:** the header button syncs only the current route's task (`ROUTE_TASK` in `SyncButton.tsx`); the sidebar runs every registered task. `syncManager` supports `excludeFromStartAll` for page-only tasks, but no registered task currently sets it.
 - **Auto-fetch fires only when IndexedDB holds NOTHING for that page.** One cached record is enough to suppress it — including a PARTIAL cache, which is rendered as-is rather than completed. Applies to supplier, tc, products and chat. Filling gaps and refreshing are the Sync buttons' job.
-- **tc and products are never auto-resumed.** Only supplier has a resume path (`resumeInterruptedSupplierSync`, driven by `supplierAll:syncState`), justified by its 3,200-request catalogue. `tcProducts:syncState` is still written but is diagnostic only.
-- `resumeInterruptedSupplierSync()` and `resumeInterruptedTcSync()` (both called from `components/DbInit.tsx`) restart a sync that a hard reload killed, detected via the `supplierAll:syncState` / `tcProducts:syncState` meta markers — written `running` before paging starts and only upgraded to `complete`/`partial` at the end.
+- **Only supplier is auto-resumed.** `resumeInterruptedSupplierSync()` (in `syncTasks.ts`, called from `components/DbInit.tsx`) restarts a sync that a hard reload killed, detected via the `supplierAll:syncState` meta marker — written `running` before paging starts and only upgraded to `complete`/`partial` at the end. `tcProducts:syncState` is still written but is diagnostic only; there is no tc resume function.
 - Both syncs trip a **circuit breaker** after 12 consecutive page failures rather than hammering a WAF/rate-limiter with the rest of the catalogue.
 
 ### Layout and navigation
-`app/layout.tsx` owns the viewport frame and renders `<Sidebar />` **above the
-route boundary**, so client-side navigation replaces only the content area. Route
+`app/layout.tsx` (root) mounts `DbInit`, `ServiceWorker` and `ToastProvider` only.
+`app/(app)/layout.tsx` owns the viewport frame and renders `<Sidebar />` **above
+the route boundary**, so client-side navigation replaces only the content area. Route
 `loading.tsx` files render **content-only** skeletons (no sidebar, no
 `h-screen w-screen`) — a full-viewport skeleton would blank the chrome and make
 navigation look like a page reload. Active nav and accent come from
@@ -348,12 +391,12 @@ triggered) but the chart no longer reads it — verified 0 reads while charting.
 
 ## Known gaps
 
-- **No auth.** No `middleware.ts`; nothing gates any route.
+- **`/api/*` is unauthenticated.** `proxy.ts` skips every `/api` path, so `/api/graphql` (which attaches the server's Klever key and Basic auth) is callable without logging in. With `NEXT_PUBLIC_ENABLE_LOGIN=false`, pages are open too.
 - **No checkout.** `hooks/useCart` + `services/cartStore.ts` persist a cart, but only tc-products' Add-to-Cart writes to it; there is no cart UI, order API or receipt. Offline orders/outbox is the deferred Phase 4.
 - **`Offer` column now reads the `offers` attribute** (option ids → 8 promo labels such as "Free Wheel Alignment", "Buy 3 Get 1 Free"; 342 of 8,526 products). It previously showed `—` on every row because it was computed from a regular-vs-final price spread, and no product on this store has `final < regular`.
 - **`is_offers` does not exist** on the Magento schema — `Cannot query field "is_offers" on type "ProductInterface"`. The real field is `offers`.
 - **`Qty` is `stock_status` only** (0/1). No numeric on-hand count exists in the API.
-- **`/dashboard` is a placeholder** and is the default landing route.
+- **`/dashboard` is mostly demo data.** `services/dashboardData.ts` splits it into REAL metrics and `isDemo: true` placeholders, because sales/orders/payments/employees/inventory endpoints don't exist (probed). The landing route is `/supplier-products`.
 - **CRM booking status codes are unmapped** (`1`/`4`/`5`). Every row displays as "Pending", so the Contacted and Closed tabs are permanently empty. Blocked on the backend team for the label list — see Book Inquiry.
 - **Competitor rows can't open their price history from the supplier table.** The chart is triggered by the Cost cell, and competitor `cost` is structurally 0, so 268k rows have no click target even though `supplierProductPriceHistory` holds their series. /tc-products does not have this problem — it gates on `price`.
 - **Each chart open on /tc-products costs an extra SKU→feed-id lookup** (~1–2 s before the modal appears). The modal caches per `(id, source)`, but that resolution step is not cached, so reopening the same row pays it again.

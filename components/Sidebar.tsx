@@ -10,6 +10,7 @@ import {
   ChatBubbleLeftRightIcon,
   TruckIcon,
   BuildingStorefrontIcon,
+  CalculatorIcon,
 } from "@heroicons/react/24/outline";
 import SidebarSyncButton from "@/components/SidebarSyncButton";
 import { features, NAV_FEATURE_MAP } from "@/config/features";
@@ -26,6 +27,7 @@ export const NAV_ITEMS: NavItem[] = [
   { name: "TC", icon: BuildingStorefrontIcon, href: "/tc-products" },
   { name: "Products", icon: ShoppingBagIcon, href: "/products" },
   { name: "Chat", icon: ChatBubbleLeftRightIcon, href: "/tyreschat" },
+  { name: "Calc", icon: CalculatorIcon, href: "/calculator" },
 ];
 
 export interface SidebarProps {
