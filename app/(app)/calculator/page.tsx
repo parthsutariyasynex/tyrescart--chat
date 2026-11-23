@@ -8,13 +8,10 @@ import { features } from "@/config/features";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import {
   DEFAULT_INPUTS,
-  DEFAULT_TARGET_MARGIN,
   costTotals,
   marginTable,
-  quickQuote,
   type CalculatorInputs,
   type ChannelRow,
-  type QuickQuote,
 } from "@/services/priceCalculator";
 
 /**
@@ -60,7 +57,6 @@ function fromRaw(raw: RawInputs): CalculatorInputs {
 }
 
 const DEFAULT_RAW = toRaw(DEFAULT_INPUTS);
-const DEFAULT_TARGET_RAW = toPctString(DEFAULT_TARGET_MARGIN);
 
 const money = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 2,
@@ -73,7 +69,7 @@ const fmt = (n: number | null | undefined) =>
     : money.format(Math.round(n * 100) / 100 || 0);
 /**
  * Whole AED, always rounded UP (5,430.02 → 5,431). Used for the Price vs
- * Margin table and the Quick Quote panel. Display only: the math keeps full precision. The epsilon stops
+ * Margin table. Display only: the math keeps full precision. The epsilon stops
  * float noise (5430.0000000001) from bumping an exact whole number up by one.
  *
  * `|| 0` turns negative zero into 0: `Math.ceil` of anything in (−1, 0] —
@@ -87,10 +83,6 @@ const fmtCeil = (n: number | null | undefined) =>
     : wholeUp.format(Math.ceil(n - 1e-9) || 0);
 const pct = (fraction: number, digits = 1) =>
   `${Number((fraction * 100).toFixed(digits))}%`;
-
-/** Workbook conditional format: ROUND($B19,4)=ROUND($F$5,4). */
-const sameMargin = (a: number, b: number) =>
-  Math.round(a * 10000) === Math.round(b * 10000);
 
 const INPUT_CELL =
   "w-full bg-transparent text-right text-[#0000FF] tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500/30 rounded px-1 py-0.5";
@@ -138,23 +130,19 @@ export default function CalculatorPage() {
 
   const isOnline = useOnlineStatus();
   const [raw, setRaw] = useState<RawInputs>(DEFAULT_RAW);
-  const [targetRaw, setTargetRaw] = useState(DEFAULT_TARGET_RAW);
 
   const inputs = useMemo(() => fromRaw(raw), [raw]);
   const totals = useMemo(() => costTotals(inputs), [inputs]);
   const rows = useMemo(() => marginTable(inputs), [inputs]);
-  const target = parseNonNegative(targetRaw) / 100;
-  const cardQuote = useMemo(() => quickQuote(inputs, target, inputs.cardFeeRate), [inputs, target]);
-  const bnplQuote = useMemo(() => quickQuote(inputs, target, inputs.bnplFeeRate), [inputs, target]);
   const n = Math.max(1, Math.floor(inputs.tyresPerOrder) || 1);
   const vatLabel = pct(inputs.vatRate);
 
   const setField = (key: InputKey, value: string) =>
     setRaw((prev) => ({ ...prev, [key]: value }));
 
-  const isDefault =
-    targetRaw === DEFAULT_TARGET_RAW &&
-    (Object.keys(DEFAULT_RAW) as InputKey[]).every((k) => raw[k] === DEFAULT_RAW[k]);
+  const isDefault = (Object.keys(DEFAULT_RAW) as InputKey[]).every(
+    (k) => raw[k] === DEFAULT_RAW[k],
+  );
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-[#f4f6f9] text-gray-800 font-sans relative">
@@ -166,10 +154,7 @@ export default function CalculatorPage() {
           actions={
             <button
               type="button"
-              onClick={() => {
-                setRaw(DEFAULT_RAW);
-                setTargetRaw(DEFAULT_TARGET_RAW);
-              }}
+              onClick={() => setRaw(DEFAULT_RAW)}
               disabled={isDefault}
               className="h-9 px-3 inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
@@ -186,9 +171,8 @@ export default function CalculatorPage() {
             price excl. VAT.
           </p>
 
-          <div className="grid gap-6 xl:grid-cols-2 items-start">
-            {/* ── Cost Inputs (B4:C14) ── */}
-            <section className="bg-white border border-slate-200 rounded-lg shadow-2xs overflow-hidden">
+          {/* ── Cost Inputs (B4:C14) ── */}
+          <section className="max-w-3xl bg-white border border-slate-200 rounded-lg shadow-2xs overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-[#1F3864] text-white">
@@ -220,52 +204,6 @@ export default function CalculatorPage() {
               </table>
             </section>
 
-            {/* ── Quick Quote (E4:G13) ── */}
-            <section className="bg-white border border-slate-200 rounded-lg shadow-2xs overflow-hidden">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-white">
-                    <th className="py-1.5 px-3 text-left font-bold bg-[#1F3864]">Quick Quote (AED)</th>
-                    <th className="py-1.5 px-3 text-right font-bold bg-[#1F4E79] w-36">Card</th>
-                    <th className="py-1.5 px-3 text-right font-bold bg-[#843C0C] w-36">Tabby / Tamara</th>
-                  </tr>
-                </thead>
-                <tbody className="[&>tr]:border-b [&>tr]:border-slate-200 [&>tr:last-child]:border-b-0 tabular-nums">
-                  <tr>
-                    <td className="py-1.5 px-3 text-slate-800">
-                      <label htmlFor="calc-target-margin">Target Margin %</label>
-                    </td>
-                    <td className="py-1 px-2 bg-[#DDEBF7]">
-                      <div className="flex items-center justify-end gap-1">
-                        <input
-                          id="calc-target-margin"
-                          type="number"
-                          inputMode="decimal"
-                          min={0}
-                          step="any"
-                          value={targetRaw}
-                          onChange={(e) => setTargetRaw(e.target.value)}
-                          className={INPUT_CELL}
-                        />
-                        <span className="text-[#0000FF] text-xs">%</span>
-                      </div>
-                    </td>
-                    {/* G5 is `=F5` in the workbook: the same target on both channels. */}
-                    <td className="py-1.5 px-3 text-right text-slate-700">{pct(target, 2)}</td>
-                  </tr>
-                  <QuoteRow label="Price per Tyre (excl. VAT)" field="pricePerTyreExclVat" card={cardQuote} bnpl={bnplQuote} />
-                  <QuoteRow label="Price per Tyre (incl. VAT)" field="pricePerTyreInclVat" card={cardQuote} bnpl={bnplQuote} bold />
-                  <QuoteRow label={`Gateway Fee per Tyre (incl. ${vatLabel} VAT)`} field="gatewayFeePerTyre" card={cardQuote} bnpl={bnplQuote} />
-                  <QuoteRow label="Net Profit per Tyre" field="netProfitPerTyre" card={cardQuote} bnpl={bnplQuote} profit />
-                  <QuoteRow label={`Order Total × ${n} tyres (incl. VAT)`} field="orderTotalInclVat" card={cardQuote} bnpl={bnplQuote} bold />
-                  <QuoteRow label={`Order Total Cost × ${n} tyres (incl. VAT)`} field="orderCostInclVat" card={cardQuote} bnpl={bnplQuote} />
-                  <QuoteRow label={`Gateway Fee per Order (incl. ${vatLabel} VAT)`} field="gatewayFeePerOrder" card={cardQuote} bnpl={bnplQuote} />
-                  <QuoteRow label="Net Profit per Order" field="netProfitPerOrder" card={cardQuote} bnpl={bnplQuote} profit bold />
-                </tbody>
-              </table>
-            </section>
-          </div>
-
           {/* ── Price vs Margin (B16:H68) ── */}
           <section>
             <h2 className="text-base font-bold text-[#1F3864] mb-2">
@@ -293,29 +231,22 @@ export default function CalculatorPage() {
                   </tr>
                 </thead>
                 <tbody className="tabular-nums">
-                  {rows.map((row) => {
-                    const hit = sameMargin(row.margin, target);
-                    return (
-                      <tr
-                        key={row.margin}
-                        className={`border-b border-slate-200 ${hit ? "[&>td]:!bg-[#FFD966] [&>td]:!text-black [&>td]:font-bold" : ""}`}
-                      >
-                        <td className="py-1 px-3 text-center font-bold bg-[#EDEDED] text-[#3A3A3A]">
-                          {pct(row.margin, 0)}
-                        </td>
-                        <ChannelCells row={row.card} tone="card" />
-                        <ChannelCells row={row.bnpl} tone="bnpl" />
-                      </tr>
-                    );
-                  })}
+                  {rows.map((row) => (
+                    <tr key={row.margin} className="border-b border-slate-200">
+                      <td className="py-1 px-3 text-center font-bold bg-[#EDEDED] text-[#3A3A3A]">
+                        {pct(row.margin, 0)}
+                      </td>
+                      <ChannelCells row={row.card} tone="card" />
+                      <ChannelCells row={row.bnpl} tone="bnpl" />
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
             <p className="mt-2 text-[11px] text-slate-500">
               Order of 1 carries the full courier and other cost; Order of {n} spreads it
               across the order. Net Profit per Order = order incl. VAT − order cost × (1 +
-              VAT) − gateway fee incl. VAT. The highlighted row is the Quick Quote target
-              margin. Table and Quick Quote values are rounded up to the whole AED.
+              VAT) − gateway fee incl. VAT. Table values are rounded up to the whole AED.
             </p>
           </section>
         </div>
@@ -341,35 +272,5 @@ function ChannelCells({ row, tone }: { row: ChannelRow; tone: keyof typeof TONES
         {fmtCeil(row.netProfit)}
       </td>
     </>
-  );
-}
-
-function QuoteRow({
-  label,
-  field,
-  card,
-  bnpl,
-  bold,
-  profit,
-}: {
-  label: string;
-  field: keyof QuickQuote;
-  card: QuickQuote | null;
-  bnpl: QuickQuote | null;
-  bold?: boolean;
-  profit?: boolean;
-}) {
-  const cell = (q: QuickQuote | null) => {
-    const v = q?.[field];
-    const negative = typeof v === "number" && v < 0;
-    const color = profit ? (negative ? "text-red-600" : "text-[#375623]") : "text-slate-900";
-    return <td className={`py-1.5 px-3 text-right ${bold ? "font-bold" : ""} ${color}`}>{fmtCeil(v)}</td>;
-  };
-  return (
-    <tr className={profit && bold ? "bg-[#E2EFDA]" : ""}>
-      <td className={`py-1.5 px-3 ${bold ? "font-bold text-slate-900" : "text-slate-800"}`}>{label}</td>
-      {cell(card)}
-      {cell(bnpl)}
-    </tr>
   );
 }

@@ -56,6 +56,12 @@ network errors up to 3 times.
 past nginx (`401 www-authenticate: Basic realm="Restricted Area"` without it,
 with or without the Klever key); the Klever key gets it past Magento. Each header
 is omitted entirely when its variable is unset, so an ungated host is unaffected.
+**A local test cannot validate `GRAPHQL_BASIC_AUTH`.** Measured 2026-11-23 from
+the dev machine's network: the QA nginx answers 200 with no credentials and
+even with a deliberately WRONG Basic password. That network's IP is allowlisted,
+so Basic auth is only enforced for everyone else, Vercel included. A wrong or
+missing value therefore works locally and fails only on deploy, where the proxy
+relays nginx's HTML `401 Authorization Required` page as the error message.
 Credentials CANNOT be embedded in the URL instead — Node's fetch rejects
 `https://user:pass@host/…` outright ("Request cannot be constructed from a URL
 that includes credentials"), even though curl accepts that form.

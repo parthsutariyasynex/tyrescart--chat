@@ -13,10 +13,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   DEFAULT_INPUTS,
-  DEFAULT_TARGET_MARGIN,
   costTotals,
   marginTable,
-  quickQuote,
   priceExclVat,
   type CalculatorInputs,
 } from "./priceCalculator.ts";
@@ -28,10 +26,11 @@ const close = (actual: number | null, expected: number, label: string) => {
 const r2 = (n: number | null) => (n === null ? null : Math.round(n * 100) / 100);
 
 const WORKBOOK_INPUTS: CalculatorInputs = { ...DEFAULT_INPUTS, tyreCost: 450 };
+const SCREENSHOT_INPUTS: CalculatorInputs = { ...DEFAULT_INPUTS, tyreCost: 1250 };
 
 test("cost totals (C10, C11)", () => {
   assert.deepEqual(costTotals(WORKBOOK_INPUTS), { totalOrderCost: 1800, costPerTyre: 450 });
-  const withCourier = { ...DEFAULT_INPUTS, courierCost: 40, otherCost: 20 };
+  const withCourier = { ...SCREENSHOT_INPUTS, courierCost: 40, otherCost: 20 };
   assert.deepEqual(costTotals(withCourier), { totalOrderCost: 5060, costPerTyre: 1265 });
 });
 
@@ -67,29 +66,8 @@ test("margin table matches the workbook's cached values", () => {
   }
 });
 
-test("quick quote matches the workbook (F6:G13 at 9%)", () => {
-  const card = quickQuote(WORKBOOK_INPUTS, DEFAULT_TARGET_MARGIN, WORKBOOK_INPUTS.cardFeeRate)!;
-  close(card.pricePerTyreExclVat, 507.41531097511125, "F6");
-  close(card.pricePerTyreInclVat, 532.7860765238669, "F7");
-  close(card.gatewayFeePerTyre, 11.747932987351264, "F8");
-  close(card.netProfitPerTyre, 48.53814353651562, "F9");
-  close(card.orderTotalInclVat, 2131.1443060954675, "F10");
-  close(card.orderCostInclVat, 1890, "F11");
-  close(card.gatewayFeePerOrder, 46.99173194940506, "F12");
-  close(card.netProfitPerOrder, 194.15257414606248, "F13");
-
-  const bnpl = quickQuote(WORKBOOK_INPUTS, DEFAULT_TARGET_MARGIN, WORKBOOK_INPUTS.bnplFeeRate)!;
-  close(bnpl.pricePerTyreExclVat, 541.0458416118356, "G6");
-  close(bnpl.pricePerTyreInclVat, 568.0981336924274, "G7");
-  close(bnpl.gatewayFeePerTyre, 42.35171586677046, "G8");
-  close(bnpl.netProfitPerTyre, 53.24641782565692, "G9");
-  close(bnpl.orderTotalInclVat, 2272.3925347697095, "G10");
-  close(bnpl.gatewayFeePerOrder, 169.40686346708185, "G12");
-  close(bnpl.netProfitPerOrder, 212.98567130262768, "G13");
-});
-
 test("Order of 1 carries the FULL courier/other cost (C19 = SUM(C5:C8)/…)", () => {
-  const i = { ...DEFAULT_INPUTS, courierCost: 40, otherCost: 20 };
+  const i = { ...SCREENSHOT_INPUTS, courierCost: 40, otherCost: 20 };
   const row = marginTable(i)[0]; // 1%
   const share = 1 - 0.01 - 0.021 * 1.05 ** 2;
   close(row.card.orderOfOne, ((1250 + 40 + 20) / share) * 1.05, "C19 with courier");
@@ -104,7 +82,7 @@ const SCREENSHOT: [number, number, number, number, number, number, number][] = [
 ];
 
 test("margin table matches the screenshot at 1,250", () => {
-  const rows = marginTable(DEFAULT_INPUTS);
+  const rows = marginTable(SCREENSHOT_INPUTS);
   for (const [pct, c1, c4, cNet, b1, b4, bNet] of SCREENSHOT) {
     const row = rows[pct - 1];
     assert.deepEqual(
@@ -117,5 +95,15 @@ test("margin table matches the screenshot at 1,250", () => {
 
 test("unreachable margin yields null, not a negative price", () => {
   assert.equal(priceExclVat(5000, 0.95, 0.071, 0.05), null);
-  assert.equal(quickQuote(DEFAULT_INPUTS, 0.95, 0.071), null);
+  const row = marginTable(SCREENSHOT_INPUTS, 95, 95)[0];
+  assert.deepEqual(row.bnpl, { orderOfOne: null, orderOfN: null, netProfit: null });
+});
+
+test("defaults: tyre cost 0 gives an all-zero table, not nulls or -0", () => {
+  assert.equal(DEFAULT_INPUTS.tyreCost, 0);
+  for (const row of marginTable(DEFAULT_INPUTS)) {
+    for (const v of [row.card.orderOfOne, row.card.orderOfN, row.card.netProfit, row.bnpl.orderOfOne, row.bnpl.orderOfN, row.bnpl.netProfit]) {
+      assert.equal(v, 0);
+    }
+  }
 });

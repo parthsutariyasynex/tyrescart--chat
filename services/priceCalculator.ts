@@ -18,7 +18,10 @@
  * in the workbook is therefore `cost / (1 − margin − fee·(1+VAT)²)`, and
  * multiplying by (1+VAT) gives the price incl. VAT.
  *
- * NET PROFIT (E19/H19, F13/G13) is `order incl. VAT − order cost·(1+VAT) −
+ * The workbook's Quick Quote block (E4:G13) is intentionally not implemented —
+ * removed from the page at the user's request (TASK_LOG #016).
+ *
+ * NET PROFIT (E19/H19) is `order incl. VAT − order cost·(1+VAT) −
  * gateway fee incl. VAT`, a VAT-inclusive figure. It is NOT
  * `margin × price excl. VAT` (60.29 vs 51.71 at 1% / card on 1,250 × 4). It
  * is reproduced as-is.
@@ -36,7 +39,7 @@ export interface CalculatorInputs {
 }
 
 export const DEFAULT_INPUTS: CalculatorInputs = {
-  tyreCost: 1250,
+  tyreCost: 0,
   fittingCost: 0,
   courierCost: 0,
   otherCost: 0,
@@ -45,9 +48,6 @@ export const DEFAULT_INPUTS: CalculatorInputs = {
   cardFeeRate: 0.021,
   bnplFeeRate: 0.071,
 };
-
-/** F5 — the Quick Quote target margin; the workbook ships with 9%. */
-export const DEFAULT_TARGET_MARGIN = 0.09;
 
 function tyreCount(i: CalculatorInputs): number {
   return Math.max(1, Math.floor(i.tyresPerOrder) || 1);
@@ -138,49 +138,4 @@ export function marginTable(
     });
   }
   return rows;
-}
-
-export interface QuickQuote {
-  pricePerTyreExclVat: number; // F6
-  pricePerTyreInclVat: number; // F7
-  gatewayFeePerTyre: number; // F8, incl. VAT on the fee
-  netProfitPerTyre: number; // F9
-  orderTotalInclVat: number; // F10
-  orderCostInclVat: number; // F11
-  gatewayFeePerOrder: number; // F12
-  netProfitPerOrder: number; // F13
-}
-
-/**
- * Quick Quote block (E4:G13) for one channel at a target margin. Returns
- * `null` when the margin is unreachable on that channel.
- */
-export function quickQuote(
-  i: CalculatorInputs,
-  targetMargin: number,
-  feeRate: number,
-): QuickQuote | null {
-  const n = tyreCount(i);
-  const v = i.vatRate;
-  const { totalOrderCost, costPerTyre } = costTotals(i);
-  const excl = priceExclVat(costPerTyre, targetMargin, feeRate, v);
-  if (excl === null) return null;
-
-  const incl = excl * (1 + v);
-  const feePerTyre = incl * feeRate * (1 + v);
-  const orderTotalInclVat = incl * n;
-  const orderCostInclVat = totalOrderCost * (1 + v);
-  const gatewayFeePerOrder = feePerTyre * n;
-  const netProfitPerOrder = orderTotalInclVat - orderCostInclVat - gatewayFeePerOrder;
-
-  return {
-    pricePerTyreExclVat: excl,
-    pricePerTyreInclVat: incl,
-    gatewayFeePerTyre: feePerTyre,
-    netProfitPerTyre: netProfitPerOrder / n,
-    orderTotalInclVat,
-    orderCostInclVat,
-    gatewayFeePerOrder,
-    netProfitPerOrder,
-  };
 }
