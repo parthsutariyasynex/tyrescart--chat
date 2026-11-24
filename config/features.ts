@@ -49,6 +49,7 @@ export const features = {
   tcProducts: envBool(process.env.NEXT_PUBLIC_FEATURE_TC_PRODUCTS),
   products: envBool(process.env.NEXT_PUBLIC_FEATURE_PRODUCTS),
   chat: envBool(process.env.NEXT_PUBLIC_FEATURE_CHAT),
+  calculator: envBool(process.env.NEXT_PUBLIC_FEATURE_CALCULATOR),
 
   /* ── Header action buttons + their modals ── */
   bookInquiry: envBool(process.env.NEXT_PUBLIC_FEATURE_BOOK_INQUIRY),
@@ -95,6 +96,7 @@ export const NAV_FEATURE_MAP: Record<string, FeatureKey> = {
   "/tc-products": "tcProducts",
   "/products": "products",
   "/tyreschat": "chat",
+  "/calculator": "calculator",
 };
 
 /**
@@ -108,6 +110,7 @@ export function getDefaultRoute(): string {
     { href: "/tc-products", key: "tcProducts" },
     { href: "/products", key: "products" },
     { href: "/tyreschat", key: "chat" },
+    { href: "/calculator", key: "calculator" },
   ];
   for (const { href, key } of ordered) {
     if (features[key]) return href;

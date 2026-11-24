@@ -741,3 +741,277 @@ Add the sort (↑↓) arrow and click-to-sort to the `py-2 px-2 text-center whit
 
 ## Final Status
 Completed
+
+# Task #010 — Create local environment file
+
+Date: 2026-11-23
+Status: Completed
+
+## Requirement
+Create an env file for the project. None existed, so the GraphQL proxy and the login route had no configuration.
+
+## Planned Changes
+- Create `.env.local` (gitignored via `.env*`) listing every variable the code reads, with the known non-secret values filled in and secrets left blank.
+
+## Files Affected
+- .env.local (new, not committed)
+
+## Implementation
+- Created `.env.local` covering every `process.env.*` the code reads (grepped app/, components/, config/, services/, hooks/, proxy.ts, instrumentation.ts, next.config.ts): GRAPHQL_ENDPOINT, KLEVER_API_KEY, GRAPHQL_BASIC_AUTH, AUTH_USERNAME, AUTH_PASSWORD, NEXT_PUBLIC_ENABLE_LOGIN, all 18 NEXT_PUBLIC_FEATURE_* flags and FEATURE_GRAPHQL_PROXY.
+- Filled only non-secret values: GRAPHQL_ENDPOINT=https://qa.tyrescart.ae/graphql, login enabled, every flag `true` (matches the opt-out default). Secrets left blank.
+
+## Testing
+- `git check-ignore` confirms `.env.local` is ignored by the `.env*` rule; `git status` shows only TASK_LOG.md changed.
+- Not run against the API: the secrets are blank, so the proxy and login cannot work until they are filled in.
+
+## Issues / Notes
+- KLEVER_API_KEY, GRAPHQL_BASIC_AUTH, AUTH_USERNAME and AUTH_PASSWORD must be filled in by the user.
+- No committed `.env.example` exists even though code comments reference one; `.gitignore`'s `.env*` would also ignore it unless `!.env.example` is added.
+
+## Final Status
+Completed
+
+# Task #011 — Tyre Price Calculator page
+
+Date: 2026-11-23
+Status: Completed
+
+## Requirement
+Add a calculator page reproducing the "TyresCart.ae – Tyre Price Calculator" spreadsheet the user provided: cost inputs (tyre, fitting, courier, other, tyres per order, VAT, card fee, Tabby/Tamara fee), totals, and a Price-vs-Margin table (1%–50%) for Credit/Debit Card and Tabby/Tamara. Add a sidebar nav item with a calculator icon, placed after Chat and before Sync.
+
+## Planned Changes
+- `services/priceCalculator.ts` — pure pricing math matching the spreadsheet's figures.
+- `app/(app)/calculator/page.tsx` + `layout.tsx` — the page, using the shared Header.
+- `components/Sidebar.tsx` — new nav item (heroicons `CalculatorIcon`) after Chat.
+- `config/features.ts` — `calculator` flag + `NAV_FEATURE_MAP` entry so the nav link and the proxy.ts route gate stay in sync.
+- A `node --test` file checking the math against values read off the spreadsheet.
+
+## Files Affected
+- services/priceCalculator.ts (new)
+- services/priceCalculator.test.mts (new)
+- app/(app)/calculator/page.tsx (new)
+- app/(app)/calculator/layout.tsx (new — route title)
+- components/Sidebar.tsx
+- config/features.ts
+- CLAUDE.md (route list + test command)
+- .env.local (local only, gitignored — added NEXT_PUBLIC_FEATURE_CALCULATOR=true)
+
+## Implementation
+- `services/priceCalculator.ts`: pure functions, no imports. Price excl. VAT X = cost / (1 − margin − fee·(1+VAT)²); the gateway fee is charged on the price incl. VAT and VAT is charged on the fee, hence the squared term. Price incl. VAT = X·(1+VAT). "Order of 1" uses cost per tyre; "Order of N" uses the total order cost. Courier and Other costs are spread per order. A margin + fee share of 100% or more returns null, shown as "—".
+- The Net Profit column reproduces the sheet exactly: price incl. VAT − fee incl. VAT − order cost × (1+VAT). This is a VAT-inclusive figure and is NOT margin × price excl. VAT (60.29 vs 51.71 at 1% / card). It is footnoted on the page.
+- The page has a Cost Inputs table (blue editable cells, Inputs/Default tags, live totals), a Price vs Margin table for 1–50% (grouped Card / Tabby-Tamara headers that show the live fee %, an "Order of N" header that follows Tyres per Order, a sticky header, rows ≤10% tinted with an orange divider like the sheet), and a Reset button.
+- The sheet's empty right-hand grid (navy / blue / brown headers) is implemented as "Price Check": enter a selling price per tyre incl. VAT to see order total, fee, cost, net profit and margin for both channels (`checkPrice`). This is an interpretation, since the sheet leaves that grid blank.
+- Sidebar: "Calc" item with heroicons `CalculatorIcon`, after Chat and before Sync. Feature flag `calculator` (`NEXT_PUBLIC_FEATURE_CALCULATOR`, on by default) is in `NAV_FEATURE_MAP` and `getDefaultRoute`, so proxy.ts gates the route along with the nav link. The page also calls `notFound()` when the flag is off, like /tyreschat.
+- The header Sync button renders disabled on this route (no sync task), the same as /dashboard.
+
+## Testing
+- `node --test services/priceCalculator.test.mts`: 4/4 pass. Covers 36 values read off the spreadsheet (margins 1, 2, 5, 10, 11, 15% × both channels × 3 columns), cost totals with courier/other, the impossible-margin null, and checkPrice round-trip.
+- `npx tsc --noEmit`: no errors. `npx eslint` on the changed files: no errors.
+- Live check: headless Chrome over CDP against the running dev server (1600×900, logged in). /calculator renders, title "Tyre Price Calculator", nav order Dashboard, Supplier, TC, Products, Chat, Calc, Sync all data; 50 rows; rows 1/10/15% match the sheet. After setting courier 40, tyres 2 and check price 1500: headers switch to "Order of 2", 1% card = 1,379.22 / 2,758.45 / 30.63, and Price Check card margin 8.78% / net 266.85 (verified by hand).
+- `npm run build` not run.
+
+## Issues / Notes
+- The sheet's 4% row (1,401.00 / 5,604.00 / 230.43) does not follow its own formula, which gives 1,400.98 / 5,603.90 / 230.33. It looks like a hand-typed override in the source sheet. The page uses the formula.
+- The Net Profit definition (VAT-inclusive) differs from the stated margin definition. It is kept to match the sheet; the business should confirm which is wanted.
+- Inputs are not persisted; a reload resets to the defaults.
+
+## Final Status
+Completed
+
+# Task #012 — Calculator: align with the source workbook's real formulas
+
+Date: 2026-11-23
+Status: Completed
+
+## Requirement
+The user supplied the source workbook (`Tyre-Price-Calculator 1.xlsx`). Make /calculator follow its actual cell formulas instead of the figures reverse-engineered from the screenshot in #011.
+
+## Planned Changes
+- Read every formula in the workbook (openpyxl, formulas + cached values).
+- `services/priceCalculator.ts`: "Order of 1" = SUM(tyre, fitting, courier, other) / (1 − m − fee·(1+VAT)²) · (1+VAT). A one-tyre order carries the full courier/other cost; #011 wrongly spread it per tyre. Replace the invented `checkPrice` with the workbook's Quick Quote block (E4:G13).
+- Page: replace the "Price Check" panel with Quick Quote (Target Margin % input); replace the ≤10% red band with the workbook's only conditional format, which highlights the row equal to the target margin (#FFD966, bold); use the workbook's exact fill colours.
+- Tests: add cases from the workbook's own cached values.
+
+## Files Affected
+- services/priceCalculator.ts (rewritten)
+- services/priceCalculator.test.mts (rewritten)
+- app/(app)/calculator/page.tsx (rewritten)
+- CLAUDE.md (test command description)
+
+## Implementation
+- Read the workbook with openpyxl (formulas and Excel's cached values). It has one sheet, "Price Calculator"; rows 19–68 all use the same formula (checked programmatically) and there are no hand-entered values.
+- Bug fixed: "Order of 1" (C19/F19) is `SUM(C5:C8)/(1−m−fee·(1+VAT)²)·(1+VAT)`, so a single-tyre order carries the FULL courier + other cost. #011 used cost per tyre, which spread courier/other over N; that was wrong whenever courier or other was non-zero. "Order of N" (D19/G19 = C11/(…)·(1+VAT)·N) and Net Profit (E19/H19) were already right.
+- Replaced #011's invented "Price Check" with the workbook's Quick Quote block (E4:G13): one Target Margin % input (default 9%; G5 is `=F5`, so Tabby/Tamara shows the same target read-only), then price per tyre excl./incl. VAT, gateway fee per tyre, net profit per tyre, order total, order total cost incl. VAT, gateway fee per order and net profit per order (`quickQuote`).
+- Highlighting: the workbook's only conditional format is `ROUND($B19,4)=ROUND($F$5,4)` (fill #FFD966, bold). The ≤10% red band from #011 was removed. It was not in the workbook; the salmon block in the screenshot was most likely an Excel selection. Now the row equal to the target margin is highlighted.
+- Every fill and font colour comes from the workbook's cell styles (#1F3864, #1F4E79, #843C0C, #3A3A3A, #5B9BD5, #2E75B6, #548235, #F4B183, #C55A11, #DDEBF7/#BDD7EE, #FCE4D6/#F8CBAD, #E2EFDA/#375623, input font #0000FF).
+- Each function in priceCalculator.ts is annotated with the cells it implements.
+
+## Testing
+- `node --test services/priceCalculator.test.mts`: 6/6 pass. It checks the workbook's cached values (table rows 1/2/5/42/50 and all of Quick Quote F6:G13), courier/other handling in Order of 1, the screenshot rows at 1,250, and the unreachable-margin null.
+- One-off cross-check script: all 300 cached table cells (C19:H68) vs `marginTable` at the workbook's inputs, max abs difference 0.
+- `npx tsc --noEmit`, and `npx eslint` on the changed files: no errors.
+- Live check (headless Chrome over CDP, dev server, logged in): with tyre 450 the page shows exactly the workbook's Quick Quote (e.g. card net profit per order 194.15, Tabby 212.99), row 1% 488.70 / 1,954.81 / 21.70 / 518.25 / 2,073.00 / 28.46, and the 9% row highlighted in #FFD966. With target 12% and courier 40, the highlight moves to 12% and 1% Order of 1 = 1,400.94 (= 1,290 / 0.96685 × 1.05).
+- `npm run build` not run.
+
+## Issues / Notes
+- Correction to #011: its note that the sheet's 4% row was a "hand-typed override" was wrong. The workbook's formulas are uniform, so the 1,401.00 / 5,604.00 figures in the screenshot must come from a different copy of the file. The formula values (1,400.98 / 5,603.90) are correct.
+- Default tyre cost stays 1,250 (the screenshot); the workbook file ships with 450. Only the starting value differs.
+- The "Inputs"/"Default" tags next to the inputs appear in the screenshot but not in this workbook file; they were kept.
+- The Net Profit definition (VAT-inclusive) still differs from the margin definition in the sheet's own subtitle. This is the workbook's formula, reproduced faithfully.
+
+## Final Status
+Completed
+
+# Task #013 — Calculator: whole-number (rounded-up) values in Price vs Margin table
+
+Date: 2026-11-23
+Status: Completed
+
+## Requirement
+Show the Price vs Margin table values as integers, rounded UP (user's example: 5,430.02 → 5,431).
+
+## Planned Changes
+- `app/(app)/calculator/page.tsx`: display-only ceiling formatter for the table cells (Order of 1, Order of N, Net Profit, both channels). The math in `services/priceCalculator.ts` is unchanged.
+
+## Files Affected
+- app/(app)/calculator/page.tsx
+
+## Implementation
+- Added `fmtCeil`: `Math.ceil(n − 1e-9)` formatted with en-US grouping and no decimals. The epsilon keeps float noise such as 5430.0000000001 from bumping an exact whole number up by one. A null or unreachable value still shows "—".
+- All six Price vs Margin columns (Order of 1, Order of N, Net Profit × Card and Tabby/Tamara) use it. Display only: `services/priceCalculator.ts` and its tests are unchanged.
+- Added "Table values are rounded up to the whole AED." to the footnote.
+- The Quick Quote panel keeps 2 decimals (not part of the request).
+
+## Testing
+- `npx tsc --noEmit` and `npx eslint app/(app)/calculator`: no errors.
+- Live check (headless Chrome over CDP, dev server, default inputs): row 1% = 1,358 | 5,431 | 61 | 1,440 | 5,759 | 80 (from 1,357.50 | 5,430.02 | 60.29 | 1,439.58 | 5,758.33 | 79.05); highlighted 9% = 1,480 | 5,920 | 540 | 1,579 | 6,313 | 592; Quick Quote still shows 1,479.96 at 2 dp.
+
+## Issues / Notes
+- Net Profit is rounded UP as well (60.29 → 61), per the request applying to the table values. This slightly overstates the profit at the unrounded price.
+- Each cell is rounded independently, so Order of N (5,431) is not 4 × Order of 1 (4 × 1,358 = 5,432).
+- The table now shows whole numbers while the Quick Quote for the same margin shows decimals (1,480 vs 1,479.96).
+
+## Final Status
+Completed
+
+# Task #014 — Calculator: whole-number (rounded-up) values in Quick Quote
+
+Date: 2026-11-23
+Status: Completed
+
+## Requirement
+Apply the same rounded-up whole-AED display from #013 to the Quick Quote (AED) panel.
+
+## Planned Changes
+- `app/(app)/calculator/page.tsx`: `QuoteRow` cells use `fmtCeil` instead of `fmt`. The Target Margin % input/display stays as-is.
+
+## Files Affected
+- app/(app)/calculator/page.tsx
+
+## Implementation
+- `QuoteRow` cells now render through `fmtCeil` (the #013 formatter). All 8 Quick Quote rows, both channels, show whole AED rounded up. Display only; the math is unchanged.
+- The Target Margin % input and the Tabby/Tamara mirror ("9%") are unchanged.
+- Updated the footnote and the `fmtCeil` doc comment to cover Quick Quote.
+- Cost Inputs totals (Total Order Cost, Total Cost per Tyre) still use 2 decimals; not part of the request.
+
+## Testing
+- `npx tsc --noEmit` and `npx eslint app/(app)/calculator`: no errors.
+- Live check (headless Chrome over CDP, dev server, default inputs, target 9%): Card / Tabby = price excl. VAT 1,410 / 1,503; incl. VAT 1,480 / 1,579; fee per tyre 33 / 118; net per tyre 135 / 148; order total 5,920 / 6,313; order cost 5,250 / 5,250; fee per order 131 / 471; net per order 540 / 592. These match the highlighted 9% table row (1,480 | 5,920 | 540 | 1,579 | 6,313 | 592).
+
+## Issues / Notes
+- Each line is rounded up independently, so the rows don't add up exactly, e.g. order total 5,920 − cost 5,250 − fee 131 = 539, displayed net 540 (unrounded: 539.31).
+
+## Final Status
+Completed
+
+# Task #015 — Calculator: don't show "-0"
+
+Date: 2026-11-23
+Status: Completed
+
+## Requirement
+With all costs at 0, every rounded value on /calculator showed "-0" (Quick Quote and the Price vs Margin table). Show 0 instead.
+
+## Planned Changes
+- `app/(app)/calculator/page.tsx`: normalise negative zero in `fmtCeil`.
+
+## Files Affected
+- app/(app)/calculator/page.tsx
+
+## Implementation
+- Root cause: `fmtCeil` (#013) computes `Math.ceil(n − 1e-9)`. For n = 0 that is `Math.ceil(-1e-9)`, which is -0 in JavaScript, and `Intl.NumberFormat` prints -0 as "-0". Any value in (−1, 0] did the same.
+- Fix: `Math.ceil(n − 1e-9) || 0` (-0 is falsy, so it becomes 0). Real negatives (-1 and below) keep their sign.
+- Applied the same guard to the 2-dp `fmt` used by the Cost Inputs totals: round to cents first, then `|| 0`, so -0 or -0.001 prints "0.00", not "-0.00".
+
+## Testing
+- `npx tsc --noEmit` and `npx eslint app/(app)/calculator`: no errors.
+- Live check (headless Chrome over CDP, dev server): with the user's inputs (all costs 0, tyres 0, VAT 4%), 0 cells on the page match /^-0(\.0+)?$/; table row 1% and Quick Quote all read "0". Then with tyre 100 × 4 and target 0%, the page still renders normally (net profit 1 / 2).
+
+## Issues / Notes
+- With all costs at 0 every price is 0, which is correct output for those inputs; no validation was added.
+
+## Final Status
+Completed
+
+# Task #016 — Calculator: remove the Quick Quote (AED) panel
+
+Date: 2026-11-23
+Status: Completed
+
+## Requirement
+Remove the Quick Quote (AED) panel from /calculator.
+
+## Planned Changes
+- `app/(app)/calculator/page.tsx`: delete the Quick Quote section, its Target Margin % state and the `QuoteRow`/`ProfitCell`-style helpers. The table's target-margin highlight is driven by that input, so it goes too. Cost Inputs no longer shares a two-column grid.
+- `services/priceCalculator.ts`: remove the now-unused `quickQuote` / `QuickQuote` / `DEFAULT_TARGET_MARGIN`.
+- `services/priceCalculator.test.mts`: drop the Quick Quote test.
+
+## Files Affected
+- app/(app)/calculator/page.tsx
+- services/priceCalculator.ts
+- services/priceCalculator.test.mts
+
+## Implementation
+- Page: removed the Quick Quote section, the `targetRaw` state, `QuoteRow`, `sameMargin` and the yellow (#FFD966) target-margin row highlight from #012. The highlight was driven only by the Quick Quote's Target Margin % input. Reset now clears only the cost inputs. Cost Inputs is now a single `max-w-3xl` card (no two-column grid). Footnote and `fmtCeil` comment updated.
+- Service: removed `quickQuote`, `QuickQuote` and `DEFAULT_TARGET_MARGIN`; the header comment notes that E4:G13 is intentionally not implemented.
+- Test: dropped the Quick Quote (F6:G13) test. The unreachable-margin test now checks that `marginTable` yields null cells at 95% instead of calling `quickQuote`.
+
+## Testing
+- `npx tsc --noEmit` and `npx eslint` on the changed files: no errors. `node --test services/priceCalculator.test.mts`: 5/5 pass. A grep finds no remaining Quick Quote references in app/, components/ or services/.
+- Live check (headless Chrome over CDP, dev server): /calculator has 2 tables (Cost Inputs, Price vs Margin), no "Quick Quote" text, no target input, 0 highlighted rows; row 1% unchanged at 1,358 | 5,431 | 61 | 1,440 | 5,759 | 80.
+
+## Issues / Notes
+- Reverses the Quick Quote part of #012. If it is wanted back, #012's entry and git history have the formulas (F6:G13) and the workbook-verified test values.
+
+## Final Status
+Completed
+
+# Task #017 — Calculator: default Tyre Cost = 0
+
+Date: 2026-11-23
+Status: Completed
+
+## Requirement
+Make the Tyre Cost (per tyre) input default to 0 instead of 1,250.
+
+## Planned Changes
+- `services/priceCalculator.ts`: `DEFAULT_INPUTS.tyreCost` 1250 → 0 (the page and Reset both read it).
+- `services/priceCalculator.test.mts`: tests that relied on the 1,250 default get explicit inputs.
+
+## Files Affected
+- services/priceCalculator.ts
+- services/priceCalculator.test.mts
+
+## Implementation
+- `DEFAULT_INPUTS.tyreCost` changed from 1250 to 0. The page's initial state and the Reset button both use `DEFAULT_INPUTS`, so no page change was needed.
+- Tests: added `SCREENSHOT_INPUTS` (defaults + tyre 1,250). The four tests that relied on the old default (cost totals with courier, Order-of-1 courier handling, screenshot rows, unreachable margin) now use it explicitly. New test: with the defaults every table cell is exactly +0 (not null and not -0; `assert.equal` uses Object.is).
+
+## Testing
+- `node --test services/priceCalculator.test.mts`: 6/6 pass. `npx tsc --noEmit` and `npx eslint` on the calculator files: no errors.
+- Live check (headless Chrome over CDP, dev server): on load Tyre Cost = 0, row 1% = 0 | 0 | 0 | 0 | 0 | 0, Reset disabled; after typing 1250 the row is 1,358 | 5,431 | 61 | 1,440 | 5,759 | 80 and Reset is enabled; clicking Reset returns to 0 and all-zero rows.
+
+## Issues / Notes
+- With cost 0 the whole table reads 0 until a cost is entered, which is expected.
+
+## Final Status
+Completed
