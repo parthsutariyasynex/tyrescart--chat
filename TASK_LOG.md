@@ -1120,3 +1120,92 @@ Change the colours of the Price vs Margin table on /calculator. The user chose "
 
 ## Final Status
 Completed
+
+# Task #021 — Calculator: zebra rows and dark header in Price vs Margin table
+
+Date: 2026-11-24
+Status: Completed
+
+## Requirement
+Change the Price vs Margin table so the rows alternate dark/light, and show the header on a dark background.
+
+## Planned Changes
+- `app/(app)/calculator/page.tsx`: header rows → slate-800 / slate-700 with white/light text; body rows → `odd:bg-white even:bg-slate-100` zebra, keeping the emerald hover and the /tc-products cell styles from #020.
+
+## Files Affected
+- app/(app)/calculator/page.tsx
+
+## Implementation
+- Header: group row `bg-slate-800` with white text, column row `bg-slate-700 text-slate-200`, and group dividers `border-slate-600`. The `bg-slate-50/90 backdrop-blur` light header from #020 was removed; the header stays sticky.
+- Body: rows `odd:bg-white even:bg-slate-100`, dividers `divide-slate-200/70`. Hover is now opaque `hover:bg-emerald-50` (was /50) so it shows on grey rows too; Tailwind emits `hover:` after `odd:`/`even:`, so hover wins.
+- Margin % badge background changed to white (border slate-300/80) so it stays visible on grey rows; the channel divider changed from slate-100 to slate-200 for the same reason.
+- Cell typography (mono figures, bold Order of N, emerald Net Profit) is unchanged from #020.
+
+## Testing
+- `npx tsc --noEmit` and `npx eslint app/(app)/calculator`: no errors.
+- Live check (headless Chrome over CDP, the user's running dev server): header rows rgb(30,41,59) / rgb(51,65,85) (slate-800/700); row 1 rgb(255,255,255); rows 2 and 4 rgb(241,245,249) (slate-100); hovered row 3 rgb(236,253,245) (emerald-50). Values unchanged (1% = 1,358 | 5,431 | 61 | 1,440 | 5,759 | 80). Screenshot reviewed.
+
+## Issues / Notes
+- The Cost Inputs table and the Excel export still use the workbook colours.
+
+## Final Status
+Completed
+
+# Task #022 — Calculator: darker green row hover
+
+Date: 2026-11-24
+Status: Completed
+
+## Requirement
+Make the Price vs Margin row hover a darker green so the hovered row is clearly visible.
+
+## Planned Changes
+- `app/(app)/calculator/page.tsx`: row hover `bg-emerald-50` → `bg-emerald-200`; mark the row as a `group` and deepen the Net Profit text on hover (`group-hover:text-emerald-900`) so it stays readable on the darker fill.
+
+## Files Affected
+- app/(app)/calculator/page.tsx
+
+## Implementation
+- Row: `hover:bg-emerald-50` → `hover:bg-emerald-200`, and `group` added to the `<tr>`.
+- Net Profit cell: `group-hover:text-emerald-900` (and `group-hover:text-red-800` for a loss) so the figure keeps its contrast on the darker hover fill. Other cells (slate-600 / slate-900) already read clearly on emerald-200.
+
+## Testing
+- `npx tsc --noEmit` and `npx eslint app/(app)/calculator`: no errors.
+- Live check (headless Chrome over CDP, the user's running dev server, mouse moved over row 3): hovered row rgb(167,243,208) (emerald-200), its Net Profit text rgb(6,78,59) (emerald-900); unhovered Net Profit stays rgb(4,120,87) (emerald-700); zebra rows unchanged (row 2 rgb(241,245,249)). Screenshot reviewed.
+
+## Issues / Notes
+- None.
+
+## Final Status
+Completed
+
+# Task #023 — Calculator: click a row to keep it highlighted
+
+Date: 2026-11-24
+Status: Completed
+
+## Requirement
+When a Price vs Margin row is clicked, keep that row highlighted ("focused") in the same green as the hover, after the mouse moves away.
+
+## Planned Changes
+- `app/(app)/calculator/page.tsx`: `selectedMargin` state; clicking a row selects it, clicking it again clears it. The selected row uses the hover style (emerald-200 fill, emerald-900 Net Profit). Rows are keyboard-reachable (tabIndex, Enter/Space) with `aria-selected`. Reset also clears the selection.
+
+## Files Affected
+- app/(app)/calculator/page.tsx
+
+## Implementation
+- `selectedMargin` state (fraction or null) and `toggleRow`: clicking a row selects it, clicking the same row clears it, and clicking another row moves the selection. Only one row is selected at a time.
+- The selected `<tr>` gets `bg-emerald-200` in place of `odd:bg-white even:bg-slate-100 hover:bg-emerald-200`. The zebra variants have higher specificity than a plain `bg-*` class, so they are swapped out rather than overridden.
+- `ChannelCells` takes `selected` and applies the hover's deeper profit colour (`text-emerald-900`, or `text-red-800` for a loss) permanently while selected.
+- Rows are `cursor-pointer`, `tabIndex={0}` and `aria-selected`; Enter/Space toggles, with a `focus-visible` emerald-600 outline for keyboard users.
+- Reset now also clears the selection. The selection is keyed on the margin value, so it survives input changes (the table always has 1–50%).
+
+## Testing
+- `npx tsc --noEmit` and `npx eslint app/(app)/calculator`: no errors.
+- Live check (headless Chrome over CDP, the user's running dev server, real mouse/key events): (1) click 5%, then move the mouse off the table → 5% stays rgb(167,243,208), aria-selected=true; (2) click 10% → only 10% highlighted; (3) click 10% again → nothing highlighted; (4) focus 8% and press Enter → 8% selected; (5) change tyre cost to 900 → 8% still selected. Screenshot of (1) reviewed.
+
+## Issues / Notes
+- The selection is in-memory only; a page reload clears it.
+
+## Final Status
+Completed
