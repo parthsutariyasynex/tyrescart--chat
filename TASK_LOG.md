@@ -1015,3 +1015,108 @@ Make the Tyre Cost (per tyre) input default to 0 instead of 1,250.
 
 ## Final Status
 Completed
+
+# Task #018 — Calculator: export to Excel (.xlsx)
+
+Date: 2026-11-23
+Status: Completed
+
+## Requirement
+Add an export of the Tyre Price Calculator to .xlsx format.
+
+## Planned Changes
+- Add `exceljs` (4.4.0, MIT) — styles + formulas. Not the npm `xlsx` 0.18.5 (abandoned on npm, known advisories, no styling in the community build). Loaded with a dynamic `import()` on click, so it isn't in the page's initial bundle.
+- `services/calculatorExport.ts`: build a "Price Calculator" sheet in the source workbook's own layout (inputs B4:D14, table B16:H68, same fills/fonts/number formats). The inputs carry the current page values, and every computed cell is a live formula, so the file works as a calculator in Excel. Table formulas round up exactly like the page (`-INT(-(x − 1E-9))`), with values pre-computed by `priceCalculator.ts` so the file shows numbers before any recalculation.
+- `app/(app)/calculator/page.tsx`: an "Export Excel" header button next to Reset, gated by the existing `exportCsv` feature flag (NEXT_PUBLIC_FEATURE_EXPORT).
+
+## Files Affected
+- services/calculatorExport.ts (new)
+- app/(app)/calculator/page.tsx
+- package.json / package-lock.json (exceljs ^4.4.0)
+- CLAUDE.md (calculator route note)
+
+## Implementation
+- `services/calculatorExport.ts`: `buildCalculatorXlsx(inputs)` → ArrayBuffer, and `downloadCalculatorXlsx(inputs)` → Blob download named `Tyre-Price-Calculator-YYYY-MM-DD.xlsx`. exceljs is loaded with `await import("exceljs")` inside the call.
+- Sheet "Price Calculator" uses the source workbook's layout. B1/B2 title and instructions. B4:C14 Cost Inputs: C5:C9 and C12:C14 are the page's current values (blue input fill, #0000FF font; C9 = the clamped tyre count); C10 `=C9*(C5+C6)+C7+C8`, C11 `=C10/C9`; "Inputs"/"Default" tags in D. B16 title, B17:B18 / C17:E17 / F17:H17 merged headers (fee % and "Order of N" are formulas on C9/C13/C14), and rows 19–68 for 1–50%.
+- Table cells are live formulas, the workbook's own expressions wrapped as `IF(den<=0,"—",-INT(-((x)-1E-9)))`. That is the page's round-up (Math.ceil with the same epsilon) without CEILING.MATH, which needs the `_xlfn.` prefix and shows #NAME? in older readers. Net Profit is computed from the unrounded order price, as on the page. Each formula carries its pre-computed result; `calcProperties.fullCalcOnLoad` makes Excel recalculate on open.
+- Fills, fonts and number formats are taken from the source workbook (#1F3864, #1F4E79, #843C0C, #5B9BD5, #2E75B6, #548235, #F4B183, #C55A11, #DDEBF7/#BDD7EE, #FCE4D6/#F8CBAD, #E2EFDA/#375623, #EDEDED); gridlines are off and the page is landscape, fit to width.
+- Page: green "Export Excel" button before Reset, shown only when `features.exportCsv` (NEXT_PUBLIC_FEATURE_EXPORT) is on. It shows "Exporting…" while busy, then a success toast, or an error toast plus console.error.
+
+## Testing
+- `npx tsc --noEmit` and `npx eslint` (calculator page, calculatorExport.ts, priceCalculator.ts): no errors.
+- Browser (headless Chrome over CDP, dev server): with tyre 1250, courier 40, other 20 the button produced `Tyre-Price-Calculator-2026-11-23.xlsx` (13,139 bytes) and the "Excel file downloaded" toast. The blob was captured by wrapping URL.createObjectURL; Chrome's own download also reported `completed`.
+- Microsoft Excel (COM automation, CalculateFull): 0 error cells in B1:H70. C10 5,060.00 / C11 1,265.00; headers "Credit / Debit Card (2.1% fee)", "Order of 4 incl. VAT (AED)". Rows 1% / 9% / 50% are identical to the page (1,423 | 5,496 | 62 | 1,509 | 5,828 | 80, etc.). All 300 recalculated table cells equal the cached values the page wrote.
+- Live formulas in Excel: setting C5=450, C7=C8=0 gives row 1% 489 | 1,955 | 22 | 519 | 2,073 | 29 and row 50% 991 | 3,964 | 1,987 | 1,121 | 4,482 | 2,258, which is the source workbook's cached values rounded up. C9=2 updates the header to "Order of 2" and D19 to 978.
+- openpyxl: input fill/font, header and body fills, `#,##0` format and the merges B17:B18, C17:E17, F17:H17 confirmed.
+
+## Issues / Notes
+- `npm audit`: exceljs adds one MODERATE advisory via `uuid` (buffer bounds check in v3/v5/v6 when `buf` is passed; exceljs doesn't use that path). The other advisories, including a CRITICAL one on `next` 16.1.6, existed before this change and need a separate upgrade task.
+- The export's appearance was checked through cell styles, not by eye: a PDF was rendered with Excel, but no PDF rasteriser is available here to view it.
+- Typing 0 into Tyres per Order inside Excel gives #DIV/0!, as in the source workbook. The page clamps to 1 and exports the clamped value.
+
+## Final Status
+Completed
+
+# Task #019 — Calculator: remove the "Inputs" / "Default" tag column
+
+Date: 2026-11-24
+Status: Completed
+
+## Requirement
+Remove the grey "Inputs" / "Default" labels shown in the third column of the Cost Inputs table on /calculator (user screenshot).
+
+## Planned Changes
+- `app/(app)/calculator/page.tsx`: drop the `tag` prop and its cell from `InputRow`, and the empty third cell from the header and total rows.
+- `services/calculatorExport.ts`: drop the same tags (D5:D14) from the Excel export so the file keeps matching the page.
+
+## Files Affected
+- app/(app)/calculator/page.tsx
+- services/calculatorExport.ts
+
+## Implementation
+- Page: removed the `tag` prop and its `<td>` from `InputRow`, the `tag="Inputs"/"Default"` props on all 10 input rows, and the empty third `<th>`/`<td>` from the header and the two total rows. Cost Inputs is now a 2-column table (label | AED value).
+- Export: removed the tags written to D5:D14, the `tag` field on the row type and the unused `C.tag` colour. The input values in C5:C14 and the table formulas are unchanged.
+
+## Testing
+- `npx tsc --noEmit` and `npx eslint app/(app)/calculator services/calculatorExport.ts`: no errors.
+- Live check (headless Chrome over CDP, dev server): the Cost Inputs table has 2 columns and contains no "Inputs"/"Default" text (screenshot reviewed).
+- Export captured from the page's Export Excel button: D5:D14 are all empty, C5:C14 still hold the inputs, and the D18 header and D19 formula are intact (openpyxl).
+
+## Issues / Notes
+- None.
+
+## Final Status
+Completed
+
+# Task #020 — Calculator: restyle Price vs Margin table like /tc-products
+
+Date: 2026-11-24
+Status: Completed
+
+## Requirement
+Change the colours of the Price vs Margin table on /calculator. The user chose "Match the app": white rows with light grey (slate-50) stripes, a slate-800 header with white text, and green Net Profit figures, instead of the Excel sheet's blue/orange/green column fills. Mid-task the user refined this to: "use colour or hover style like tc-products this page table", which superseded the dark-header first pass.
+
+## Planned Changes
+- `app/(app)/calculator/page.tsx`: replace the workbook fills in the table header, sub-header and body cells (`TONES`, `ChannelCells`, margin column) with slate/white/emerald Tailwind classes, zebra rows and a hover state like the Supplier/TC tables. Data, rounding and layout unchanged.
+
+## Files Affected
+- app/(app)/calculator/page.tsx
+
+## Implementation
+- First pass (slate-800 header, zebra rows) was replaced at the user's request by the /tc-products table styling:
+  - card: `bg-white rounded-xl border border-slate-200/90 shadow-2xs`
+  - header: `bg-slate-50/90 backdrop-blur sticky top-0 border-b border-slate-200`, `text-[11px] font-bold uppercase tracking-wider` (slate-700 group row, slate-500 column row)
+  - rows: `divide-y divide-slate-100`, `transition-colors duration-150 hover:bg-emerald-50/50`, no zebra
+  - cells (from ProductTableRow): margin % as the slate tyre-size badge; Order of 1 = "Set of 4" style (`text-xs font-semibold text-slate-600 font-mono`); Order of N = "Price" style (`text-xs font-extrabold text-slate-900 font-mono`); Net Profit `text-emerald-700` (red-600 if negative)
+- Removed the workbook `TONES` fills; `ChannelCells` no longer takes a tone. Extracted `ceilUp` so `fmtCeil` and the negative-profit check share the rounding. The section title changed from #1F3864 to slate-800.
+- Column headings keep "(AED)"; Net Profit is shortened to "Net Profit / Order (AED)".
+
+## Testing
+- `npx tsc --noEmit` and `npx eslint app/(app)/calculator`: no errors.
+- Live check (headless Chrome over CDP, against the user's own running dev server on :3000; a second instance I started exited because the .next/dev lock was held): header background rgba(248,250,252,0.9) (slate-50/90), plain rows transparent over the white card, the hovered row (mouse moved over row 3) rgba(236,253,245,0.5) (emerald-50/50), Net Profit rgb(4,120,87) (emerald-700). Values unchanged: row 1% = 1,358 | 5,431 | 61 | 1,440 | 5,759 | 80. Screenshot reviewed.
+
+## Issues / Notes
+- Only the Price vs Margin table changed. The Cost Inputs table still uses the workbook colours (navy header, blue input cells), and the Excel export keeps the workbook look.
+
+## Final Status
+Completed
