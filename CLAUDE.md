@@ -97,7 +97,7 @@ IndexedDB.
 - **Offline/PWA:** `@serwist/next` service worker (`app/sw.ts` → `public/sw.js`, registered by `components/ServiceWorker.tsx`, disabled in dev — test offline with `npm run build && npm start`) + IndexedDB for data and cart
 
 ### Key Directories
-- `app/(app)/` — route group holding every page that gets the app shell: `dashboard`, `products` (storefront catalogue, card grid), `supplier-products` (supplier feed, table), `tc-products` (storefront table with cart/list actions), `tyreschat` (chat shortcuts), `calculator` (tyre price/margin calculator — pure client math in `services/priceCalculator.ts`, no API). `/` redirects to `/supplier-products` (hard-coded on purpose; see the comment in `app/(app)/page.tsx`)
+- `app/(app)/` — route group holding every page that gets the app shell: `dashboard`, `products` (storefront catalogue, card grid), `supplier-products` (supplier feed, table), `tc-products` (storefront table with cart/list actions), `tyreschat` (chat shortcuts), `calculator` (tyre price/margin calculator — pure client math in `services/priceCalculator.ts`, no API; "Export Excel" builds a live-formula .xlsx in `services/calculatorExport.ts` with `exceljs`, dynamically imported on click so its ~950 KB stays out of the page bundle). `/` redirects to `/supplier-products` (hard-coded on purpose; see the comment in `app/(app)/page.tsx`)
 - `app/login`, `app/forgot-password` — standalone routes outside the group, so they render without the Sidebar
 - `app/api/` — `graphql/` proxy and `auth/` routes
 - `config/features.ts` — feature flags (see below)
