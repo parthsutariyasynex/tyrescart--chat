@@ -2,8 +2,10 @@
 
 import React, { useMemo, useState } from "react";
 import { notFound } from "next/navigation";
-import { ArrowPathIcon } from "@heroicons/react/24/outline";
+import { ArrowPathIcon, ArrowDownTrayIcon } from "@heroicons/react/24/outline";
 import Header from "@/components/Header";
+import { useToast } from "@/components/ToastProvider";
+import { downloadCalculatorXlsx } from "@/services/calculatorExport";
 import { features } from "@/config/features";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import {
@@ -77,10 +79,9 @@ const fmt = (n: number | null | undefined) =>
  * Intl prints as "-0".
  */
 const wholeUp = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+const ceilUp = (n: number) => Math.ceil(n - 1e-9) || 0;
 const fmtCeil = (n: number | null | undefined) =>
-  n === null || n === undefined || !Number.isFinite(n)
-    ? "—"
-    : wholeUp.format(Math.ceil(n - 1e-9) || 0);
+  n === null || n === undefined || !Number.isFinite(n) ? "—" : wholeUp.format(ceilUp(n));
 const pct = (fraction: number, digits = 1) =>
   `${Number((fraction * 100).toFixed(digits))}%`;
 
@@ -90,14 +91,13 @@ const INPUT_CELL =
 interface InputRowProps {
   id: InputKey;
   label: React.ReactNode;
-  tag: "Inputs" | "Default";
   suffix?: string;
   integer?: boolean;
   value: string;
   onChange: (key: InputKey, value: string) => void;
 }
 
-function InputRow({ id, label, tag, suffix, integer, value, onChange }: InputRowProps) {
+function InputRow({ id, label, suffix, integer, value, onChange }: InputRowProps) {
   return (
     <tr className="border-b border-slate-200 last:border-b-0">
       <td className="py-1.5 px-3 text-slate-800">
@@ -118,7 +118,6 @@ function InputRow({ id, label, tag, suffix, integer, value, onChange }: InputRow
           {suffix && <span className="text-[#0000FF] text-xs">{suffix}</span>}
         </div>
       </td>
-      <td className="py-1.5 px-3 text-[11px] text-slate-400 w-16">{tag}</td>
     </tr>
   );
 }
@@ -130,6 +129,8 @@ export default function CalculatorPage() {
 
   const isOnline = useOnlineStatus();
   const [raw, setRaw] = useState<RawInputs>(DEFAULT_RAW);
+  const [exporting, setExporting] = useState(false);
+  const { toast } = useToast();
 
   const inputs = useMemo(() => fromRaw(raw), [raw]);
   const totals = useMemo(() => costTotals(inputs), [inputs]);
@@ -144,6 +145,19 @@ export default function CalculatorPage() {
     (k) => raw[k] === DEFAULT_RAW[k],
   );
 
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      await downloadCalculatorXlsx(inputs);
+      toast("Excel file downloaded", "success");
+    } catch (e) {
+      console.error("[calculator] xlsx export failed:", e);
+      toast("Could not create the Excel file", "error");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="flex h-full w-full overflow-hidden bg-[#f4f6f9] text-gray-800 font-sans relative">
       <main className="flex-1 flex flex-col min-w-0 bg-[#f8fafc] overflow-hidden">
@@ -152,6 +166,19 @@ export default function CalculatorPage() {
           isOnline={isOnline}
           onlineVariant="auto"
           actions={
+            <>
+            {features.exportCsv && (
+              <button
+                type="button"
+                onClick={handleExport}
+                disabled={exporting}
+                title="Download this calculator as an Excel file (.xlsx) with live formulas"
+                className="h-9 px-3 inline-flex items-center gap-1.5 rounded-lg border border-emerald-600 bg-emerald-600 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-wait transition-colors"
+              >
+                <ArrowDownTrayIcon className="w-4 h-4" />
+                {exporting ? "Exporting…" : "Export Excel"}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setRaw(DEFAULT_RAW)}
@@ -161,6 +188,7 @@ export default function CalculatorPage() {
               <ArrowPathIcon className="w-4 h-4" />
               Reset
             </button>
+            </>
           }
         />
 
@@ -178,66 +206,67 @@ export default function CalculatorPage() {
                   <tr className="bg-[#1F3864] text-white">
                     <th className="py-1.5 px-3 text-left font-bold">Cost Inputs</th>
                     <th className="py-1.5 px-3 text-left font-bold">AED</th>
-                    <th />
                   </tr>
                 </thead>
                 <tbody>
-                  <InputRow id="tyreCost" label="Tyre Cost (per tyre)" tag="Inputs" value={raw.tyreCost} onChange={setField} />
-                  <InputRow id="fittingCost" label="Fitting Cost (per tyre)" tag="Inputs" value={raw.fittingCost} onChange={setField} />
-                  <InputRow id="courierCost" label={<>Courier Cost <PerOrder /></>} tag="Inputs" value={raw.courierCost} onChange={setField} />
-                  <InputRow id="otherCost" label={<>Other Cost <PerOrder /></>} tag="Inputs" value={raw.otherCost} onChange={setField} />
-                  <InputRow id="tyresPerOrder" label="Tyres per Order" tag="Default" integer value={raw.tyresPerOrder} onChange={setField} />
+                  <InputRow id="tyreCost" label="Tyre Cost (per tyre)" value={raw.tyreCost} onChange={setField} />
+                  <InputRow id="fittingCost" label="Fitting Cost (per tyre)" value={raw.fittingCost} onChange={setField} />
+                  <InputRow id="courierCost" label={<>Courier Cost <PerOrder /></>} value={raw.courierCost} onChange={setField} />
+                  <InputRow id="otherCost" label={<>Other Cost <PerOrder /></>} value={raw.otherCost} onChange={setField} />
+                  <InputRow id="tyresPerOrder" label="Tyres per Order" integer value={raw.tyresPerOrder} onChange={setField} />
                   <tr className="border-b border-slate-200">
                     <td className="py-1.5 px-3 font-bold text-slate-900">Total Order Cost</td>
                     <td className="py-1.5 px-3 text-right font-bold tabular-nums">{fmt(totals.totalOrderCost)}</td>
-                    <td />
                   </tr>
                   <tr className="border-b border-slate-200">
                     <td className="py-1.5 px-3 font-bold text-slate-900">Total Cost per Tyre</td>
                     <td className="py-1.5 px-3 text-right font-bold tabular-nums bg-[#E2EFDA]">{fmt(totals.costPerTyre)}</td>
-                    <td />
                   </tr>
-                  <InputRow id="vatRate" label="VAT Rate (UAE)" tag="Default" suffix="%" value={raw.vatRate} onChange={setField} />
-                  <InputRow id="cardFeeRate" label="Card Gateway Fee (on price incl. VAT)" tag="Default" suffix="%" value={raw.cardFeeRate} onChange={setField} />
-                  <InputRow id="bnplFeeRate" label="Tabby / Tamara Fee (on price incl. VAT)" tag="Default" suffix="%" value={raw.bnplFeeRate} onChange={setField} />
+                  <InputRow id="vatRate" label="VAT Rate (UAE)" suffix="%" value={raw.vatRate} onChange={setField} />
+                  <InputRow id="cardFeeRate" label="Card Gateway Fee (on price incl. VAT)" suffix="%" value={raw.cardFeeRate} onChange={setField} />
+                  <InputRow id="bnplFeeRate" label="Tabby / Tamara Fee (on price incl. VAT)" suffix="%" value={raw.bnplFeeRate} onChange={setField} />
                 </tbody>
               </table>
             </section>
 
           {/* ── Price vs Margin (B16:H68) ── */}
           <section>
-            <h2 className="text-base font-bold text-[#1F3864] mb-2">
+            <h2 className="text-base font-bold text-slate-800 mb-2">
               Price vs Margin (1% – 50%) – after payment gateway fees (incl. {vatLabel} VAT on fees)
             </h2>
-            <div className="bg-white border border-slate-200 rounded-lg shadow-2xs overflow-auto max-h-[70vh]">
-              <table className="w-full min-w-[900px] text-sm border-collapse">
-                <thead className="sticky top-0 z-10 text-white">
-                  <tr>
-                    <th rowSpan={2} className="py-2 px-3 font-bold bg-[#3A3A3A] w-28">Margin %</th>
-                    <th colSpan={3} className="py-1.5 px-3 font-bold bg-[#1F4E79] border-l-2 border-slate-900">
+            {/* Styled like the /tc-products table (section card, light sticky
+                header, divide-y rows, emerald hover, mono figures). */}
+            <div className="bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-auto max-h-[70vh]">
+              <table className="w-full min-w-[900px] border-collapse">
+                <thead className="bg-slate-50/90 backdrop-blur sticky top-0 z-10 border-b border-slate-200">
+                  <tr className="text-[11px] font-bold text-slate-700 uppercase tracking-wider select-none">
+                    <th rowSpan={2} className="py-2.5 px-2 w-28 text-center align-middle text-slate-500">Margin %</th>
+                    <th colSpan={3} className="py-2 px-2 text-center border-l border-slate-200">
                       Credit / Debit Card ({pct(inputs.cardFeeRate)} fee)
                     </th>
-                    <th colSpan={3} className="py-1.5 px-3 font-bold bg-[#843C0C] border-l-2 border-slate-900">
+                    <th colSpan={3} className="py-2 px-2 text-center border-l border-slate-200">
                       Tabby / Tamara ({pct(inputs.bnplFeeRate)} fee)
                     </th>
                   </tr>
-                  <tr className="text-xs">
-                    <th className="py-1.5 px-2 font-bold bg-[#5B9BD5] border-l-2 border-slate-900">Order of 1 incl. VAT (AED)</th>
-                    <th className="py-1.5 px-2 font-bold bg-[#2E75B6]">Order of {n} incl. VAT (AED)</th>
-                    <th className="py-1.5 px-2 font-bold bg-[#548235]">Net Profit per Order (AED)</th>
-                    <th className="py-1.5 px-2 font-bold bg-[#F4B183] border-l-2 border-slate-900">Order of 1 incl. VAT (AED)</th>
-                    <th className="py-1.5 px-2 font-bold bg-[#C55A11]">Order of {n} incl. VAT (AED)</th>
-                    <th className="py-1.5 px-2 font-bold bg-[#548235]">Net Profit per Order (AED)</th>
+                  <tr className="text-[11px] font-bold text-slate-500 uppercase tracking-wider select-none border-t border-slate-200">
+                    <th className="py-2 px-2 text-right whitespace-nowrap border-l border-slate-200">Order of 1 incl. VAT (AED)</th>
+                    <th className="py-2 px-2 text-right whitespace-nowrap">Order of {n} incl. VAT (AED)</th>
+                    <th className="py-2 px-2 text-right whitespace-nowrap">Net Profit / Order (AED)</th>
+                    <th className="py-2 px-2 text-right whitespace-nowrap border-l border-slate-200">Order of 1 incl. VAT (AED)</th>
+                    <th className="py-2 px-2 text-right whitespace-nowrap">Order of {n} incl. VAT (AED)</th>
+                    <th className="py-2 px-2 text-right whitespace-nowrap">Net Profit / Order (AED)</th>
                   </tr>
                 </thead>
-                <tbody className="tabular-nums">
+                <tbody className="divide-y divide-slate-100 font-sans">
                   {rows.map((row) => (
-                    <tr key={row.margin} className="border-b border-slate-200">
-                      <td className="py-1 px-3 text-center font-bold bg-[#EDEDED] text-[#3A3A3A]">
-                        {pct(row.margin, 0)}
+                    <tr key={row.margin} className="transition-colors duration-150 hover:bg-emerald-50/50 align-middle">
+                      <td className="py-2 px-2 text-center">
+                        <span className="px-2 py-0.5 text-xs font-semibold rounded-md bg-slate-100/80 text-slate-700 border border-slate-200/80 font-mono whitespace-nowrap">
+                          {pct(row.margin, 0)}
+                        </span>
                       </td>
-                      <ChannelCells row={row.card} tone="card" />
-                      <ChannelCells row={row.bnpl} tone="bnpl" />
+                      <ChannelCells row={row.card} />
+                      <ChannelCells row={row.bnpl} />
                     </tr>
                   ))}
                 </tbody>
@@ -255,20 +284,20 @@ export default function CalculatorPage() {
   );
 }
 
-const TONES = {
-  card: { one: "bg-[#DDEBF7]", n: "bg-[#BDD7EE]", text: "text-[#1F4E79]" },
-  bnpl: { one: "bg-[#FCE4D6]", n: "bg-[#F8CBAD]", text: "text-[#843C0C]" },
-} as const;
-
-function ChannelCells({ row, tone }: { row: ChannelRow; tone: keyof typeof TONES }) {
-  const t = TONES[tone];
+/** One payment channel's three cells, using the /tc-products cell styles:
+ *  "Set of 4" grey mono for Order of 1, "Price" bold mono for Order of N,
+ *  emerald for net profit (red if negative). */
+function ChannelCells({ row }: { row: ChannelRow }) {
+  const loss = typeof row.netProfit === "number" && ceilUp(row.netProfit) < 0;
   return (
     <>
-      <td className={`py-1 px-3 text-right border-l-2 border-slate-800 ${t.one} ${t.text}`}>
+      <td className="py-2 px-2 text-right text-xs font-semibold text-slate-600 font-mono whitespace-nowrap border-l border-slate-100">
         {fmtCeil(row.orderOfOne)}
       </td>
-      <td className={`py-1 px-3 text-right font-bold ${t.n} ${t.text}`}>{fmtCeil(row.orderOfN)}</td>
-      <td className="py-1 px-3 text-right font-bold bg-[#E2EFDA] text-[#375623]">
+      <td className="py-2 px-2 text-right text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap">
+        {fmtCeil(row.orderOfN)}
+      </td>
+      <td className={`py-2 px-2 text-right text-xs font-bold font-mono whitespace-nowrap ${loss ? "text-red-600" : "text-emerald-700"}`}>
         {fmtCeil(row.netProfit)}
       </td>
     </>
