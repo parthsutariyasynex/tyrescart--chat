@@ -6,7 +6,7 @@ and updated after it finishes. See `CLAUDE.md` → "Task Logging" for the rules
 Claude Code follows when maintaining this file.
 
 Never delete or overwrite a previous entry — new work gets a new Task ID,
-appended at the end, in chronological order.
+appended at the end, in chronological order. 
 
 ---
 
