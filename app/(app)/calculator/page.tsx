@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from "react";
 import { notFound } from "next/navigation";
-import { ArrowPathIcon, ArrowDownTrayIcon } from "@heroicons/react/24/outline";
+import { ArrowPathIcon, ArrowDownTrayIcon, ClipboardDocumentIcon } from "@heroicons/react/24/outline";
 import Header from "@/components/Header";
 import { useToast } from "@/components/ToastProvider";
 import { downloadCalculatorXlsx } from "@/services/calculatorExport";
@@ -12,8 +12,13 @@ import {
   DEFAULT_INPUTS,
   costTotals,
   marginTable,
+  sellingPriceSummary,S
+  paymentPriceText,
+  OUTPUTS_ORDER_SIZE,
   type CalculatorInputs,
   type ChannelRow,
+  type MarginResult,
+  type MarginRow,
 } from "@/services/priceCalculator";
 
 /**
@@ -31,7 +36,7 @@ type InputKey = keyof CalculatorInputs;
 type RawInputs = Record<InputKey, string>;
 
 /** Fields the user types as a percentage; stored as a fraction. */
-const PERCENT_KEYS: InputKey[] = ["vatRate", "cardFeeRate", "bnplFeeRate"];
+const PERCENT_KEYS: InputKey[] = ["vatRate", "cardFeeRate", "bnplFeeRate", "minMarginRate"];
 
 /** Fraction → percent string without float noise (0.021 → "2.1"). */
 const toPctString = (fraction: number) => String(Number((fraction * 100).toFixed(6)));
@@ -85,40 +90,82 @@ const fmtCeil = (n: number | null | undefined) =>
 const pct = (fraction: number, digits = 1) =>
   `${Number((fraction * 100).toFixed(digits))}%`;
 
-const INPUT_CELL =
-  "w-full bg-transparent text-right text-[#0000FF] tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500/30 rounded px-1 py-0.5";
+/** Percent with one decimal, as the workbook shows it (0.05 → "5.0%"). */
+const pct1 = (fraction: number | null) =>
+  fraction === null || !Number.isFinite(fraction) ? "—" : `${(fraction * 100).toFixed(1)}%`;
 
-interface InputRowProps {
+// overflow-x-auto, not hidden: a narrow column scrolls instead of clipping figures.
+const CARD = "bg-white border border-slate-200 rounded-lg shadow-2xs overflow-x-auto";
+const ROW = "border-b border-slate-200 last:border-b-0";
+
+const INPUT_CELL =
+  "w-full min-w-0 bg-transparent text-right text-[#0000FF] tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500/30 rounded px-1 py-0.5";
+
+interface NumberInputProps {
   id: InputKey;
-  label: React.ReactNode;
   suffix?: string;
   integer?: boolean;
   value: string;
   onChange: (key: InputKey, value: string) => void;
 }
 
-function InputRow({ id, label, suffix, integer, value, onChange }: InputRowProps) {
+/** A blue workbook input cell's contents. */
+function NumberInput({ id, suffix, integer, value, onChange }: NumberInputProps) {
   return (
-    <tr className="border-b border-slate-200 last:border-b-0">
+    <div className="flex items-center justify-end gap-1">
+      <input
+        id={`calc-${id}`}
+        type="number"
+        inputMode="decimal"
+        min={integer ? 1 : 0}
+        step={integer ? 1 : "any"}
+        value={value}
+        onChange={(e) => onChange(id, e.target.value)}
+        className={INPUT_CELL}
+      />
+      {suffix && <span className="text-[#0000FF] text-xs">{suffix}</span>}
+    </div>
+  );
+}
+
+function InputRow({ label, ...input }: NumberInputProps & { label: React.ReactNode }) {
+  return (
+    <tr className={ROW}>
       <td className="py-1.5 px-3 text-slate-800">
-        <label htmlFor={`calc-${id}`}>{label}</label>
+        <label htmlFor={`calc-${input.id}`}>{label}</label>
       </td>
-      <td className="py-1 px-2 bg-[#DDEBF7] w-40">
-        <div className="flex items-center justify-end gap-1">
-          <input
-            id={`calc-${id}`}
-            type="number"
-            inputMode="decimal"
-            min={integer ? 1 : 0}
-            step={integer ? 1 : "any"}
-            value={value}
-            onChange={(e) => onChange(id, e.target.value)}
-            className={INPUT_CELL}
-          />
-          {suffix && <span className="text-[#0000FF] text-xs">{suffix}</span>}
-        </div>
+      <td className="py-1 px-2 bg-[#DDEBF7] w-32">
+        <NumberInput {...input} />
       </td>
     </tr>
+  );
+}
+
+/** Margin Amount + Margin % rows of the Selling Price block, both channels. */
+function MarginRows({ card, bnpl }: { card: MarginResult; bnpl: MarginResult }) {
+  const amount = (m: MarginResult) => (
+    <td className={`py-1.5 px-3 text-right tabular-nums ${m.amount < -0.005 ? "text-red-600" : ""}`}>
+      {fmt(m.amount)}
+    </td>
+  );
+  const rate = (m: MarginResult) => (
+    <td className={`py-1.5 px-3 text-right tabular-nums ${m.rate !== null && m.rate < 0 ? "text-red-600" : ""}`}>
+      {pct1(m.rate)}
+    </td>
+  );
+  return (
+    <>
+      <tr className={ROW}>
+        <td className="py-1.5 px-3 text-slate-800">Margin Amount</td>
+        {amount(card)}
+        {amount(bnpl)}
+      </tr>
+      <tr className={ROW}>
+        <td className="py-1.5 px-3 text-slate-800">Margin %</td>
+        {rate(card)}
+        {rate(bnpl)}
+      </tr>
+    </>
   );
 }
 
@@ -139,8 +186,8 @@ export default function CalculatorPage() {
   const inputs = useMemo(() => fromRaw(raw), [raw]);
   const totals = useMemo(() => costTotals(inputs), [inputs]);
   const rows = useMemo(() => marginTable(inputs), [inputs]);
+  const selling = useMemo(() => sellingPriceSummary(inputs), [inputs]);
   const n = Math.max(1, Math.floor(inputs.tyresPerOrder) || 1);
-  const vatLabel = pct(inputs.vatRate);
 
   const setField = (key: InputKey, value: string) =>
     setRaw((prev) => ({ ...prev, [key]: value }));
@@ -148,6 +195,33 @@ export default function CalculatorPage() {
   const isDefault = (Object.keys(DEFAULT_RAW) as InputKey[]).every(
     (k) => raw[k] === DEFAULT_RAW[k],
   );
+
+  /**
+   * Selects the row and copies its prices (TASK_LOG #030):
+   *  - a Card or Tabby cell copies that channel's block,
+   *    "Credit Card Payment Price / 1 Tyre: AED … / 4 Tyres: AED …";
+   *  - the Margin % cell copies both blocks, separated by a blank line.
+   * Always selects (never toggles off), so a second copy keeps the highlight.
+   */
+  const copyPrices = async (row: MarginRow, channel: "card" | "bnpl" | "both") => {
+    setSelectedMargin(row.margin);
+    const block = (c: "card" | "bnpl") =>
+      paymentPriceText(PAYMENT_TITLES[c], row[c].orderOfOne, row[c].orderOfN, n);
+    const parts = channel === "both" ? [block("card"), block("bnpl")] : [block(channel)];
+    if (parts.some((p) => p === null)) {
+      toast("No price is possible at this margin", "error");
+      return;
+    }
+    const text = parts.join("\n\n");
+    const what = channel === "both" ? "card + Tabby/Tamara" : channel === "card" ? "card" : "Tabby/Tamara";
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(`Copied ${what} prices at ${pct(row.margin, 0)} margin`, "success");
+    } catch (e) {
+      console.error("[calculator] clipboard write failed:", e);
+      toast("Could not copy to the clipboard", "error");
+    }
+  };
 
   const handleExport = async () => {
     setExporting(true);
@@ -200,14 +274,12 @@ export default function CalculatorPage() {
         />
 
         <div className="flex-1 overflow-auto p-3 sm:p-6 space-y-6">
-          <p className="text-xs italic text-slate-500">
-            Enter costs in the blue cells. Courier &amp; Other costs are per order and
-            spread over the tyres in the order. Margin = net profit after gateway fee ÷
-            price excl. VAT.
-          </p>
-
-          {/* ── Cost Inputs (B4:C14) ── */}
-          <section className="max-w-3xl bg-white border border-slate-200 rounded-lg shadow-2xs overflow-hidden">
+          {/* Cost Inputs | Outputs | Constant. Rates and minimums are edited
+              ONLY in Constant (TASK_LOG #024); the read-only Min. Margin copy
+              under Outputs was removed in #033. */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)_minmax(0,1fr)] gap-6 items-start">
+            {/* ── Cost Inputs (B4:C14) ── */}
+            <section className={CARD}>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-[#1F3864] text-white">
@@ -221,23 +293,106 @@ export default function CalculatorPage() {
                   <InputRow id="courierCost" label={<>Courier Cost <PerOrder /></>} value={raw.courierCost} onChange={setField} />
                   <InputRow id="otherCost" label={<>Other Cost <PerOrder /></>} value={raw.otherCost} onChange={setField} />
                   <InputRow id="tyresPerOrder" label="Tyres per Order" integer value={raw.tyresPerOrder} onChange={setField} />
-                  <tr className="border-b border-slate-200">
+                  <tr className={ROW}>
                     <td className="py-1.5 px-3 font-bold text-slate-900">Total Order Cost</td>
                     <td className="py-1.5 px-3 text-right font-bold tabular-nums">{fmt(totals.totalOrderCost)}</td>
                   </tr>
-                  <tr className="border-b border-slate-200">
+                  <tr className={ROW}>
                     <td className="py-1.5 px-3 font-bold text-slate-900">Total Cost per Tyre</td>
                     <td className="py-1.5 px-3 text-right font-bold tabular-nums bg-[#E2EFDA]">{fmt(totals.costPerTyre)}</td>
                   </tr>
-                  <InputRow id="vatRate" label="VAT Rate (UAE)" suffix="%" value={raw.vatRate} onChange={setField} />
-                  <InputRow id="cardFeeRate" label="Card Gateway Fee (on price incl. VAT)" suffix="%" value={raw.cardFeeRate} onChange={setField} />
-                  <InputRow id="bnplFeeRate" label="Tabby / Tamara Fee (on price incl. VAT)" suffix="%" value={raw.bnplFeeRate} onChange={setField} />
                 </tbody>
               </table>
             </section>
 
+            {/* ── Outputs (E4:G11) ── */}
+            <div className="space-y-4">
+              <section className={CARD}>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-white">
+                      <th className="py-1.5 px-3 text-left font-bold bg-[#1F3864]">Outputs</th>
+                      <th className="py-1.5 px-3 text-left font-bold bg-[#1F3864] whitespace-nowrap">Card ({pct1(inputs.cardFeeRate)})</th>
+                      <th className="py-1.5 px-3 text-left font-bold bg-[#843C0C] whitespace-nowrap">Tabby / Tamara ({pct1(inputs.bnplFeeRate)})</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className={ROW}>
+                      <td className="py-1.5 px-3 font-bold text-[#00B050]">Order of 1 Incl. VAT</td>
+                      <td className="py-1.5 px-3 text-right tabular-nums bg-[#E2EFDA]">{fmt(selling.orderOfOnePrice)}</td>
+                      <td className="py-1.5 px-3 text-right tabular-nums bg-[#E2EFDA]">{fmt(selling.orderOfOnePrice)}</td>
+                    </tr>
+                    <MarginRows card={selling.card.one} bnpl={selling.bnpl.one} />
+                    <tr className={ROW}>
+                      <td className="py-1.5 px-3 font-bold text-[#00B050]">
+                        <label htmlFor="calc-sellingPrice">Order of {OUTPUTS_ORDER_SIZE} Incl. VAT</label>
+                      </td>
+                      <td className="py-1 px-2 bg-[#DDEBF7]">
+                        <NumberInput id="sellingPrice" value={raw.sellingPrice} onChange={setField} />
+                      </td>
+                      <td className="py-1.5 px-3 text-right tabular-nums">{fmt(selling.orderOfNPrice)}</td>
+                    </tr>
+                    <MarginRows card={selling.card.n} bnpl={selling.bnpl.n} />
+                    <tr className="bg-[#E2EFDA] font-bold text-slate-900">
+                      <td className="py-1.5 px-3 whitespace-nowrap">Lowest Order of {OUTPUTS_ORDER_SIZE} Inc. VAT</td>
+                      <td className="py-1.5 px-3 text-right tabular-nums">{fmt(selling.card.lowestOrderOfN)}</td>
+                      <td className="py-1.5 px-3 text-right tabular-nums">{fmt(selling.bnpl.lowestOrderOfN)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </section>
+            </div>
+
+            {/* ── Constant (I4:J9) — the one place rates and minimums are edited ── */}
+            <section className={CARD}>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-[#1F3864] text-white">
+                    <th className="py-1.5 px-3 text-left font-bold">Constant</th>
+                    <th className="py-1.5 px-3 text-left font-bold">AED</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <InputRow id="vatRate" label="VAT Rate (UAE)" suffix="%" value={raw.vatRate} onChange={setField} />
+                  <InputRow id="cardFeeRate" label="Card Gateway Fee (on price incl. VAT)" suffix="%" value={raw.cardFeeRate} onChange={setField} />
+                  <InputRow id="bnplFeeRate" label="Tabby / Tamara Fee (on price incl. VAT)" suffix="%" value={raw.bnplFeeRate} onChange={setField} />
+                  <InputRow id="minMarginRate" label="Min. Margin % per Order" suffix="%" value={raw.minMarginRate} onChange={setField} />
+                  <InputRow id="minMarginAmount" label="Min. Margin Amount (AED)" value={raw.minMarginAmount} onChange={setField} />
+                </tbody>
+              </table>
+            </section>
+          </div>
           {/* ── Price vs Margin (B16:H68) ── */}
           <section>
+            {/* Each column carries the workbook's own fill (TASK_LOG #027):
+                Card in blues, Tabby / Tamara in oranges, Net Profit in green,
+                Margin % in grey. Colours live on the cells, so hover and the
+                clicked row swap every cell to emerald-200 to light the row. */}
+            <div className="bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-auto max-h-[70vh]">
+              <table className="w-full min-w-[900px] border-collapse">
+                <thead className="sticky top-0 z-10 text-white">
+                  <tr className="text-[11px] font-bold uppercase tracking-wider select-none">
+                    <th rowSpan={2} className="py-2.5 px-2 w-28 text-center align-middle bg-[#3A3A3A]">Margin %</th>
+                    <th colSpan={3} className="py-2 px-2 text-center bg-[#1F4E79] border-l border-white/30">
+                      Credit / Debit Card ({pct(inputs.cardFeeRate)} fee)
+                    </th>
+                    <th colSpan={3} className="py-2 px-2 text-center bg-[#843C0C] border-l border-white/30">
+                      Tabby / Tamara ({pct(inputs.bnplFeeRate)} fee)
+                    </th>
+                  </tr>
+                  <tr className="text-[11px] font-bold uppercase tracking-wider select-none">
+                    <th className="py-2 px-2 text-right whitespace-nowrap bg-[#5B9BD5] border-l border-white/30">Order of 1 incl. VAT (AED)</th>
+                    <th className="py-2 px-2 text-right whitespace-nowrap bg-[#2E75B6]">Order of {n} incl. VAT (AED)</th>
+                    <th className="py-2 px-2 text-right whitespace-nowrap bg-[#548235]">Net Profit / Order (AED)</th>
+                    <th className="py-2 px-2 text-right whitespace-nowrap bg-[#F4B183] border-l border-white/30">Order of 1 incl. VAT (AED)</th>
+                    <th className="py-2 px-2 text-right whitespace-nowrap bg-[#C55A11]">Order of {n} incl. VAT (AED)</th>
+                    <th className="py-2 px-2 text-right whitespace-nowrap bg-[#548235]">Net Profit / Order (AED)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white font-sans">
+                  {rows.map((row) => {
+                    // A clicked row keeps the hover colour until clicked again.
+
             <h2 className="text-base font-bold text-slate-800 mb-2">
               Price vs Margin (1% – 50%) – after payment gateway fees (incl. {vatLabel} VAT on fees)
             </h2>
@@ -283,6 +438,23 @@ export default function CalculatorPage() {
                         }}
                         tabIndex={0}
                         aria-selected={selected}
+                        className="group cursor-pointer align-middle focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-emerald-600"
+                      >
+                        <td
+                          title="Click to copy the card and Tabby/Tamara prices"
+                          onClick={(e) => {
+                            // The row's own onClick would toggle the selection off again.
+                            e.stopPropagation();
+                            copyPrices(row, "both");
+                          }}
+                          className={`px-2 text-center ${cellBg("bg-[#EDEDED]", selected)}`}
+                        >
+                          <span className="px-2 py-0.5 text-xs font-bold rounded-md bg-white text-[#3A3A3A] border border-slate-300/80 font-mono whitespace-nowrap">
+                            {pct(row.margin, 0)}
+                          </span>
+                        </td>
+                        <ChannelCells row={row.card} selected={selected} palette={CARD_COLS} copyLabel="Click to copy the card prices" onCopy={() => copyPrices(row, "card")} />
+                        <ChannelCells row={row.bnpl} selected={selected} palette={BNPL_COLS} copyLabel="Click to copy the Tabby / Tamara prices" onCopy={() => copyPrices(row, "bnpl")} />
                         className={`group cursor-pointer transition-colors duration-150 align-middle focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-emerald-600 ${
                           selected ? "bg-emerald-200" : "odd:bg-white even:bg-slate-100 hover:bg-emerald-200"
                         }`}
@@ -300,17 +472,73 @@ export default function CalculatorPage() {
                 </tbody>
               </table>
             </div>
-            <p className="mt-2 text-[11px] text-slate-500">
-              Order of 1 carries the full courier and other cost; Order of {n} spreads it
-              across the order. Net Profit per Order = order incl. VAT − order cost × (1 +
-              VAT) − gateway fee incl. VAT. Table values are rounded up to the whole AED.
-            </p>
           </section>
         </div>
       </main>
     </div>
   );
 }
+
+/** First line of each copied price block, as the user wrote them. */
+const PAYMENT_TITLES = {
+  card: "Credit Card Payment Price",
+  bnpl: "Tabby/Tamara Payment Price",
+} as const;
+
+/**
+ * A body cell's column fill, or the row highlight. Hover and selection both
+ * use emerald-200 across the whole row; the column colour is dropped (not
+ * overridden) while selected so no class-order tie decides the winner.
+ */
+const cellBg = (columnBg: string, selected: boolean) =>
+  selected
+    ? "bg-emerald-200 transition-colors duration-150"
+    : `${columnBg} group-hover:bg-emerald-200 transition-colors duration-150`;
+
+/** Body fills and font colours per column, from the workbook (C19:H19). */
+interface ChannelPalette {
+  one: string; // Order of 1
+  n: string; // Order of N
+  text: string; // figures in both price columns
+}
+const CARD_COLS: ChannelPalette = { one: "bg-[#DDEBF7]", n: "bg-[#BDD7EE]", text: "text-[#1F4E79]" };
+const BNPL_COLS: ChannelPalette = { one: "bg-[#FCE4D6]", n: "bg-[#F8CBAD]", text: "text-[#843C0C]" };
+
+interface ChannelCellsProps {
+  row: ChannelRow;
+  selected: boolean;
+  palette: ChannelPalette;
+  /** Tooltip for the three cells, e.g. "Click to copy the card prices". */
+  copyLabel: string;
+  /** Selects the row and copies this channel's prices (TASK_LOG #030). */
+  onCopy: () => void;
+}
+
+/** One payment channel's three cells: Order of 1, Order of N (bold) and Net
+ *  Profit on the workbook's green (dark green figures, red for a loss).
+ *  Clicking any of them copies this channel's prices for the row; a copy icon
+ *  shows in the Order of 1 cell of the selected row. */
+function ChannelCells({ row, selected, palette, copyLabel, onCopy }: ChannelCellsProps) {
+  const loss = typeof row.netProfit === "number" && ceilUp(row.netProfit) < 0;
+  // stopPropagation: the row's own onClick toggles the selection, which would
+  // immediately undo the selection a copy makes.
+  const copy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onCopy();
+  };
+  return (
+    <>
+      <td title={copyLabel} onClick={copy} className={`relative px-2 text-right text-xs font-semibold font-mono whitespace-nowrap border-l border-white ${palette.text} ${cellBg(palette.one, selected)}`}>
+        {/* Rendered only on the selected row, with an inline opacity: no new
+            Tailwind classes, so it can't be hit by the stale dev CSS
+            (TASK_LOG #028). */}
+        {selected && (
+          <ClipboardDocumentIcon
+            aria-hidden
+            style={{ opacity: 0.7 }}
+            className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4"
+          />
+        )}
 
 /** One payment channel's three cells, using the /tc-products cell styles:
  *  "Set of 4" grey mono for Order of 1, "Price" bold mono for Order of N,
@@ -326,9 +554,10 @@ function ChannelCells({ row, selected }: { row: ChannelRow; selected: boolean })
       <td className="py-2 px-2 text-right text-xs font-semibold text-slate-600 font-mono whitespace-nowrap border-l border-slate-200">
         {fmtCeil(row.orderOfOne)}
       </td>
-      <td className="py-2 px-2 text-right text-xs font-extrabold text-slate-900 font-mono whitespace-nowrap">
+      <td title={copyLabel} onClick={copy} className={`px-2 text-right text-xs font-extrabold font-mono whitespace-nowrap ${palette.text} ${cellBg(palette.n, selected)}`}>
         {fmtCeil(row.orderOfN)}
       </td>
+      <td title={copyLabel} onClick={copy} className={`px-2 text-right text-xs font-bold font-mono whitespace-nowrap ${loss ? "text-red-700" : "text-[#375623]"} ${cellBg("bg-[#E2EFDA]", selected)}`}>
       <td className={`py-2 px-2 text-right text-xs font-bold font-mono whitespace-nowrap ${profitColor}`}>
         {fmtCeil(row.netProfit)}
       </td>

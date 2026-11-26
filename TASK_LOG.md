@@ -1209,3 +1209,410 @@ When a Price vs Margin row is clicked, keep that row highlighted ("focused") in 
 
 ## Final Status
 Completed
+S
+# Task #024 — Calculator: Outputs, Min. Margin and Constant blocks (new workbook layout)
+
+Date: 2026-11-26
+Status: Completed
+
+## Requirement
+Make the calculator match the user's updated workbook: a screenshot (13:03), then the actual file "Tyre-Price-Calculator 2.xlsx" (saved 15:00, so it is the source of truth for the formulas). The ask: keep Cost Inputs and the Price vs Margin table, and add the Outputs block (Order of 1 / Order of N incl. VAT, Margin Amount and Margin % per channel, and "Lowest Order of N Inc. VAT"), the Min. Margin % / Min. Margin Amount rows and the Constant block. Mid-task the user asked to remove the VAT / Card fee / Tabby fee rows from Cost Inputs.
+
+## Planned Changes
+- `services/priceCalculator.ts`: new inputs and a pure `sellingPriceSummary()`.
+- `services/priceCalculator.test.mts`: fixtures from the screenshot.
+- `app/(app)/calculator/page.tsx`: new blocks.
+- `services/calculatorExport.ts`: the same blocks in the .xlsx as live formulas.
+
+## Files Affected
+- services/priceCalculator.ts
+- services/priceCalculator.test.mts
+- app/(app)/calculator/page.tsx
+- services/calculatorExport.ts
+- CLAUDE.md (test-command note: second workbook, Constant block)
+
+## Implementation
+- `priceCalculator.ts`:
+  - `CalculatorInputs` gains `sellingPrice` (F8, an order of N incl. VAT, default 0), `minMarginRate` (default 0.05) and `minMarginAmount` (default 120).
+  - New `marginAt`, `sellingPriceSummary` and the `MarginResult` / `SellingChannel` types.
+  - The formulas are the workbook's own (F5:G11 of "Tyre-Price-Calculator 2.xlsx"):
+    - Order of 1 = F8 / N. The workbook hard-codes `/4`; the page uses Tyres per Order.
+    - Margin Amount = price/(1+VAT) − cost − price·fee·(1+VAT). Order of 1 uses SUM(C5:C8), like the table's C19.
+    - Margin % = amount ÷ price excl. VAT. When the price is 0 it is null, where the workbook's IFERROR gives 0 / "-".
+    - Lowest = MAX(cost/(1−min%−fee(1+VAT)²), (cost+minAmt)/(1−fee(1+VAT)²))·(1+VAT), and null when unreachable.
+- Page:
+  - Layout is Cost Inputs | Outputs + Min. Margin | Constant. Three columns at 2xl (middle column 1.35fr), two at lg.
+  - Cards use `overflow-x-auto` so a narrow column scrolls instead of clipping.
+  - Constant is the ONLY place VAT, card fee, Tabby fee and both minimums are edited. The rate rows were removed from Cost Inputs at the user's request, and the Min. Margin rows under Outputs are read-only copies.
+  - The Order of N selling price is the blue input cell, and the Tabby column mirrors it.
+  - Workbook colours: navy "Outputs" / Card headers, #843C0C Tabby header, bold #00B050 order labels, green fill on Order of 1 and Lowest.
+  - Lowest shows 2 decimals, as the workbook does.
+  - A negative margin shows in red.
+- Export:
+  - Constant block at I4:J9 (inputs).
+  - C12:C14 removed, and every formula repointed from $C$12/$C$13/$C$14 to $J$5/$J$6/$J$7.
+  - Outputs at E4:G11, using the workbook's formulas and its number formats (`#,##0.00;(#,##0.00);-`, `0.0%;(0.0%);-`).
+  - Min. Margin at E13:F14 (=$J$8 / =$J$9).
+  - Columns I and J added.
+  - Fixed a temporal-dead-zone use of `pctLabel`, which is now declared before the Outputs block uses it.
+
+## Testing
+- `node --test services/priceCalculator.test.mts`: 10/10 pass, including 4 new tests. These cover the Outputs block at tyre 70 and price 430 (30.01 / 120.04 / 429.95 / 24.37 / 97.47 / 455.67, 29.3% / 23.8%), that the stricter minimum wins, that a 0 price gives a null margin %, and the table at tyre 70 (76.02 / 304.08 / 3.38 / 80.62 / 322.47 / 4.43).
+- `npx tsc --noEmit` and eslint on the changed files: clean.
+- Headless Chrome over CDP against the running dev server, with workbook 2's inputs (tyre 41, price 430). The page showed 107.50, 59.01 / 53.37, 57.6% / 52.1%, 236.04 / 213.47 and Lowest 305.27 / 323.52, identical to the values Excel cached in "Tyre-Price-Calculator 2.xlsx". Table 1% row: 45 / 179 / 2 / 48 / 189 / 3. No console errors.
+- The first screenshot showed the Tabby column clipped at 1600px. Fixed (grid widths and overflow), re-shot, and the column is fully visible.
+- Exported .xlsx (captured from the page), recalculated by Excel via COM:
+  - F5:G11 and the table match the page.
+  - Setting J5 to 6% updated the B16 title, F11 (308.31) and D19.
+  - Setting F8 to 0 gave F7 "-" and F9 "(164.00)".
+
+## Issues / Notes
+- The workbook defines the minimums as inputs at F13:F14 and the rates at C12:C14, with no Constant block. The Constant block comes from the user's screenshot, and the user then removed the rate rows from Cost Inputs, so on the page and in the export the Constant block is the single source.
+- The Outputs Margin Amount is excl. VAT, while the table's Net Profit is VAT-inclusive. Both are reproduced from the workbook as-is.
+- Not committed or pushed.
+
+## Final Status
+Completed
+
+# Task #025 — Calculator: Outputs "Order of 1" divides by 4, as in the xlsx
+
+Date: 2026-11-26
+Status: Completed
+
+## Requirement
+The user reported that the web output differs from "Tyre-Price-Calculator 2.xlsx". A 9-case comparison (the workbook recalculated by Excel vs the web math) found exactly one difference: the xlsx has `F5 = F8/4` (always ÷ 4), while the web divided by Tyres per Order. Asked which to use, the user chose "Match Excel exactly (÷ 4)".
+
+## Planned Changes
+- `services/priceCalculator.ts`: Outputs Order of 1 = selling price ÷ 4 (fixed).
+- `app/(app)/calculator/page.tsx`: Outputs labels static "Order of 4" / "Lowest Order of 4", as in the xlsx.
+- `services/calculatorExport.ts`: F5 `=F8/4`, static E8/E11 labels.
+- `services/priceCalculator.test.mts`: a test for ÷ 4 at 2 tyres per order.
+
+## Files Affected
+- services/priceCalculator.ts
+- services/priceCalculator.test.mts
+- app/(app)/calculator/page.tsx
+- services/calculatorExport.ts
+
+## Implementation
+- New export `OUTPUTS_ORDER_SIZE = 4`. `sellingPriceSummary` uses it for Order of 1 (price and margin) in place of Tyres per Order. A doc comment records why: the user chose to keep the xlsx's `F8/4`.
+- Page: the Outputs labels are now "Order of 4 Incl. VAT" and "Lowest Order of 4 Inc. VAT" (static, as E8/E11 are plain text in the xlsx), and the footnote says Order of 1 = price ÷ 4. The Price vs Margin table still follows Tyres per Order, as its xlsx headers do (D18/G18 reference C9).
+- Export: F5 `=F8/4`, and E8/E11 are plain text.
+
+## Testing
+- `node --test services/priceCalculator.test.mts`: 11/11 pass. The new test uses the Excel-recalculated xlsx at 2 tyres: Order of 1 130, margins −119.06 / −125.88.
+- `npx tsc --noEmit` and eslint on the changed files: clean.
+- Comparison script: copied "Tyre-Price-Calculator 2.xlsx", set 9 input cases through Excel COM, recalculated, and compared 22 cells per case (C10, C11, F5:G11, C28:H28) with the web module. Before the change, the 1-tyre and 2-tyre cases differed on F5:G7; after it, all 9 cases match on all 22 cells.
+- Headless Chrome on the dev server (tyre 200, fitting 10, courier 30, 2 tyres, price 520): Order of 1 130.00; margins −119.06 / −125.88; −96.2% / −101.7%; Order of 4 margins 33.77 / 6.47; Lowest 612.69 / 649.33. No console errors.
+- The exported .xlsx from that page, recalculated in Excel, gives the same values: F5 `=F8/4` = 130.00, F6 (119.06), F11 612.69, G11 649.33.
+
+## Issues / Notes
+- By the user's choice, Order of 1 is only meaningful at 4 tyres per order. At other counts it divides a C9-tyre order price by 4 but charges one tyre's full cost, exactly as the xlsx does.
+- Not committed or pushed.
+
+## Final Status
+Completed
+
+# Task #026 — Calculator: remove the intro line, Outputs footnote and table heading
+
+Date: 2026-11-26
+Status: Completed
+
+## Requirement
+Remove the lines the user marked on the calculator page: the italic intro line under the header ("Enter costs in the blue cells…"), the footnote under the Outputs block ("Type a selling price…") and the "Price vs Margin (1% – 50%)…" heading above the table.
+
+## Planned Changes
+- `app/(app)/calculator/page.tsx`: delete those three elements. The note below the table was not marked, so it stays.
+
+## Files Affected
+- app/(app)/calculator/page.tsx
+
+## Implementation
+- Removed the intro `<p>`, the Outputs footnote `<p>` and the table's `<h2>` heading.
+- Removed `vatLabel`, which only the heading used (eslint flagged it as unused).
+- The Excel export is unchanged and keeps its own title, intro and heading cells (B1, B2, B16). Only the page was in scope.
+
+## Testing
+- `npx tsc --noEmit` and `npx eslint app/(app)/calculator`: clean.
+- Headless Chrome on the dev server (tyre 41, price 430): the three lines are gone, the blocks now start directly under the header, and the table follows straight after the Min. Margin card. Values are unchanged (Lowest 305.27 / 323.52) and there are no console errors. Screenshot reviewed.
+
+## Issues / Notes
+- Not committed or pushed.
+
+## Final Status
+Completed
+
+# Task #027 — Calculator: colour each Price vs Margin column like the workbook
+
+Date: 2026-11-26
+Status: Completed
+
+## Requirement
+"Make a col on colour". Asked to clarify, the user chose "Each column its own colour", like the Excel workbook: Card columns in blue shades, Tabby/Tamara in orange shades, Net Profit in green, Margin % in grey, with headers and cells both coloured. Mid-task the user added "keep the row hover".
+
+## Planned Changes
+- `app/(app)/calculator/page.tsx`: workbook fills on the headers and body cells, with hover and the click-selected row still highlighting the whole row.
+
+## Files Affected
+- app/(app)/calculator/page.tsx
+
+## Implementation
+- Group headers: Margin % #3A3A3A, Card #1F4E79, Tabby / Tamara #843C0C.
+- Sub-headers: #5B9BD5 / #2E75B6 / #548235 (Card) and #F4B183 / #C55A11 / #548235 (Tabby). These are the xlsx's own C18:H18 fills.
+- Body cells use the xlsx's C19:H19 fills and fonts:
+  - Margin % #EDEDED
+  - Card #DDEBF7 / #BDD7EE, text #1F4E79
+  - Tabby #FCE4D6 / #F8CBAD, text #843C0C
+  - Net Profit #E2EFDA, text #375623 (red-700 for a loss)
+  - Defined in `CARD_COLS` / `BNPL_COLS` and passed to `ChannelCells` as `palette`.
+- Row hover kept: the fill now lives on the cells, so each cell carries `group-hover:bg-emerald-200` and a hovered row turns fully emerald-200, as before. A clicked (selected) row swaps every cell to `bg-emerald-200` (`cellBg` helper), dropping the column fill rather than overriding it.
+- The white/grey zebra rows (TASK_LOG #021) are replaced by the column colours. Rows are separated by white dividers.
+
+## Testing
+- `npx tsc --noEmit` and `npx eslint app/(app)/calculator`: clean.
+- Headless Chrome against the user's dev server: the headers rendered the new colours. The body cells had the right classes, but the dev server's CSS bundle was STALE. `#BDD7EE`, `#FCE4D6`, `#F8CBAD` and `group-hover:bg-emerald-200` were missing from the served CSS even after touching `app/globals.css` (mtime only, no content change). This is the Turbopack PostCSS worker of the running dev server (started 14:58), not the code.
+- `npx tailwindcss -c tailwind.config.js -i app/globals.css` generates all of those classes, including `.group:hover .group-hover\:bg-emerald-200`.
+- With that freshly generated CSS injected into the page (real mouse events over CDP): row 1% computed fills are #EDEDED, #DDEBF7, #BDD7EE, #E2EFDA, #FCE4D6, #F8CBAD, #E2EFDA, all as specified. The hovered row 2% and the clicked row 5% are emerald-200 on every cell, and unhovered rows keep their column colours. Screenshot reviewed. No console errors.
+
+## Issues / Notes
+- The user's running dev server must be restarted (`npm run dev`) to pick up the new classes. Until then, three body columns render white and the row hover does not show there.
+- Not committed or pushed.
+
+## Final Status
+Completed
+
+# Task #028 — Dev server served stale CSS: row hover and 3 column colours missing
+
+Date: 2026-11-26
+Status: Completed
+
+## Requirement
+After the user restarted the dev server (as advised in #027), the Price vs Margin row hover still did not work.
+
+## Planned Changes
+- No code change: find why the restarted server still lacked the classes, clear it, and document the trap in CLAUDE.md.
+
+## Files Affected
+- CLAUDE.md (Build & Development Commands: stale Tailwind CSS trap)
+
+## Implementation
+- Root cause: Turbopack's persistent dev cache (`.next/dev/cache/turbopack`, 400 MB). After the restart (new PIDs 22720 / 14908, 15:38) the served CSS had the SAME hash (`8b48e673`) and still lacked `bg-[#BDD7EE]`, `bg-[#FCE4D6]`, `bg-[#F8CBAD]` and `group-hover:bg-emerald-200`, although the page markup carried them and the Tailwind CLI generates them. Tailwind v3's content-file changes did not invalidate the cached CSS.
+- Fix: stopped the dev server (PIDs 22720, 14908), deleted `.next/dev/cache/turbopack` (a regenerable build cache), and restarted `npm run dev` (now a background process of this session, ready in 2.7 s).
+- CLAUDE.md: documented the symptom, the cause and the fix next to `npm run dev`.
+
+## Testing
+- Served CSS after the cache clear contains #BDD7EE, #FCE4D6 and #F8CBAD.
+- Headless Chrome with real mouse events: row 1% fills are #EDEDED / #DDEBF7 / #BDD7EE / #E2EFDA / #FCE4D6 / #F8CBAD / #E2EFDA. The hovered row 2% and the clicked row 5% are emerald-200 on all 7 cells, and the other rows keep their column colours. No console errors.
+
+## Issues / Notes
+- The dev server now runs as a background process started by Claude Code, not in the user's terminal. The user can stop it and run `npm run dev` themselves at any time; the cleared cache stays cleared.
+- Not committed or pushed.
+
+## Final Status
+Completed
+
+# Task #029 — Calculator: click the Card / Tabby header to copy the selected row's prices
+
+Date: 2026-11-26
+Status: Completed
+
+## Requirement
+Clicking the "Credit / Debit Card" header in the Price vs Margin table copies the prices to the clipboard in this format:
+
+    Credit Card Payment Price
+    1 Tyre: AED 174.00
+    4 Tyres: AED 533.00
+
+## Planned Changes
+- `services/priceCalculator.ts`: pure `paymentPriceText(title, orderOfOne, orderOfN, n)`.
+- `services/priceCalculator.test.mts`: format test.
+- `app/(app)/calculator/page.tsx`: Card and Tabby / Tamara group headers become copy buttons for the clicked (selected) row.
+
+## Files Affected
+- services/priceCalculator.ts
+- services/priceCalculator.test.mts
+- app/(app)/calculator/page.tsx
+
+## Implementation
+- `paymentPriceText` builds "<title>\n1 Tyre: AED x\n<N> Tyres: AED y".
+  - Prices are rounded UP to the whole AED with the table's own rule (`Math.ceil(x − 1e-9) || 0`), shown with .00 and thousands separators, so the copied text always equals the figures on screen.
+  - The singular "Tyre" is used when N = 1.
+  - It returns null when a price is unreachable.
+- Page:
+  - The "Credit / Debit Card" and "Tabby / Tamara" group headers are now `<button>`s (`CopyHeaderButton`, with a clipboard icon and a hover tint) calling `copyPrices("card" | "bnpl")`.
+  - The copied row is the clicked (selected) one. Titles are "Credit Card Payment Price" (as the user specified) and "Tabby / Tamara Payment Price" (same pattern; the user asked only for card).
+  - Toasts:
+    - success: "Copied card prices at 10% margin"
+    - no row selected: "Click a margin row first, then the header to copy its prices"
+    - unreachable margin: "No price is possible at this margin"
+    - clipboard failure: "Could not copy to the clipboard"
+  - Uses `navigator.clipboard.writeText` like the other pages. It needs a secure context, which localhost and the https Vercel domains are.
+
+## Testing
+- `node --test services/priceCalculator.test.mts`: 12/12 pass. The new test covers the user's exact sample (173.2 / 532.01 → "AED 174.00" / "AED 533.00"), thousands separators (AED 5,431.00), the singular at N = 1, and null.
+- `npx tsc --noEmit` and eslint on the changed files: clean.
+- Headless Chrome on the dev server, with real mouse clicks and `clipboard.writeText` stubbed to capture the text:
+  1. Header click with no row selected: nothing copied, and the "Click a margin row first" toast appears.
+  2. Select 10% (on screen 50 / 197 / 20 / 53 / 210 / 22), then click the Card header. Copied "Credit Card Payment Price\n1 Tyre: AED 50.00\n4 Tyres: AED 197.00".
+  3. Click the Tabby header. Copied "Tabby / Tamara Payment Price\n1 Tyre: AED 53.00\n4 Tyres: AED 210.00".
+  4. Success toasts shown, no console errors, screenshot reviewed.
+
+## Issues / Notes
+- The real OS clipboard was not exercised (headless Chrome has no focused clipboard), only the text handed to `navigator.clipboard.writeText`.
+- Not committed or pushed.
+
+## Final Status
+Completed
+
+# Task #030 — Calculator: copy from the row's cells (Card, Tabby, Margin % = both), not the header
+
+Date: 2026-11-26
+Status: Completed
+
+## Requirement
+- From the user's screenshot on #029: "Do not show here" (the copy icon/button on the Credit / Debit Card header) and "Show in this" (the Card body cells). Clicking a row's Card cells copies that row's card prices; the same for Tabby / Tamara.
+- Mid-task the user added: clicking the Margin % cell copies the row with both blocks:
+
+      Credit Card Payment Price
+      1 Tyre: AED …
+      4 Tyres: AED …
+
+      Tabby/Tamara Payment Price
+      1 Tyre: AED …
+      4 Tyres: AED …
+
+## Planned Changes
+- `app/(app)/calculator/page.tsx`:
+  - Headers back to plain text.
+  - Card / Tabby cells copy their channel; the Margin % cell copies both.
+  - A copy icon in the cells.
+
+## Files Affected
+- app/(app)/calculator/page.tsx
+
+## Implementation
+- Removed `CopyHeaderButton`; the two group headers are plain text again.
+- `copyPrices(row, "card" | "bnpl" | "both")` replaces the header-based copy:
+  - It always selects the clicked row (never toggles off), so copying twice keeps the highlight.
+  - "both" joins the card and Tabby blocks with one blank line.
+  - Titles live in `PAYMENT_TITLES`: "Credit Card Payment Price" and "Tabby/Tamara Payment Price". The latter follows the user's new spelling, with no spaces around the slash, and the Tabby-cell copy uses it too.
+  - Toasts read "Copied card + Tabby/Tamara prices at 3% margin" etc.; a null price gives "No price is possible at this margin".
+- `ChannelCells` takes `onCopy` and `copyLabel` (tooltip). All three cells copy, and `stopPropagation` stops the row's toggle from undoing the selection. The Margin % cell does the same for "both".
+- A copy icon (`ClipboardDocumentIcon`) shows in each channel's Order of 1 cell on the SELECTED row only. It is conditionally rendered with an inline `opacity: 0.7` instead of hover classes: the user's dev server served stale CSS again, so the first version's `opacity-0 group-hover:opacity-70` rendered as a fully visible icon on every row (see #028).
+- Deselecting is now via keyboard (Enter/Space on a focused row) or Reset, since every cell click copies and selects.
+- The paste in the request had blank lines between every line. The copy uses single line breaks inside a block, matching the user's first sample in #029, plus one blank line between the blocks.
+
+## Testing
+- `npx tsc --noEmit` and `npx eslint app/(app)/calculator`: clean.
+- Headless Chrome against the user's own dev server (port 3000, started 15:50; my extra server could not take the `.next/dev` lock), with real mouse clicks and `clipboard.writeText` stubbed. On row 3% (46 / 182 / 6 / 49 / 194 / 7):
+  1. Margin % cell → "Credit Card Payment Price\n1 Tyre: AED 46.00\n4 Tyres: AED 182.00\n\nTabby/Tamara Payment Price\n1 Tyre: AED 49.00\n4 Tyres: AED 194.00", with the row selected.
+  2. Margin % again → same text, row still selected.
+  3. Card Order of N cell → card block only.
+  4. Tabby Order of 1 cell → Tabby block only.
+- The header has 0 buttons and 0 icons. Body icons: 0 before any click, 2 (one per channel) on the selected row. Toasts correct, no console errors, screenshot reviewed.
+- An earlier run of the first version (before the Margin % request) also confirmed that the Card cells on 3% and 7% copied their own rows.
+
+## Issues / Notes
+- The real OS clipboard was not exercised (headless), only the text handed to `navigator.clipboard.writeText`.
+- Not committed or pushed.
+
+## Final Status
+Completed
+
+# Task #031 — Calculator: remove the note under the table and reduce the row height
+
+Date: 2026-11-26
+Status: Completed
+
+## Requirement
+- Remove the footnote below the Price vs Margin table ("Order of 1 carries the full courier and other cost; Order of 4 spreads it across the order. Net Profit per Order = … Table values are rounded up to the whole AED.").
+- Mid-task the user added "reduse the col hight": make the table rows shorter.
+
+## Planned Changes
+- `app/(app)/calculator/page.tsx`:
+  - Delete the footnote `<p>`.
+  - Reduce the vertical padding of the table body cells.
+
+## Files Affected
+- app/(app)/calculator/page.tsx
+
+## Implementation
+- Removed the footnote paragraph under the table.
+- Table body cells (the Margin % cell and the three cells per channel): `py-2` → `py-1`. The header rows are unchanged.
+  - Only classes the page already used are involved (`py-1` is on the input cells), so the stale dev CSS issue (#028) cannot leave a rule missing.
+
+## Testing
+- `npx tsc --noEmit` and `npx eslint app/(app)/calculator`: clean.
+- Headless Chrome against the user's running dev server:
+  - The footnote text is gone, and the table still has 50 rows.
+  - Body row height went from 42.1 px to 34.1 px, and the visible rows in the 70vh table box went from 13 to 16 (at 1600×900).
+  - No console errors. Screenshot reviewed.
+
+## Issues / Notes
+- The row height is now set by the Margin % badge (`py-0.5` with a border). It can go lower by trimming the badge if wanted.
+- Not committed or pushed.
+
+## Final Status
+Completed
+
+# Task #032 — Calculator: remove the vertical padding from the table rows
+
+Date: 2026-11-26
+Status: Completed
+
+## Requirement
+"Remove the py-1 in the row" of the Price vs Margin table (screenshot): the body cells get no vertical padding.
+
+## Planned Changes
+- `app/(app)/calculator/page.tsx`: drop `py-1` from the 4 body-cell class lists (Margin % cell and the three channel cells). Headers unchanged.
+
+## Files Affected
+- app/(app)/calculator/page.tsx
+
+## Implementation
+- Removed `py-1` from the Margin % `<td>` and the three `ChannelCells` `<td>`s, so the body cells have no vertical padding. The row height now comes from the content: the Margin % badge (`py-0.5` with a border) is the tallest item.
+- The `py-1` on the Cost Inputs / Outputs input cells (lines 137 and 340) is not part of this table and was left alone.
+
+## Testing
+- `npx tsc --noEmit` and `npx eslint app/(app)/calculator`: clean.
+- Headless Chrome against the user's running dev server: body row height went from 34.1 px to 28.1 px (42.1 px before #031), and the visible rows went from 16 to 19 at 1600×900. No console errors. Screenshot reviewed: figures and badges are not clipped.
+
+## Issues / Notes
+- Not committed or pushed.
+
+## Final Status
+Completed
+
+# Task #033 — Calculator: remove the Min. Margin block under Outputs
+
+Date: 2026-11-26
+Status: Completed
+
+## Requirement
+Remove the read-only "Min. Margin % per Order" / "Min. Margin Amount (AED)" block shown under the Outputs table (marked in the user's screenshot). The values stay editable in the Constant block.
+
+## Planned Changes
+- `app/(app)/calculator/page.tsx`: delete the Min. Margin card and the now-unused `MirrorRow` helper; unwrap the Outputs column wrapper.
+
+## Files Affected
+- app/(app)/calculator/page.tsx
+
+## Implementation
+- Deleted the second `<section>` under Outputs (the two `MirrorRow`s) and the `MirrorRow` component, which had no other users. Updated the two layout comments.
+- The calculation is unchanged: the Lowest Order of 4 row still uses `minMarginRate` / `minMarginAmount` from the Constant block.
+- The Outputs column keeps its `space-y-4` wrapper, which now holds one card. It is harmless, so the planned unwrap was skipped.
+- The Excel export (`services/calculatorExport.ts`) still writes the E13:F14 Min. Margin cells, as workbook 2 does. That was outside this request, so it is unchanged.
+
+## Testing
+- `npx tsc --noEmit` and `npx eslint app/(app)/calculator`: clean.
+- Headless Chrome against the user's running dev server (1600×900):
+  - The page now has 4 sections (it had 5).
+  - "Min. Margin" labels now appear only under Constant.
+  - Lowest Order of 4 still shows 128.99 / 136.70 at the default inputs.
+  - No console errors. Screenshot reviewed.
+
+## Issues / Notes
+- Not committed or pushed.
+
+## Final Status
+CompletedS
