@@ -141,16 +141,6 @@ function InputRow({ label, ...input }: NumberInputProps & { label: React.ReactNo
   );
 }
 
-/** A read-only copy of a value that is edited in the Constant block. */
-function MirrorRow({ label, value }: { label: string; value: string }) {
-  return (
-    <tr className={ROW} title="Edit this in the Constant table">
-      <td className="py-1.5 px-3 text-slate-800">{label}</td>
-      <td className="py-1.5 px-3 w-32 text-right tabular-nums text-slate-700 bg-slate-50">{value}</td>
-    </tr>
-  );
-}
-
 /** Margin Amount + Margin % rows of the Selling Price block, both channels. */
 function MarginRows({ card, bnpl }: { card: MarginResult; bnpl: MarginResult }) {
   const amount = (m: MarginResult) => (
@@ -284,9 +274,9 @@ export default function CalculatorPage() {
         />
 
         <div className="flex-1 overflow-auto p-3 sm:p-6 space-y-6">
-          {/* Cost Inputs | Outputs + Min. Margin | Constant. Rates and minimums
-              are edited ONLY in Constant (TASK_LOG #024); Min. Margin under
-              Outputs is a read-only copy, like the workbook referencing J8:J9. */}
+          {/* Cost Inputs | Outputs | Constant. Rates and minimums are edited
+              ONLY in Constant (TASK_LOG #024); the read-only Min. Margin copy
+              under Outputs was removed in #033. */}
           <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)_minmax(0,1fr)] gap-6 items-start">
             {/* ── Cost Inputs (B4:C14) ── */}
             <section className={CARD}>
@@ -315,7 +305,7 @@ export default function CalculatorPage() {
               </table>
             </section>
 
-            {/* ── Outputs (E4:G11) + Min. Margin (E13:F14) ── */}
+            {/* ── Outputs (E4:G11) ── */}
             <div className="space-y-4">
               <section className={CARD}>
                 <table className="w-full text-sm">
@@ -348,15 +338,6 @@ export default function CalculatorPage() {
                       <td className="py-1.5 px-3 text-right tabular-nums">{fmt(selling.card.lowestOrderOfN)}</td>
                       <td className="py-1.5 px-3 text-right tabular-nums">{fmt(selling.bnpl.lowestOrderOfN)}</td>
                     </tr>
-                  </tbody>
-                </table>
-              </section>
-
-              <section className={CARD}>
-                <table className="w-full text-sm">
-                  <tbody>
-                    <MirrorRow label="Min. Margin % per Order" value={pct1(inputs.minMarginRate)} />
-                    <MirrorRow label="Min. Margin Amount (AED)" value={fmt(inputs.minMarginAmount)} />
                   </tbody>
                 </table>
               </section>

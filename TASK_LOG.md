@@ -1582,3 +1582,37 @@ Status: Completed
 
 ## Final Status
 Completed
+
+# Task #033 — Calculator: remove the Min. Margin block under Outputs
+
+Date: 2026-11-26
+Status: Completed
+
+## Requirement
+Remove the read-only "Min. Margin % per Order" / "Min. Margin Amount (AED)" block shown under the Outputs table (marked in the user's screenshot). The values stay editable in the Constant block.
+
+## Planned Changes
+- `app/(app)/calculator/page.tsx`: delete the Min. Margin card and the now-unused `MirrorRow` helper; unwrap the Outputs column wrapper.
+
+## Files Affected
+- app/(app)/calculator/page.tsx
+
+## Implementation
+- Deleted the second `<section>` under Outputs (the two `MirrorRow`s) and the `MirrorRow` component, which had no other users. Updated the two layout comments.
+- The calculation is unchanged: the Lowest Order of 4 row still uses `minMarginRate` / `minMarginAmount` from the Constant block.
+- The Outputs column keeps its `space-y-4` wrapper, which now holds one card. It is harmless, so the planned unwrap was skipped.
+- The Excel export (`services/calculatorExport.ts`) still writes the E13:F14 Min. Margin cells, as workbook 2 does. That was outside this request, so it is unchanged.
+
+## Testing
+- `npx tsc --noEmit` and `npx eslint app/(app)/calculator`: clean.
+- Headless Chrome against the user's running dev server (1600×900):
+  - The page now has 4 sections (it had 5).
+  - "Min. Margin" labels now appear only under Constant.
+  - Lowest Order of 4 still shows 128.99 / 136.70 at the default inputs.
+  - No console errors. Screenshot reviewed.
+
+## Issues / Notes
+- Not committed or pushed.
+
+## Final Status
+Completed
