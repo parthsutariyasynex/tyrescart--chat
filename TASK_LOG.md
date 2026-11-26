@@ -6,7 +6,7 @@ and updated after it finishes. See `CLAUDE.md` → "Task Logging" for the rules
 Claude Code follows when maintaining this file.
 
 Never delete or overwrite a previous entry — new work gets a new Task ID,
-appended at the end, in chronological order. 
+appended at the end, in chronological order.
 
 ---
 
@@ -1209,7 +1209,7 @@ When a Price vs Margin row is clicked, keep that row highlighted ("focused") in 
 
 ## Final Status
 Completed
-S
+
 # Task #024 — Calculator: Outputs, Min. Margin and Constant blocks (new workbook layout)
 
 Date: 2026-11-26
@@ -1615,4 +1615,35 @@ Remove the read-only "Min. Margin % per Order" / "Min. Margin Amount (AED)" bloc
 - Not committed or pushed.
 
 ## Final Status
-CompletedS
+Completed
+
+# Task #034 — Fix the Vercel build broken by the main ⇄ development merge
+
+Date: 2026-11-26
+Status: In Progress
+
+## Requirement
+The Vercel build fails with `Expected ',', got 'ident'` at `app/(app)/calculator/page.tsx:15` (`sellingPriceSummary,S`). Fix it.
+
+## Planned Changes
+- Restore `app/(app)/calculator/page.tsx` and `TASK_LOG.md` to their content at 8b28e9b (calc), on top of current main.
+
+## Files Affected
+- app/(app)/calculator/page.tsx
+- TASK_LOG.md
+
+## Implementation
+- Root cause: merge commit 6c541e0 ("Merge branch 'main' into development", made on GitHub) left conflict debris behind.
+  - `page.tsx`: a stray `S` after `sellingPriceSummary,`, a duplicated old table header (`<h2>` using the removed `vatLabel`, plus the old thead/tbody), half of the old `<tr className=…>` pasted after the new cells, and a second, older `ChannelCells` header spliced into the new one. Removing the `S` alone would not compile.
+  - `TASK_LOG.md`: stray `S` characters (`S` after #023, `CompletedS` on #033) and a trailing space.
+- Fix: fast-forwarded `calc` to `origin/main` (1fdc754; calc 8b28e9b was its ancestor), then restored both files from 8b28e9b with `git checkout 8b28e9b -- …`. Afterwards the working tree was identical to 8b28e9b, and these are the only two files where main differed from calc. The later main commit 1fdc754 only added a trailing space, so nothing intended is lost.
+
+## Testing
+- `npm run build` (webpack, as on Vercel): compiled successfully, and every route was generated, including `/calculator`.
+
+## Issues / Notes
+- The live deploy is fixed only once this reaches `main` (PR calc → development → main).
+- When resolving merge conflicts in the GitHub editor, check that no stray characters or both sides of a hunk are left behind.
+
+## Final Status
+Completed
