@@ -12,7 +12,7 @@ import {
   DEFAULT_INPUTS,
   costTotals,
   marginTable,
-  sellingPriceSummary,
+  sellingPriceSummary,S
   paymentPriceText,
   OUTPUTS_ORDER_SIZE,
   type CalculatorInputs,
@@ -392,6 +392,39 @@ export default function CalculatorPage() {
                 <tbody className="divide-y divide-white font-sans">
                   {rows.map((row) => {
                     // A clicked row keeps the hover colour until clicked again.
+
+            <h2 className="text-base font-bold text-slate-800 mb-2">
+              Price vs Margin (1% – 50%) – after payment gateway fees (incl. {vatLabel} VAT on fees)
+            </h2>
+            {/* Styled like the /tc-products table (section card, light sticky
+                header, divide-y rows, emerald hover, mono figures), with a dark
+                header and alternating white / grey rows (TASK_LOG #021). */}
+            <div className="bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-auto max-h-[70vh]">
+              <table className="w-full min-w-[900px] border-collapse">
+                <thead className="sticky top-0 z-10 text-white">
+                  <tr className="bg-slate-800 text-[11px] font-bold uppercase tracking-wider select-none">
+                    <th rowSpan={2} className="py-2.5 px-2 w-28 text-center align-middle">Margin %</th>
+                    <th colSpan={3} className="py-2 px-2 text-center border-l border-slate-600">
+                      Credit / Debit Card ({pct(inputs.cardFeeRate)} fee)
+                    </th>
+                    <th colSpan={3} className="py-2 px-2 text-center border-l border-slate-600">
+                      Tabby / Tamara ({pct(inputs.bnplFeeRate)} fee)
+                    </th>
+                  </tr>
+                  <tr className="bg-slate-700 text-[11px] font-bold text-slate-200 uppercase tracking-wider select-none">
+                    <th className="py-2 px-2 text-right whitespace-nowrap border-l border-slate-600">Order of 1 incl. VAT (AED)</th>
+                    <th className="py-2 px-2 text-right whitespace-nowrap">Order of {n} incl. VAT (AED)</th>
+                    <th className="py-2 px-2 text-right whitespace-nowrap">Net Profit / Order (AED)</th>
+                    <th className="py-2 px-2 text-right whitespace-nowrap border-l border-slate-600">Order of 1 incl. VAT (AED)</th>
+                    <th className="py-2 px-2 text-right whitespace-nowrap">Order of {n} incl. VAT (AED)</th>
+                    <th className="py-2 px-2 text-right whitespace-nowrap">Net Profit / Order (AED)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200/70 font-sans">
+                  {rows.map((row) => {
+                    // A clicked row keeps the hover colour until clicked again.
+                    // The zebra `odd:`/`even:` classes outrank a plain bg class,
+                    // so they're swapped out rather than overridden.
                     const selected = selectedMargin === row.margin;
                     return (
                       <tr
@@ -422,6 +455,17 @@ export default function CalculatorPage() {
                         </td>
                         <ChannelCells row={row.card} selected={selected} palette={CARD_COLS} copyLabel="Click to copy the card prices" onCopy={() => copyPrices(row, "card")} />
                         <ChannelCells row={row.bnpl} selected={selected} palette={BNPL_COLS} copyLabel="Click to copy the Tabby / Tamara prices" onCopy={() => copyPrices(row, "bnpl")} />
+                        className={`group cursor-pointer transition-colors duration-150 align-middle focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-emerald-600 ${
+                          selected ? "bg-emerald-200" : "odd:bg-white even:bg-slate-100 hover:bg-emerald-200"
+                        }`}
+                      >
+                        <td className="py-2 px-2 text-center">
+                          <span className="px-2 py-0.5 text-xs font-semibold rounded-md bg-white text-slate-700 border border-slate-300/80 font-mono whitespace-nowrap">
+                            {pct(row.margin, 0)}
+                          </span>
+                        </td>
+                        <ChannelCells row={row.card} selected={selected} />
+                        <ChannelCells row={row.bnpl} selected={selected} />
                       </tr>
                     );
                   })}
@@ -495,12 +539,26 @@ function ChannelCells({ row, selected, palette, copyLabel, onCopy }: ChannelCell
             className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4"
           />
         )}
+
+/** One payment channel's three cells, using the /tc-products cell styles:
+ *  "Set of 4" grey mono for Order of 1, "Price" bold mono for Order of N,
+ *  emerald for net profit (red if negative). On hover or when the row is
+ *  selected the profit text deepens to stay readable on the emerald-200 fill. */
+function ChannelCells({ row, selected }: { row: ChannelRow; selected: boolean }) {
+  const loss = typeof row.netProfit === "number" && ceilUp(row.netProfit) < 0;
+  const profitColor = loss
+    ? selected ? "text-red-800" : "text-red-600 group-hover:text-red-800"
+    : selected ? "text-emerald-900" : "text-emerald-700 group-hover:text-emerald-900";
+  return (
+    <>
+      <td className="py-2 px-2 text-right text-xs font-semibold text-slate-600 font-mono whitespace-nowrap border-l border-slate-200">
         {fmtCeil(row.orderOfOne)}
       </td>
       <td title={copyLabel} onClick={copy} className={`px-2 text-right text-xs font-extrabold font-mono whitespace-nowrap ${palette.text} ${cellBg(palette.n, selected)}`}>
         {fmtCeil(row.orderOfN)}
       </td>
       <td title={copyLabel} onClick={copy} className={`px-2 text-right text-xs font-bold font-mono whitespace-nowrap ${loss ? "text-red-700" : "text-[#375623]"} ${cellBg("bg-[#E2EFDA]", selected)}`}>
+      <td className={`py-2 px-2 text-right text-xs font-bold font-mono whitespace-nowrap ${profitColor}`}>
         {fmtCeil(row.netProfit)}
       </td>
     </>

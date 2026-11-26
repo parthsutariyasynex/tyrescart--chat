@@ -1209,7 +1209,7 @@ When a Price vs Margin row is clicked, keep that row highlighted ("focused") in 
 
 ## Final Status
 Completed
-
+S
 # Task #024 — Calculator: Outputs, Min. Margin and Constant blocks (new workbook layout)
 
 Date: 2026-11-26
@@ -1615,4 +1615,4 @@ Remove the read-only "Min. Margin % per Order" / "Min. Margin Amount (AED)" bloc
 - Not committed or pushed.
 
 ## Final Status
-Completed
+CompletedS
