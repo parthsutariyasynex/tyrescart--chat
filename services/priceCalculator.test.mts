@@ -16,6 +16,8 @@ import {
   costTotals,
   marginTable,
   priceExclVat,
+  sellingPriceSummary,
+  paymentPriceText,
   type CalculatorInputs,
 } from "./priceCalculator.ts";
 
@@ -106,4 +108,57 @@ test("defaults: tyre cost 0 gives an all-zero table, not nulls or -0", () => {
       assert.equal(v, 0);
     }
   }
+});
+
+// Updated workbook screenshot (2026-11-26): tyre 70 × 4, selling price 430,
+// min margin 5% / AED 120.
+const SELLING_INPUTS: CalculatorInputs = { ...DEFAULT_INPUTS, tyreCost: 70, sellingPrice: 430 };
+const r1 = (n: number | null) => (n === null ? null : Math.round(n * 1000) / 10);
+
+test("Selling Price block matches the 2026-11-26 screenshot", () => {
+  const s = sellingPriceSummary(SELLING_INPUTS);
+  assert.equal(r2(s.orderOfOnePrice), 107.5);
+  assert.deepEqual(
+    [s.card.one.amount, s.card.n.amount, s.card.lowestOrderOfN, s.bnpl.one.amount, s.bnpl.n.amount, s.bnpl.lowestOrderOfN].map(r2),
+    [30.01, 120.04, 429.95, 24.37, 97.47, 455.67],
+  );
+  assert.deepEqual([s.card.one.rate, s.card.n.rate, s.bnpl.one.rate, s.bnpl.n.rate].map(r1), [29.3, 29.3, 23.8, 23.8]);
+});
+
+test("Lowest price takes whichever minimum is stricter", () => {
+  // At 40% the margin-% minimum outweighs AED 120: 280 / (1 − 0.4 − 0.021·1.05²) · 1.05
+  const s = sellingPriceSummary({ ...SELLING_INPUTS, minMarginRate: 0.4 });
+  close(s.card.lowestOrderOfN, (280 / (1 - 0.4 - 0.021 * 1.05 ** 2)) * 1.05, "lowest @ 40%");
+  assert.equal(sellingPriceSummary({ ...SELLING_INPUTS, minMarginRate: 0.95 }).bnpl.lowestOrderOfN, null);
+});
+
+test("price 0 gives no margin % rather than NaN", () => {
+  const s = sellingPriceSummary(DEFAULT_INPUTS);
+  assert.equal(s.card.n.rate, null);
+  assert.equal(s.card.n.amount, 0);
+});
+
+test("Outputs Order of 1 is price ÷ 4 whatever Tyres per Order says (xlsx F5 = F8/4)", () => {
+  // Excel-recalculated "Tyre-Price-Calculator 2.xlsx" at tyre 200, fitting 10, courier 30, 2 tyres, price 520.
+  const s = sellingPriceSummary({ ...DEFAULT_INPUTS, tyreCost: 200, fittingCost: 10, courierCost: 30, tyresPerOrder: 2, sellingPrice: 520 });
+  assert.equal(s.orderOfOnePrice, 130);
+  assert.deepEqual([s.card.one.amount, s.bnpl.one.amount].map(r2), [-119.06, -125.88]);
+});
+
+test("table at tyre 70 matches the 2026-11-26 screenshot", () => {
+  const row = marginTable(SELLING_INPUTS)[0];
+  assert.deepEqual(
+    [row.card.orderOfOne, row.card.orderOfN, row.card.netProfit, row.bnpl.orderOfOne, row.bnpl.orderOfN, row.bnpl.netProfit].map(r2),
+    [76.02, 304.08, 3.38, 80.62, 322.47, 4.43],
+  );
+});
+
+test("paymentPriceText: the copy format, rounded up like the table", () => {
+  assert.equal(
+    paymentPriceText("Credit Card Payment Price", 173.2, 532.01, 4),
+    "Credit Card Payment Price\n1 Tyre: AED 174.00\n4 Tyres: AED 533.00",
+  );
+  assert.equal(paymentPriceText("X", 5430.02, 21720, 4), "X\n1 Tyre: AED 5,431.00\n4 Tyres: AED 21,720.00");
+  assert.equal(paymentPriceText("X", 10, 10, 1), "X\n1 Tyre: AED 10.00\n1 Tyre: AED 10.00");
+  assert.equal(paymentPriceText("X", null, 10, 4), null);
 });
