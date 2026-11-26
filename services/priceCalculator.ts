@@ -53,7 +53,7 @@ export const DEFAULT_INPUTS: CalculatorInputs = {
   bnplFeeRate: 0.071,
   sellingPrice: 0,
   minMarginRate: 0.05,
-  minMarginAmount: 120,
+  minMarginAmount: 100,
 };
 
 function tyreCount(i: CalculatorInputs): number {
