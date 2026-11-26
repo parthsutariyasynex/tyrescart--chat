@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build & Development Commands
 
-- `npm run dev` — Start dev server (http://localhost:3000)
+- `npm run dev` — Start dev server (http://localhost:3000). **Stale Tailwind CSS trap:** Turbopack's on-disk dev cache (`.next/dev/cache/turbopack`, ~400 MB) can keep serving an old CSS bundle that lacks classes newly added in `.tsx` files (the cell carries `bg-[#BDD7EE]` but no rule exists), and it survives a server restart. Seen 2026-11-26: the served CSS hash stayed `8b48e673` across a restart. Fix: stop the server, delete `.next/dev/cache/turbopack`, start again. `npx tailwindcss -c tailwind.config.js -i app/globals.css -o out.css` shows what the classes *should* generate. Production builds (`--webpack`) are unaffected
 - `npm run build` — Production build (pinned to `--webpack`: Serwist 9 has no Turbopack support yet, and the service worker in `app/sw.ts` is bundled by its webpack plugin. Next 16 defaults to Turbopack, where the build **fails**; dropping the flag also silently produces no `public/sw.js`.)
 - `npm run start` — Start production server
 - `npm run lint` — Run ESLint (runs `eslint` with next config)
@@ -15,7 +15,7 @@ modules under test have no imports, which is what makes this work without a
 bundler — keep it that way, since an `@/` import would break it):
 
 - `node --test services/searchFilter.aspectRim.test.mts` — run one file
-- `node --test services/priceCalculator.test.mts` — calculator math, checked against values Excel cached in the source workbook `Tyre-Price-Calculator 1.xlsx` (the module comments map each function to its cells)
+- `node --test services/priceCalculator.test.mts` — calculator math, checked against values Excel cached in the source workbooks `Tyre-Price-Calculator 1.xlsx` (Price vs Margin table) and `Tyre-Price-Calculator 2.xlsx` (Outputs / Min. Margin block). The module comments map each function to its cells. The page's Constant block (VAT, fees, minimums) is the single place rates are edited, so the export references `J5:J9` rather than the workbook's `C12:C14` / `F13:F14`
 - `node --test --test-name-pattern="Case 1" services/searchFilter.aspectRim.test.mts` — run a single test
 
 As of 2026-11-23 on a clean `main`, 5/7 pass — "Case 2" (55R16) and "Case 3"
